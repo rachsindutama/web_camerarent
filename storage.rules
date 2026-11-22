@@ -1,0 +1,38 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isImageUnder5MB() {
+      return request.resource != null
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // KYC documents: private to owner & staff (admin/superadmin checked in app + firestore)
+    match /kyc/{uid}/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && request.auth.uid == uid && isImageUnder5MB();
+    }
+
+    // Booking payment transfer receipts
+    match /payment_proofs/{bookingId}/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && isImageUnder5MB();
+    }
+
+    // Real-time chat image attachments
+    match /chat_attachments/{chatId}/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && isImageUnder5MB();
+    }
+
+    // Pre-rental & post-rental inspection photos
+    match /inspections/{bookingId}/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && isImageUnder5MB();
+    }
+  }
+}
+

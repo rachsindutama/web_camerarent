@@ -1,0 +1,14 @@
+node_modules
+dist
+dist-ssr
+*.local
+*.tsbuildinfo
+.env
+.env.local
+.env.*.local
+*firebase-adminsdk*.json
+serviceAccountKey.json
+secrets/
+.DS_Store
+*.log
+

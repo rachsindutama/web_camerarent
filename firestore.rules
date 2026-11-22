@@ -1,0 +1,160 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function hasUserDoc() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    function isSuperAdmin() {
+      return hasUserDoc() && userDoc().role == 'superadmin';
+    }
+    function isTenantAdmin(tenantId) {
+      return hasUserDoc() && userDoc().role == 'admin' && userDoc().tenantId == tenantId;
+    }
+    function isEligibleRenter() {
+      return hasUserDoc() && userDoc().isBlacklisted == false && userDoc().kycStatus == 'verified';
+    }
+
+    // TENANTS
+    match /tenants/{tenantId} {
+      allow read: if true;
+      allow create, delete: if isSuperAdmin();
+      allow update: if isSuperAdmin() || isTenantAdmin(tenantId);
+    }
+
+    // USERS (Prevent self-escalation of role or removing own blacklist)
+    match /users/{uid} {
+      allow read: if isSignedIn() && (
+        request.auth.uid == uid ||
+        isSuperAdmin() ||
+        (hasUserDoc() && userDoc().role == 'admin')
+      );
+      allow create: if isSignedIn() && request.auth.uid == uid
+                    && request.resource.data.role == 'user'
+                    && request.resource.data.membershipTier == 'general'
+                    && request.resource.data.isBlacklisted == false
+                    && request.resource.data.kycStatus == 'unverified'
+                    && request.resource.data.displayName is string
+                    && request.resource.data.displayName.size() >= 3
+                    && request.resource.data.phone is string
+                    && request.resource.data.phone.size() >= 10
+                    && request.resource.data.nik is string
+                    && request.resource.data.nik.size() == 16;
+      allow update: if isSuperAdmin() || (
+        // Tenant Admin can promote/demote membershipTier only (no role/blacklist changes)
+        hasUserDoc() && userDoc().role == 'admin'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['membershipTier'])
+        && request.resource.data.membershipTier in ['general', 'premium']
+      ) || (
+        request.auth.uid == uid
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.isBlacklisted == resource.data.isBlacklisted
+        && request.resource.data.tenantId == resource.data.tenantId
+        && request.resource.data.get('membershipTier', 'general') == resource.data.get('membershipTier', 'general')
+      );
+    }
+
+    // EQUIPMENT, UNITS & BUNDLES
+    match /equipment/{id} {
+      allow read: if true;
+      allow create, update: if isSuperAdmin() || isTenantAdmin(request.resource.data.tenantId);
+      allow delete: if isSuperAdmin() || isTenantAdmin(resource.data.tenantId);
+    }
+    match /equipment_units/{id} {
+      allow read: if isSignedIn();
+      allow create, update: if isSuperAdmin() || isTenantAdmin(request.resource.data.tenantId);
+      allow delete: if isSuperAdmin() || isTenantAdmin(resource.data.tenantId);
+    }
+    match /bundles/{id} {
+      allow read: if true;
+      allow create, update: if isSuperAdmin() || isTenantAdmin(request.resource.data.tenantId);
+      allow delete: if isSuperAdmin() || isTenantAdmin(resource.data.tenantId);
+    }
+
+    // BOOKINGS
+    match /bookings/{bookingId} {
+      allow read: if isSignedIn() && (
+        resource.data.userId == request.auth.uid ||
+        isTenantAdmin(resource.data.tenantId) ||
+        isSuperAdmin()
+      );
+      allow create: if isEligibleRenter() && request.resource.data.userId == request.auth.uid;
+      allow update: if isSuperAdmin() || isTenantAdmin(resource.data.tenantId) || (
+        // User can only upload payment proof or confirm preRentalChecklist
+        resource.data.userId == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['paymentProofUrl', 'paymentStatus', 'preRentalChecklist'])
+      );
+      allow delete: if isSuperAdmin();
+    }
+
+    // AVAILABILITY SLOTS (PII-free unit reservation locks for live catalog checks)
+    match /availability_slots/{slotId} {
+      allow read: if isSignedIn();
+      allow create: if isEligibleRenter() || isSuperAdmin() || isTenantAdmin(request.resource.data.tenantId);
+      allow update: if isSuperAdmin() || (resource != null && isTenantAdmin(resource.data.tenantId));
+      allow delete: if isSuperAdmin();
+    }
+
+    // DAMAGE REPORTS
+    match /damage_reports/{reportId} {
+      allow read: if isSignedIn() && (
+        isSuperAdmin() ||
+        isTenantAdmin(resource.data.tenantId) ||
+        get(/databases/$(database)/documents/bookings/$(resource.data.bookingId)).data.userId == request.auth.uid
+      );
+      allow write: if isSuperAdmin() || isTenantAdmin(request.resource.data.tenantId);
+    }
+
+    // TRANSACTIONS (Immutable ledger - no updates or deletes)
+    match /transactions/{txId} {
+      allow read: if isSuperAdmin() || isTenantAdmin(resource.data.tenantId);
+      allow create: if isSuperAdmin() || isTenantAdmin(request.resource.data.tenantId);
+      allow update, delete: if false;
+    }
+
+    // CHATS
+    match /chats/{chatId} {
+      allow read, write: if isSignedIn() && (
+        isSuperAdmin() ||
+        resource == null ||
+        resource.data.userId == request.auth.uid ||
+        isTenantAdmin(resource.data.tenantId)
+      );
+      match /messages/{msgId} {
+        function isChatParticipant() {
+          return isSuperAdmin() ||
+            get(/databases/$(database)/documents/chats/$(chatId)).data.userId == request.auth.uid ||
+            isTenantAdmin(get(/databases/$(database)/documents/chats/$(chatId)).data.tenantId);
+        }
+
+        allow read, create: if isSignedIn() && isChatParticipant();
+
+        allow update: if isSignedIn() && isChatParticipant() && (
+          // Any participant can mark readBy or Delete for Me (deletedFor)
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy']) ||
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deletedFor']) ||
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy', 'deletedFor']) ||
+          // Only original sender (or superadmin) can Edit or Unsend (Batal Kirim)
+          (
+            (resource.data.senderId == request.auth.uid || isSuperAdmin()) &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'text',
+              'editedAt',
+              'deletedForEveryone',
+              'deletedAt',
+              'imageUrl',
+              'referenceBookingId'
+            ])
+          )
+        );
+      }
+    }
+  }
+}
+
