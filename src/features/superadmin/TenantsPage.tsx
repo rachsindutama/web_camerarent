@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -67,10 +67,6 @@ const tenantSchema = z.object({
   address: z.string().min(5, 'Alamat lengkap wajib diisi'),
   lat: z.coerce.number().min(-90).max(90),
   lng: z.coerce.number().min(-180).max(180),
-  deliveryRatePerKm: z.coerce.number().min(0),
-  bufferHours: z.coerce.number().min(0).max(72),
-  overdueGraceMinutes: z.coerce.number().min(0).max(1440),
-  overdueHourlyRatePercent: z.coerce.number().min(1).max(100),
   bankName: z.string().min(2, 'Nama bank wajib diisi'),
   accountNumber: z.string().min(4, 'Nomor rekening wajib diisi'),
   accountHolder: z.string().min(2, 'Nama pemilik rekening wajib diisi'),
@@ -124,10 +120,6 @@ export function TenantsPage() {
       address: '',
       lat: -6.2088,
       lng: 106.8456,
-      deliveryRatePerKm: settings.defaultDeliveryRatePerKm,
-      bufferHours: settings.defaultBufferHours,
-      overdueGraceMinutes: settings.defaultOverdueGraceMinutes,
-      overdueHourlyRatePercent: settings.defaultOverdueHourlyRatePercent,
       bankName: 'BCA',
       accountNumber: '',
       accountHolder: '',
@@ -142,10 +134,6 @@ export function TenantsPage() {
       address: '',
       lat: -6.2088,
       lng: 106.8456,
-      deliveryRatePerKm: settings.defaultDeliveryRatePerKm,
-      bufferHours: settings.defaultBufferHours,
-      overdueGraceMinutes: settings.defaultOverdueGraceMinutes,
-      overdueHourlyRatePercent: settings.defaultOverdueHourlyRatePercent,
       bankName: 'BCA',
       accountNumber: '',
       accountHolder: '',
@@ -163,10 +151,6 @@ export function TenantsPage() {
       address: tenant.address,
       lat: tenant.coordinates.lat,
       lng: tenant.coordinates.lng,
-      deliveryRatePerKm: tenant.deliveryRatePerKm,
-      bufferHours: tenant.bufferHours,
-      overdueGraceMinutes: tenant.overdueGraceMinutes,
-      overdueHourlyRatePercent: tenant.overdueHourlyRatePercent,
       bankName: tenant.bankDetails.bankName,
       accountNumber: tenant.bankDetails.accountNumber,
       accountHolder: tenant.bankDetails.accountHolder,
@@ -176,15 +160,11 @@ export function TenantsPage() {
   const onSubmit = async (values: TenantFormValues) => {
     if (!db) return;
     try {
-      const payload = {
+      const basePayload = {
         name: values.name.trim(),
         slug: values.slug.trim().toLowerCase(),
         address: values.address.trim(),
         coordinates: { lat: values.lat, lng: values.lng },
-        deliveryRatePerKm: values.deliveryRatePerKm,
-        bufferHours: values.bufferHours,
-        overdueGraceMinutes: values.overdueGraceMinutes,
-        overdueHourlyRatePercent: values.overdueHourlyRatePercent,
         bankDetails: {
           bankName: values.bankName.trim(),
           accountNumber: values.accountNumber.trim(),
@@ -193,12 +173,16 @@ export function TenantsPage() {
       };
 
       if (detailTenant) {
-        await updateDoc(doc(db, 'tenants', detailTenant.id), payload);
-        toast.success(`Konfigurasi ${values.name} diperbarui.`);
+        await updateDoc(doc(db, 'tenants', detailTenant.id), basePayload);
+        toast.success(`Data cabang ${values.name} diperbarui.`);
         setDetailTab('overview');
       } else {
         const ref = await addDoc(collection(db, 'tenants'), {
-          ...payload,
+          ...basePayload,
+          deliveryRatePerKm: settings.defaultDeliveryRatePerKm,
+          bufferHours: settings.defaultBufferHours,
+          overdueGraceMinutes: settings.defaultOverdueGraceMinutes,
+          overdueHourlyRatePercent: settings.defaultOverdueHourlyRatePercent,
           status: 'active',
           createdAt: serverTimestamp(),
         });
@@ -326,45 +310,6 @@ export function TenantsPage() {
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="space-y-1.5">
-          <Label htmlFor="t-rate">Ongkir / km</Label>
-          <Input
-            id="t-rate"
-            type="number"
-            className="tabular-nums"
-            {...form.register('deliveryRatePerKm')}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="t-buffer">Buffer (jam)</Label>
-          <Input
-            id="t-buffer"
-            type="number"
-            className="tabular-nums"
-            {...form.register('bufferHours')}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="t-grace">Grace (menit)</Label>
-          <Input
-            id="t-grace"
-            type="number"
-            className="tabular-nums"
-            {...form.register('overdueGraceMinutes')}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="t-overdue">Overdue %/jam</Label>
-          <Input
-            id="t-overdue"
-            type="number"
-            className="tabular-nums"
-            {...form.register('overdueHourlyRatePercent')}
-          />
-        </div>
-      </div>
-
       <div className="space-y-1.5">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:items-end">
           <div className="space-y-1.5">
@@ -423,6 +368,14 @@ export function TenantsPage() {
           <Label htmlFor="t-holder">Atas Nama</Label>
           <Input id="t-holder" {...form.register('accountHolder')} />
         </div>
+      </div>
+
+      <div className="rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+        Tarif ongkir, buffer, grace period, dan denda diatur terpusat melalui menu{' '}
+        <Link to="/superadmin/settings" className="font-medium text-foreground underline">
+          Settings
+        </Link>
+        .
       </div>
 
       <DialogFooter>

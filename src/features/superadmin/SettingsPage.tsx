@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { RotateCcw, Save, SlidersHorizontal, Sparkles } from 'lucide-react';
+import { Building2, Check, RotateCcw, Save, SlidersHorizontal, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   DEFAULT_PLATFORM_SETTINGS,
@@ -9,11 +9,13 @@ import {
   type PlatformSettings,
 } from '@/lib/membership';
 import {
-  applyOperationalDefaultsToAllTenants,
+  applyOperationalDefaultsToTenants,
   PLATFORM_SETTINGS_QUERY_KEY,
   savePlatformSettings,
   usePlatformSettings,
 } from '@/hooks/usePlatformSettings';
+import { useTenant } from '@/hooks/useTenant';
+import { CurrencyText } from '@/components/shared/CurrencyText';
 import { MembershipBadge } from '@/components/shared/MembershipBadge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -22,13 +24,20 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import type { MembershipTier } from '@/types/schema';
 
+type ApplyScope = 'all' | 'selected';
+
 export function SettingsPage() {
   const queryClient = useQueryClient();
   const { settings } = usePlatformSettings();
+  const { allTenants } = useTenant();
 
   const [draft, setDraft] = useState<PlatformSettings>(settings);
   const [saving, setSaving] = useState(false);
-  const [applyingAll, setApplyingAll] = useState(false);
+  const [applyingBranches, setApplyingBranches] = useState(false);
+
+  // Branch target scope for Ongkir, Buffer, Grace & Denda
+  const [applyScope, setApplyScope] = useState<ApplyScope>('all');
+  const [selectedTenantIds, setSelectedTenantIds] = useState<string[]>([]);
 
   useEffect(() => {
     setDraft(settings);
@@ -51,13 +60,41 @@ export function SettingsPage() {
     }));
   };
 
+  const toggleTenantSelection = (tenantId: string) => {
+    setSelectedTenantIds((prev) =>
+      prev.includes(tenantId) ? prev.filter((id) => id !== tenantId) : [...prev, tenantId]
+    );
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (applyScope === 'selected' && selectedTenantIds.length === 0) {
+      toast.error('Pilih minimal 1 cabang tujuan, atau pilih "Semua Cabang".');
+      return;
+    }
+
     setSaving(true);
     try {
       const saved = await savePlatformSettings(draft);
       queryClient.setQueryData(PLATFORM_SETTINGS_QUERY_KEY, saved);
-      toast.success('Pengaturan global berhasil disimpan dan langsung aktif.');
+
+      const targetIds = applyScope === 'all' ? undefined : selectedTenantIds;
+      const updatedCount = await applyOperationalDefaultsToTenants(
+        {
+          deliveryRatePerKm: saved.defaultDeliveryRatePerKm,
+          bufferHours: saved.defaultBufferHours,
+          overdueGraceMinutes: saved.defaultOverdueGraceMinutes,
+          overdueHourlyRatePercent: saved.defaultOverdueHourlyRatePercent,
+        },
+        targetIds
+      );
+
+      await queryClient.invalidateQueries({ queryKey: ['tenants'] });
+      toast.success(
+        applyScope === 'all'
+          ? `Pengaturan disimpan & diterapkan ke semua (${updatedCount}) cabang.`
+          : `Pengaturan disimpan & diterapkan ke ${updatedCount} cabang terpilih.`
+      );
     } catch (error) {
       console.error('Save platform settings error:', error);
       toast.error('Gagal menyimpan pengaturan. Pastikan login sebagai Superadmin.');
@@ -66,26 +103,36 @@ export function SettingsPage() {
     }
   };
 
-  const handleApplyToAllBranches = async () => {
-    setApplyingAll(true);
+  const handleApplyOperationalOnly = async () => {
+    if (applyScope === 'selected' && selectedTenantIds.length === 0) {
+      toast.error('Pilih minimal 1 cabang yang akan diperbarui.');
+      return;
+    }
+    setApplyingBranches(true);
     try {
       const saved = await savePlatformSettings(draft);
       queryClient.setQueryData(PLATFORM_SETTINGS_QUERY_KEY, saved);
-      const count = await applyOperationalDefaultsToAllTenants({
-        deliveryRatePerKm: saved.defaultDeliveryRatePerKm,
-        bufferHours: saved.defaultBufferHours,
-        overdueGraceMinutes: saved.defaultOverdueGraceMinutes,
-        overdueHourlyRatePercent: saved.defaultOverdueHourlyRatePercent,
-      });
+      const targetIds = applyScope === 'all' ? undefined : selectedTenantIds;
+      const count = await applyOperationalDefaultsToTenants(
+        {
+          deliveryRatePerKm: saved.defaultDeliveryRatePerKm,
+          bufferHours: saved.defaultBufferHours,
+          overdueGraceMinutes: saved.defaultOverdueGraceMinutes,
+          overdueHourlyRatePercent: saved.defaultOverdueHourlyRatePercent,
+        },
+        targetIds
+      );
       await queryClient.invalidateQueries({ queryKey: ['tenants'] });
       toast.success(
-        `Pengaturan disimpan & tarif ongkir/aturan diterapkan ke ${count} cabang aktif.`
+        applyScope === 'all'
+          ? `Tarif ongkir & aturan diterapkan ke semua (${count}) cabang.`
+          : `Tarif ongkir & aturan diterapkan ke ${count} cabang terpilih.`
       );
     } catch (error) {
-      console.error('Apply settings to all tenants error:', error);
-      toast.error('Gagal menerapkan aturan ke semua cabang.');
+      console.error('Apply settings to tenants error:', error);
+      toast.error('Gagal menerapkan aturan ke cabang.');
     } finally {
-      setApplyingAll(false);
+      setApplyingBranches(false);
     }
   };
 
@@ -259,8 +306,8 @@ export function SettingsPage() {
         <div className="space-y-1">
           <h2 className="text-xl font-semibold tracking-tight text-foreground">Settings</h2>
           <p className="text-sm text-muted-foreground">
-            Atur benefit tier Basic &amp; Premium, ongkir antar-jemput, buffer, grace period, dan
-            denda keterlambatan secara menyeluruh.
+            Pusat pengaturan benefit tier Basic &amp; Premium, tarif ongkir, buffer, grace period,
+            dan denda keterlambatan untuk semua cabang maupun cabang tertentu.
           </p>
         </div>
 
@@ -271,7 +318,7 @@ export function SettingsPage() {
           </Button>
           <Button type="submit" size="sm" disabled={saving}>
             <Save className="h-3.5 w-3.5" strokeWidth={1.5} />
-            {saving ? 'Menyimpan...' : 'Simpan Pengaturan'}
+            {saving ? 'Menyimpan...' : 'Simpan & Terapkan'}
           </Button>
         </div>
       </div>
@@ -288,21 +335,21 @@ export function SettingsPage() {
         </div>
       </section>
 
-      {/* Section 2: Global Delivery & Operational Defaults */}
+      {/* Section 2: Global / Branch-Scoped Delivery & Operational Rules */}
       <section className="space-y-3">
         <div className="flex items-center gap-2">
           <SlidersHorizontal className="h-4 w-4 text-muted-foreground" strokeWidth={1.5} />
           <h3 className="text-sm font-semibold text-foreground">
-            Ongkir &amp; Aturan Operasional Global
+            Ongkir &amp; Aturan Operasional Cabang
           </h3>
         </div>
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Standar Ongkir, Buffer &amp; Denda</CardTitle>
+            <CardTitle className="text-base">Tarif Ongkir, Buffer, Grace &amp; Denda</CardTitle>
             <CardDescription>
-              Nilai ini menjadi standar saat membuat cabang baru, atau bisa langsung diterapkan ke
-              seluruh cabang sekaligus.
+              Diatur terpusat di sini — pilih apakah ingin menerapkan ke semua cabang sekaligus atau
+              hanya cabang tertentu.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
@@ -388,20 +435,111 @@ export function SettingsPage() {
 
             <Separator />
 
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-xs text-muted-foreground">
-                Klik tombol di samping untuk menyamakan tarif ongkir, buffer, grace period, dan
-                persentase denda di semua cabang sekaligus.
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={applyingAll}
-                onClick={() => void handleApplyToAllBranches()}
-              >
-                {applyingAll ? 'Menerapkan...' : 'Terapkan ke Semua Cabang'}
-              </Button>
+            {/* Target Branch Scope Selector */}
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Target Penerapan Cabang</p>
+                  <p className="text-xs text-muted-foreground">
+                    Pilih cabang mana yang akan menerima tarif &amp; aturan operasional di atas.
+                  </p>
+                </div>
+
+                <div className="inline-flex rounded-md border bg-muted p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setApplyScope('all')}
+                    className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                      applyScope === 'all'
+                        ? 'bg-background text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    Semua Cabang ({allTenants.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setApplyScope('selected')}
+                    className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                      applyScope === 'selected'
+                        ? 'bg-background text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    Cabang Tertentu ({selectedTenantIds.length})
+                  </button>
+                </div>
+              </div>
+
+              {/* Branch status overview & selectable checkboxes when scope === 'selected' */}
+              {allTenants.length > 0 ? (
+                <div className="divide-y divide-border rounded-md border">
+                  {allTenants.map((tenant) => {
+                    const checked =
+                      applyScope === 'all' || selectedTenantIds.includes(tenant.id);
+                    const isSelectable = applyScope === 'selected';
+
+                    return (
+                      <div
+                        key={tenant.id}
+                        onClick={() => isSelectable && toggleTenantSelection(tenant.id)}
+                        className={`flex flex-wrap items-center justify-between gap-3 px-3.5 py-2.5 text-xs transition-colors ${
+                          isSelectable ? 'cursor-pointer hover:bg-muted/50' : 'bg-muted/20'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div
+                            className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                              checked
+                                ? 'border-primary bg-primary text-primary-foreground'
+                                : 'border-input bg-background'
+                            }`}
+                          >
+                            {checked ? <Check className="h-3 w-3" strokeWidth={2} /> : null}
+                          </div>
+                          <div>
+                            <p className="font-medium text-foreground">{tenant.name}</p>
+                            <p className="text-[11px] text-muted-foreground">{tenant.slug}</p>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-3 tabular-nums text-[11px] text-muted-foreground">
+                          <span className="font-medium text-foreground">
+                            <CurrencyText amount={tenant.deliveryRatePerKm} suffix="/km" />
+                          </span>
+                          <span>· {tenant.bufferHours}h buffer</span>
+                          <span>· {tenant.overdueGraceMinutes}m grace</span>
+                          <span>· {tenant.overdueHourlyRatePercent}%/jam</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 rounded-md border border-dashed px-3.5 py-3 text-xs text-muted-foreground">
+                  <Building2 className="h-4 w-4" strokeWidth={1.5} />
+                  Belum ada cabang terdaftar.
+                </div>
+              )}
+
+              <div className="flex justify-end pt-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={
+                    applyingBranches ||
+                    (applyScope === 'selected' && selectedTenantIds.length === 0)
+                  }
+                  onClick={() => void handleApplyOperationalOnly()}
+                >
+                  {applyingBranches
+                    ? 'Menerapkan...'
+                    : applyScope === 'all'
+                      ? `Terapkan ke Semua Cabang (${allTenants.length})`
+                      : `Terapkan ke ${selectedTenantIds.length} Cabang Terpilih`}
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -409,4 +547,3 @@ export function SettingsPage() {
     </form>
   );
 }
-

@@ -66,18 +66,29 @@ export async function savePlatformSettings(next: PlatformSettings): Promise<Plat
   return normalized;
 }
 
-export async function applyOperationalDefaultsToAllTenants(defaults: {
-  deliveryRatePerKm: number;
-  bufferHours: number;
-  overdueGraceMinutes: number;
-  overdueHourlyRatePercent: number;
-}): Promise<number> {
+export async function applyOperationalDefaultsToTenants(
+  defaults: {
+    deliveryRatePerKm: number;
+    bufferHours: number;
+    overdueGraceMinutes: number;
+    overdueHourlyRatePercent: number;
+  },
+  targetTenantIds?: string[]
+): Promise<number> {
   if (!db) throw new Error('Firebase is not initialized.');
   const snap = await getDocs(collection(db, 'tenants'));
   if (snap.empty) return 0;
 
+  const targetSet =
+    targetTenantIds && targetTenantIds.length > 0 ? new Set(targetTenantIds) : null;
+  const matchedDocs = targetSet
+    ? snap.docs.filter((d) => targetSet.has(d.id))
+    : snap.docs;
+
+  if (matchedDocs.length === 0) return 0;
+
   const batch = writeBatch(db);
-  snap.docs.forEach((tenantDoc) => {
+  matchedDocs.forEach((tenantDoc) => {
     batch.update(tenantDoc.ref, {
       deliveryRatePerKm: defaults.deliveryRatePerKm,
       bufferHours: defaults.bufferHours,
@@ -86,6 +97,6 @@ export async function applyOperationalDefaultsToAllTenants(defaults: {
     });
   });
   await batch.commit();
-  return snap.size;
+  return matchedDocs.length;
 }
 
