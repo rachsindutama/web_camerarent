@@ -46,7 +46,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import type { StaffRole, TenantStaff, UserProfile } from '@/types/schema';
+import type { StaffRole, TenantStaff, UserProfile, UserRole } from '@/types/schema';
 
 const STAFF_ROLE_LABELS: Record<StaffRole, string> = {
   courier: 'Kurir Antar-Jemput',
@@ -92,9 +92,11 @@ export function StaffPage() {
     vehicleInfo: '',
   });
 
-  // Assign Branch Admin Dialog (Superadmin)
+  // Assign RBAC Role Dialog (Superadmin)
   const [assignAdminOpen, setAssignAdminOpen] = useState(false);
   const [selectedUserUid, setSelectedUserUid] = useState('');
+  const [assignRole, setAssignRole] = useState<UserRole>('admin');
+  const [assignTenantId, setAssignTenantId] = useState('');
 
   // Admin / Superadmin Detail & Edit Dialog
   const [detailAdminUid, setDetailAdminUid] = useState<string | null>(null);
@@ -104,6 +106,7 @@ export function StaffPage() {
     displayName: '',
     phone: '',
     nik: '',
+    role: 'admin' as UserRole,
     tenantId: '',
   });
 
@@ -146,14 +149,19 @@ export function StaffPage() {
       u.role === 'superadmin' ||
       (u.role === 'admin' && u.tenantId === activeTenantId)
   );
-  const assignableUsers = allUsers.filter(
-    (u) => u.role === 'user' || (u.role === 'admin' && u.tenantId !== activeTenantId)
-  );
+  const assignableUsers = allUsers.filter((u) => u.uid !== userProfile?.uid);
   const detailStaff = branchStaff.find((s) => s.id === detailStaffId) ?? null;
   const detailAdmin = allUsers.find((u) => u.uid === detailAdminUid) ?? null;
 
   const canEditAdminAccount = (admin: UserProfile) =>
     isSuperAdmin || admin.uid === userProfile?.uid;
+
+  const openAssignRoleDialog = () => {
+    setSelectedUserUid('');
+    setAssignRole('admin');
+    setAssignTenantId(activeTenantId);
+    setAssignAdminOpen(true);
+  };
 
   const openStaffDetail = (staff: TenantStaff) => {
     setDetailStaffId(staff.id);
@@ -173,6 +181,7 @@ export function StaffPage() {
       displayName: admin.displayName,
       phone: admin.phone || '',
       nik: admin.nik || '',
+      role: admin.role,
       tenantId: admin.tenantId || activeTenantId,
     });
   };
@@ -275,20 +284,29 @@ export function StaffPage() {
       return;
     }
 
+    if (isSuperAdmin && adminEditForm.role === 'admin' && !adminEditForm.tenantId) {
+      toast.error('Pilih cabang untuk role Branch Admin.');
+      return;
+    }
+
     setSavingAdminEdit(true);
     try {
       const payload: {
         displayName: string;
         phone: string;
         nik: string;
-        tenantId?: string;
+        role?: UserRole;
+        tenantId?: string | null;
       } = {
         displayName: cleanName,
         phone: cleanPhone,
         nik: cleanNik,
       };
-      if (isSuperAdmin && detailAdmin.role === 'admin' && adminEditForm.tenantId) {
-        payload.tenantId = adminEditForm.tenantId;
+      if (isSuperAdmin) {
+        const isSelf = detailAdmin.uid === userProfile?.uid;
+        const nextRole = isSelf ? detailAdmin.role : adminEditForm.role;
+        payload.role = nextRole;
+        payload.tenantId = nextRole === 'admin' ? adminEditForm.tenantId || activeTenantId : null;
       }
 
       await updateDoc(doc(db, 'users', detailAdmin.uid), payload);
@@ -296,7 +314,11 @@ export function StaffPage() {
       await queryClient.invalidateQueries({ queryKey: ['tenant_admin_staff'] });
       await queryClient.invalidateQueries({ queryKey: ['members'] });
       toast.success(`Profil ${cleanName} disimpan.`);
-      setAdminModalTab('detail');
+      if (payload.role === 'user') {
+        setDetailAdminUid(null);
+      } else {
+        setAdminModalTab('detail');
+      }
     } catch (error) {
       console.error('Update admin profile error:', error);
       toast.error('Gagal menyimpan perubahan profil akun.');
@@ -305,22 +327,32 @@ export function StaffPage() {
     }
   };
 
-  const handleAssignBranchAdmin = async () => {
-    if (!db || !selectedUserUid || !activeTenantId) return;
+  const handleAssignAccountRole = async () => {
+    if (!db || !selectedUserUid) return;
+    if (assignRole === 'admin' && !assignTenantId) {
+      toast.error('Pilih cabang untuk role Branch Admin.');
+      return;
+    }
     try {
       await updateDoc(doc(db, 'users', selectedUserUid), {
-        role: 'admin',
-        tenantId: activeTenantId,
+        role: assignRole,
+        tenantId: assignRole === 'admin' ? assignTenantId : null,
       });
       await queryClient.invalidateQueries({ queryKey: ['staff-users'] });
       await queryClient.invalidateQueries({ queryKey: ['tenant_admin_staff'] });
       await queryClient.invalidateQueries({ queryKey: ['members'] });
-      toast.success(`Akun ditugaskan sebagai Admin ${activeTenant.name}.`);
+      const roleLabel =
+        assignRole === 'superadmin'
+          ? 'Superadmin'
+          : assignRole === 'admin'
+            ? `Branch Admin (${allTenants.find((t) => t.id === assignTenantId)?.name ?? activeTenant.name})`
+            : 'Member (User)';
+      toast.success(`Role akun diperbarui menjadi ${roleLabel}.`);
       setAssignAdminOpen(false);
       setSelectedUserUid('');
     } catch (error) {
-      console.error('Assign branch admin error:', error);
-      toast.error('Gagal menetapkan Admin cabang.');
+      console.error('Assign role error:', error);
+      toast.error('Gagal memperbarui role akun.');
     }
   };
 
@@ -356,9 +388,9 @@ export function StaffPage() {
         </div>
         <div className="flex items-center gap-2">
           {isSuperAdmin ? (
-            <Button variant="outline" size="sm" onClick={() => setAssignAdminOpen(true)}>
+            <Button variant="outline" size="sm" onClick={openAssignRoleDialog}>
               <UserCog className="h-3.5 w-3.5" strokeWidth={1.5} />
-              Assign Admin
+              Atur Role Akun
             </Button>
           ) : null}
           <Button size="sm" onClick={() => setCreateStaffOpen(true)}>
@@ -501,9 +533,9 @@ export function StaffPage() {
               description="Superadmin dapat menugaskan akun terdaftar menjadi admin cabang ini."
               action={
                 isSuperAdmin ? (
-                  <Button size="sm" onClick={() => setAssignAdminOpen(true)}>
+                  <Button size="sm" onClick={openAssignRoleDialog}>
                     <UserCog className="h-3.5 w-3.5" strokeWidth={1.5} />
-                    Assign Admin
+                    Atur Role Akun
                   </Button>
                 ) : undefined
               }
@@ -632,36 +664,80 @@ export function StaffPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Assign Branch Admin Dialog */}
+      {/* Assign RBAC Role & Branch Dialog */}
       <Dialog open={assignAdminOpen} onOpenChange={setAssignAdminOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Assign Admin Cabang</DialogTitle>
+            <DialogTitle>Atur Role &amp; Akses Akun</DialogTitle>
             <DialogDescription>
-              Pilih akun terdaftar untuk diberi akses admin di {activeTenant.name}.
+              Tetapkan role login akun terdaftar sebagai Member, Branch Admin, atau Superadmin.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-1.5">
-            <Label>Akun Terdaftar</Label>
-            <Select value={selectedUserUid} onValueChange={setSelectedUserUid}>
-              <SelectTrigger>
-                <SelectValue placeholder="Pilih akun..." />
-              </SelectTrigger>
-              <SelectContent>
-                {assignableUsers.map((u) => (
-                  <SelectItem key={u.uid} value={u.uid}>
-                    {u.displayName} ({u.email})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Akun Terdaftar</Label>
+              <Select
+                value={selectedUserUid}
+                onValueChange={(uid) => {
+                  setSelectedUserUid(uid);
+                  const found = allUsers.find((u) => u.uid === uid);
+                  if (found) {
+                    setAssignRole(found.role === 'user' ? 'admin' : found.role);
+                    setAssignTenantId(found.tenantId || activeTenantId);
+                  }
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Pilih akun..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {assignableUsers.map((u) => (
+                    <SelectItem key={u.uid} value={u.uid}>
+                      {u.displayName} ({u.email}) — {u.role}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Role Akses</Label>
+              <Select value={assignRole} onValueChange={(v) => setAssignRole(v as UserRole)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="user">Member / Penyewa (user)</SelectItem>
+                  <SelectItem value="admin">Branch Admin (admin)</SelectItem>
+                  <SelectItem value="superadmin">Platform Superadmin (superadmin)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {assignRole === 'admin' ? (
+              <div className="space-y-1.5">
+                <Label>Cabang Ditugaskan</Label>
+                <Select value={assignTenantId} onValueChange={setAssignTenantId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Pilih cabang..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {allTenants.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAssignAdminOpen(false)}>
               Batal
             </Button>
-            <Button disabled={!selectedUserUid} onClick={() => void handleAssignBranchAdmin()}>
-              Tetapkan Admin
+            <Button disabled={!selectedUserUid} onClick={() => void handleAssignAccountRole()}>
+              Simpan Role
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -951,26 +1027,50 @@ export function StaffPage() {
                         </div>
                       </div>
 
-                      {isSuperAdmin && detailAdmin.role === 'admin' ? (
-                        <div className="space-y-1.5">
-                          <Label>Cabang Ditugaskan</Label>
-                          <Select
-                            value={adminEditForm.tenantId}
-                            onValueChange={(v) =>
-                              setAdminEditForm((prev) => ({ ...prev, tenantId: v }))
-                            }
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Pilih cabang..." />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {allTenants.map((t) => (
-                                <SelectItem key={t.id} value={t.id}>
-                                  {t.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                      {isSuperAdmin ? (
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <div className="space-y-1.5">
+                            <Label>Role Akses</Label>
+                            <Select
+                              value={adminEditForm.role}
+                              disabled={detailAdmin.uid === userProfile?.uid}
+                              onValueChange={(v) =>
+                                setAdminEditForm((prev) => ({ ...prev, role: v as UserRole }))
+                              }
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="user">Member (user)</SelectItem>
+                                <SelectItem value="admin">Branch Admin (admin)</SelectItem>
+                                <SelectItem value="superadmin">Superadmin (superadmin)</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          {adminEditForm.role === 'admin' ? (
+                            <div className="space-y-1.5">
+                              <Label>Cabang Ditugaskan</Label>
+                              <Select
+                                value={adminEditForm.tenantId}
+                                onValueChange={(v) =>
+                                  setAdminEditForm((prev) => ({ ...prev, tenantId: v }))
+                                }
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Pilih cabang..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {allTenants.map((t) => (
+                                    <SelectItem key={t.id} value={t.id}>
+                                      {t.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          ) : null}
                         </div>
                       ) : null}
 

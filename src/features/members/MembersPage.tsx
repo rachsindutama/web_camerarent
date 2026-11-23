@@ -7,6 +7,7 @@ import { db } from '@/lib/firebase';
 import { MEMBERSHIP_BENEFITS } from '@/lib/membership';
 import { formatDateTime } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
+import { useTenant } from '@/hooks/useTenant';
 import { CurrencyText } from '@/components/shared/CurrencyText';
 import {
   ImagePreviewModal,
@@ -42,7 +43,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import type { Booking, KycStatus, MembershipTier, UserProfile } from '@/types/schema';
+import type { Booking, KycStatus, MembershipTier, UserProfile, UserRole } from '@/types/schema';
 
 type FilterTab = 'all' | 'basic' | 'premium' | 'pending_kyc' | 'blacklisted';
 type DetailTab = 'overview' | 'edit' | 'access';
@@ -59,6 +60,7 @@ function getInitials(name: string): string {
 export function MembersPage() {
   const queryClient = useQueryClient();
   const { userProfile } = useAuth();
+  const { allTenants, activeTenantId } = useTenant();
   const isSuperAdmin = userProfile?.role === 'superadmin';
 
   const [search, setSearch] = useState('');
@@ -73,6 +75,8 @@ export function MembersPage() {
     displayName: '',
     phone: '',
     nik: '',
+    role: 'user' as UserRole,
+    tenantId: '',
     membershipTier: 'basic' as MembershipTier,
     kycStatus: 'unverified' as KycStatus,
   });
@@ -123,6 +127,8 @@ export function MembersPage() {
       displayName: member.displayName,
       phone: member.phone || '',
       nik: member.nik || '',
+      role: member.role,
+      tenantId: member.tenantId || activeTenantId || allTenants[0]?.id || '',
       membershipTier: member.membershipTier,
       kycStatus: member.kycStatus,
     });
@@ -159,6 +165,10 @@ export function MembersPage() {
       toast.error('NIK harus 16 digit angka (atau kosongkan jika belum ada).');
       return;
     }
+    if (memberEditForm.role === 'admin' && !memberEditForm.tenantId) {
+      toast.error('Pilih cabang untuk role Branch Admin.');
+      return;
+    }
 
     setSavingMemberEdit(true);
     try {
@@ -166,13 +176,24 @@ export function MembersPage() {
         displayName: cleanName,
         phone: cleanPhone,
         nik: cleanNik,
+        role: memberEditForm.role,
+        tenantId: memberEditForm.role === 'admin' ? memberEditForm.tenantId : null,
         membershipTier: memberEditForm.membershipTier,
         kycStatus: memberEditForm.kycStatus,
       });
       await queryClient.invalidateQueries({ queryKey: ['members'] });
       await queryClient.invalidateQueries({ queryKey: ['staff-users'] });
-      toast.success(`Profil ${cleanName} disimpan.`);
-      setDetailTab('overview');
+      await queryClient.invalidateQueries({ queryKey: ['tenant_admin_staff'] });
+      toast.success(
+        memberEditForm.role !== 'user'
+          ? `${cleanName} dipromosikan ke ${memberEditForm.role === 'superadmin' ? 'Superadmin' : 'Branch Admin'} (lihat di menu Staff & Karyawan).`
+          : `Profil ${cleanName} disimpan.`
+      );
+      if (memberEditForm.role !== 'user') {
+        setDetailMemberUid(null);
+      } else {
+        setDetailTab('overview');
+      }
     } catch (error) {
       console.error('Update member profile error:', error);
       toast.error('Gagal menyimpan perubahan profil member.');
@@ -556,6 +577,53 @@ export function MembersPage() {
                             placeholder="0812xxxxxxxx"
                           />
                         </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div className="space-y-1.5">
+                          <Label>Role Akses</Label>
+                          <Select
+                            value={memberEditForm.role}
+                            onValueChange={(v) =>
+                              setMemberEditForm((prev) => ({
+                                ...prev,
+                                role: v as UserRole,
+                              }))
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="user">Member (user)</SelectItem>
+                              <SelectItem value="admin">Branch Admin (admin)</SelectItem>
+                              <SelectItem value="superadmin">Superadmin (superadmin)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {memberEditForm.role === 'admin' ? (
+                          <div className="space-y-1.5">
+                            <Label>Cabang Ditugaskan</Label>
+                            <Select
+                              value={memberEditForm.tenantId}
+                              onValueChange={(v) =>
+                                setMemberEditForm((prev) => ({ ...prev, tenantId: v }))
+                              }
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Pilih cabang..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {allTenants.map((t) => (
+                                  <SelectItem key={t.id} value={t.id}>
+                                    {t.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        ) : null}
                       </div>
 
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
