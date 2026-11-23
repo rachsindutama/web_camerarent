@@ -64,7 +64,10 @@ export function getCachedSiteSeo(): SiteSeoConfig | null {
   }
 }
 
-export function applySiteSeoToDocument(seo: SiteSeoConfig): void {
+export function applySiteSeoToDocument(
+  seo: SiteSeoConfig,
+  options?: { persistCache?: boolean }
+): void {
   if (typeof document === 'undefined') return;
 
   const title = seo.siteTitle.trim() || seo.siteName.trim() || DEFAULT_SITE_SEO.siteTitle;
@@ -97,10 +100,12 @@ export function applySiteSeoToDocument(seo: SiteSeoConfig): void {
   upsertMeta('name', 'twitter:image', seo.ogImageUrl);
   upsertMeta('name', 'twitter:site', seo.twitterHandle);
 
-  try {
-    localStorage.setItem(SEO_CACHE_KEY, JSON.stringify(seo));
-  } catch {
-    // Ignore storage quota errors
+  if (options?.persistCache !== false) {
+    try {
+      localStorage.setItem(SEO_CACHE_KEY, JSON.stringify(seo));
+    } catch {
+      // Ignore storage quota errors
+    }
   }
 }
 

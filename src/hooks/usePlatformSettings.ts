@@ -33,27 +33,23 @@ export function usePlatformSettings() {
   const query = useQuery<PlatformSettings>({
     queryKey: PLATFORM_SETTINGS_QUERY_KEY,
     enabled: isFirebaseConfigured && Boolean(db),
-    initialData: getInitialPlatformSettings,
-    staleTime: 1000 * 60,
+    placeholderData: getInitialPlatformSettings,
+    staleTime: 1000 * 30,
+    refetchOnMount: 'always',
     queryFn: async () => {
       if (!db) return DEFAULT_PLATFORM_SETTINGS;
-      try {
-        const snap = await getDoc(doc(db, 'platform_settings', 'global'));
-        if (!snap.exists()) return DEFAULT_PLATFORM_SETTINGS;
-        return normalizePlatformSettings(snap.data());
-      } catch (error) {
-        console.warn('Unable to load platform_settings/global, using defaults:', error);
-        return DEFAULT_PLATFORM_SETTINGS;
-      }
+      const snap = await getDoc(doc(db, 'platform_settings', 'global'));
+      if (!snap.exists()) return DEFAULT_PLATFORM_SETTINGS;
+      return normalizePlatformSettings(snap.data());
     },
   });
 
   useEffect(() => {
     if (query.data) {
       setLivePlatformSettings(query.data);
-      applySiteSeoToDocument(query.data.seo);
+      applySiteSeoToDocument(query.data.seo, { persistCache: !query.isPlaceholderData });
     }
-  }, [query.data]);
+  }, [query.data, query.isPlaceholderData]);
 
   return {
     settings: query.data ?? DEFAULT_PLATFORM_SETTINGS,
