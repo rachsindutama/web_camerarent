@@ -1,17 +1,24 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  addDoc,
   collection,
   deleteDoc,
   doc,
   getDocs,
   query,
-  Timestamp,
   updateDoc,
   where,
 } from 'firebase/firestore';
-import { BadgeCheck, ChevronRight, Plus, Search, UserCog, Users } from 'lucide-react';
+import {
+  BadgeCheck,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsUpDown,
+  Search,
+  UserCog,
+  Users,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { db } from '@/lib/firebase';
 import { formatDateTime } from '@/lib/utils';
@@ -73,17 +80,6 @@ export function StaffPage() {
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<'all' | StaffRole>('all');
 
-  // Create Staff Dialog (requires exact 16-digit NIK lookup from registered users)
-  const [createStaffOpen, setCreateStaffOpen] = useState(false);
-  const [staffNikQuery, setStaffNikQuery] = useState('');
-  const [newStaffForm, setNewStaffForm] = useState({
-    tenantId: '',
-    userId: '',
-    phone: '',
-    role: 'courier' as StaffRole,
-    vehicleInfo: '',
-  });
-
   // Operational Staff Detail & Edit Dialog
   const [detailStaffId, setDetailStaffId] = useState<string | null>(null);
   const [staffModalTab, setStaffModalTab] = useState<'detail' | 'edit'>('detail');
@@ -95,11 +91,16 @@ export function StaffPage() {
     vehicleInfo: '',
   });
 
-  // Assign RBAC Role Dialog (Superadmin)
+  // Assign RBAC Role Dialog (Superadmin) + Searchable Paginated Account Picker
   const [assignAdminOpen, setAssignAdminOpen] = useState(false);
   const [selectedUserUid, setSelectedUserUid] = useState('');
   const [assignRole, setAssignRole] = useState<UserRole>('admin');
   const [assignTenantId, setAssignTenantId] = useState('');
+  const [accountPickerOpen, setAccountPickerOpen] = useState(false);
+  const [accountSearch, setAccountSearch] = useState('');
+  const [accountRoleFilter, setAccountRoleFilter] = useState<'all' | UserRole>('all');
+  const [accountPage, setAccountPage] = useState(1);
+  const ACCOUNT_PAGE_SIZE = 5;
 
   // Admin / Superadmin Detail & Edit Dialog
   const [detailAdminUid, setDetailAdminUid] = useState<string | null>(null);
@@ -153,11 +154,34 @@ export function StaffPage() {
       u.role === 'superadmin' ||
       (u.role === 'admin' && (isAllTenants || u.tenantId === activeTenantId))
   );
-  const assignableUsers = allUsers.filter((u) => u.uid !== userProfile?.uid);
+  const assignableUsers = allUsers
+    .filter((u) => u.uid !== userProfile?.uid)
+    .sort((a, b) => a.displayName.localeCompare(b.displayName));
+  const filteredAssignableUsers = assignableUsers.filter((u) => {
+    if (accountRoleFilter !== 'all' && u.role !== accountRoleFilter) return false;
+    const q = accountSearch.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      u.displayName.toLowerCase().includes(q) ||
+      u.email.toLowerCase().includes(q) ||
+      (u.nik ?? '').includes(q) ||
+      (u.phone ?? '').includes(q)
+    );
+  });
+  const totalAccountPages = Math.max(
+    1,
+    Math.ceil(filteredAssignableUsers.length / ACCOUNT_PAGE_SIZE)
+  );
+  const safeAccountPage = Math.min(accountPage, totalAccountPages);
+  const paginatedAssignableUsers = filteredAssignableUsers.slice(
+    (safeAccountPage - 1) * ACCOUNT_PAGE_SIZE,
+    safeAccountPage * ACCOUNT_PAGE_SIZE
+  );
+  const selectedAssignableUser =
+    assignableUsers.find((u) => u.uid === selectedUserUid) ?? null;
   const detailStaff = branchStaff.find((s) => s.id === detailStaffId) ?? null;
   const detailAdmin = allUsers.find((u) => u.uid === detailAdminUid) ?? null;
 
-  const targetCreateTenantId = activeTenantId ?? (newStaffForm.tenantId || allTenants[0]?.id || '');
   const fallbackTenantId = activeTenantId ?? allTenants[0]?.id ?? '';
 
   const canEditAdminAccount = (admin: UserProfile) =>
@@ -167,6 +191,10 @@ export function StaffPage() {
     setSelectedUserUid('');
     setAssignRole('admin');
     setAssignTenantId(fallbackTenantId);
+    setAccountPickerOpen(false);
+    setAccountSearch('');
+    setAccountRoleFilter('all');
+    setAccountPage(1);
     setAssignAdminOpen(true);
   };
 
@@ -193,26 +221,6 @@ export function StaffPage() {
     });
   };
 
-  const existingStaffUids = new Set(
-    branchStaff
-      .filter((s) => s.tenantId === targetCreateTenantId)
-      .map((s) => s.userId)
-      .filter(Boolean)
-  );
-  const cleanStaffNikQuery = staffNikQuery.replace(/\D/g, '');
-  const exactNikMatchedUsers =
-    cleanStaffNikQuery.length === 16
-      ? allUsers.filter((u) => (u.nik ?? '').replace(/\D/g, '') === cleanStaffNikQuery)
-      : [];
-  const staffCandidateUsers = exactNikMatchedUsers
-    .filter((u) => !existingStaffUids.has(u.uid))
-    .sort((a, b) => a.displayName.localeCompare(b.displayName));
-  const nikAlreadyAssignedInBranch =
-    cleanStaffNikQuery.length === 16 &&
-    exactNikMatchedUsers.length > 0 &&
-    staffCandidateUsers.length === 0;
-  const selectedCandidateUser = staffCandidateUsers[0] ?? null;
-
   const filteredStaff = branchStaff.filter((s) => {
     if (roleFilter !== 'all' && s.role !== roleFilter) return false;
     const q = search.trim().toLowerCase();
@@ -224,47 +232,6 @@ export function StaffPage() {
       (s.vehicleInfo ?? '').toLowerCase().includes(q)
     );
   });
-
-  const handleCreateStaff = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!db || !targetCreateTenantId) {
-      toast.error('Pilih cabang terlebih dahulu.');
-      return;
-    }
-    if (!selectedCandidateUser) {
-      toast.error('Pilih akun user yang akan ditambahkan sebagai karyawan.');
-      return;
-    }
-    const cleanPhone = (newStaffForm.phone || selectedCandidateUser.phone || '').trim();
-    if (!cleanPhone) {
-      toast.error('Nomor WhatsApp / HP wajib diisi.');
-      return;
-    }
-
-    try {
-      await addDoc(collection(db, 'tenant_staff'), {
-        tenantId: targetCreateTenantId,
-        userId: selectedCandidateUser.uid,
-        email: selectedCandidateUser.email,
-        name: selectedCandidateUser.displayName,
-        phone: cleanPhone,
-        role: newStaffForm.role,
-        vehicleInfo: newStaffForm.vehicleInfo.trim(),
-        isActive: true,
-        createdAt: Timestamp.now(),
-      });
-      await queryClient.invalidateQueries({ queryKey: ['tenant_staff'] });
-      toast.success(
-        `${selectedCandidateUser.displayName} ditambahkan ke ${tenantById[targetCreateTenantId]?.name ?? 'cabang'}.`
-      );
-      setCreateStaffOpen(false);
-      setStaffNikQuery('');
-      setNewStaffForm({ tenantId: '', userId: '', phone: '', role: 'courier', vehicleInfo: '' });
-    } catch (error) {
-      console.error('Create staff error:', error);
-      toast.error('Gagal menambahkan karyawan.');
-    }
-  };
 
   const handleSaveStaffEdit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -430,18 +397,12 @@ export function StaffPage() {
             — kelola kurir antar-jemput, teknisi QC, dan akun admin cabang.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          {isSuperAdmin ? (
-            <Button variant="outline" size="sm" onClick={openAssignRoleDialog}>
-              <UserCog className="h-3.5 w-3.5" strokeWidth={1.5} />
-              Atur Role Akun
-            </Button>
-          ) : null}
-          <Button size="sm" onClick={() => setCreateStaffOpen(true)}>
-            <Plus className="h-3.5 w-3.5" strokeWidth={1.5} />
-            Tambah Karyawan
+        {isSuperAdmin ? (
+          <Button size="sm" onClick={openAssignRoleDialog}>
+            <UserCog className="h-3.5 w-3.5" strokeWidth={1.5} />
+            Atur Role Akun
           </Button>
-        </div>
+        ) : null}
       </div>
 
       <Tabs defaultValue="employees">
@@ -499,13 +460,7 @@ export function StaffPage() {
             <EmptyState
               icon={Users}
               title={`Belum ada karyawan di ${isAllTenants ? 'semua cabang' : activeTenant?.name}`}
-              description="Tambahkan kurir, teknisi QC, atau staf admin operasional agar tersedia di penugasan Antar-Jemput."
-              action={
-                <Button size="sm" onClick={() => setCreateStaffOpen(true)}>
-                  <Plus className="h-3.5 w-3.5" strokeWidth={1.5} />
-                  Tambah Karyawan
-                </Button>
-              }
+              description="Daftar karyawan operasional cabang yang aktif akan tampil di sini."
             />
           ) : (
             <Table>
@@ -657,167 +612,14 @@ export function StaffPage() {
         </TabsContent>
       </Tabs>
 
-      {/* Create Operational Staff Dialog (Pick from registered users by exact 16-digit NIK) */}
+      {/* Assign RBAC Role & Branch Dialog */}
       <Dialog
-        open={createStaffOpen}
+        open={assignAdminOpen}
         onOpenChange={(open) => {
-          setCreateStaffOpen(open);
-          if (!open) {
-            setStaffNikQuery('');
-            setNewStaffForm({
-              tenantId: '',
-              userId: '',
-              phone: '',
-              role: 'courier',
-              vehicleInfo: '',
-            });
-          }
+          setAssignAdminOpen(open);
+          if (!open) setAccountPickerOpen(false);
         }}
       >
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Tambah Karyawan</DialogTitle>
-            <DialogDescription>
-              Masukkan NIK lengkap 16 digit untuk mencari akun terdaftar di cabang{' '}
-              {tenantById[targetCreateTenantId]?.name ?? activeTenant?.name ?? 'terpilih'}.
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleCreateStaff} className="space-y-4">
-            {isAllTenants ? (
-              <div className="space-y-1.5">
-                <Label>Cabang Penempatan</Label>
-                <Select
-                  value={targetCreateTenantId}
-                  onValueChange={(tid) => setNewStaffForm((prev) => ({ ...prev, tenantId: tid }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Pilih cabang..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {allTenants.map((t) => (
-                      <SelectItem key={t.id} value={t.id}>
-                        {t.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            ) : null}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="staff-nik-lookup">NIK Lengkap (16 Digit)</Label>
-                <span className="font-mono text-[11px] text-muted-foreground">
-                  {cleanStaffNikQuery.length}/16
-                </span>
-              </div>
-              <Input
-                id="staff-nik-lookup"
-                className="font-mono text-xs"
-                maxLength={16}
-                placeholder="Masukkan 16 digit NIK..."
-                value={staffNikQuery}
-                onChange={(e) => {
-                  const nextNik = e.target.value.replace(/\D/g, '').slice(0, 16);
-                  setStaffNikQuery(nextNik);
-                  if (nextNik.length === 16) {
-                    const matched = allUsers.find(
-                      (u) =>
-                        (u.nik ?? '').replace(/\D/g, '') === nextNik &&
-                        !existingStaffUids.has(u.uid)
-                    );
-                    setNewStaffForm((prev) => ({
-                      ...prev,
-                      userId: matched?.uid ?? '',
-                      phone: matched?.phone ?? '',
-                    }));
-                  } else {
-                    setNewStaffForm((prev) => ({ ...prev, userId: '', phone: '' }));
-                  }
-                }}
-              />
-              {cleanStaffNikQuery.length < 16 ? (
-                <p className="text-xs text-muted-foreground">
-                  Ketik 16 digit NIK lengkap untuk mengambil data akun user.
-                </p>
-              ) : nikAlreadyAssignedInBranch ? (
-                <p className="text-xs text-destructive">
-                  Akun dengan NIK ini sudah terdaftar sebagai karyawan di cabang ini.
-                </p>
-              ) : !selectedCandidateUser ? (
-                <p className="text-xs text-destructive">
-                  Tidak ditemukan akun user dengan NIK tersebut.
-                </p>
-              ) : null}
-            </div>
-
-            {selectedCandidateUser ? (
-              <div className="flex items-center gap-3 rounded-md border bg-muted/40 px-3 py-2.5">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-background border text-xs font-medium text-foreground">
-                  {getInitials(selectedCandidateUser.displayName)}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-foreground">
-                    {selectedCandidateUser.displayName}
-                  </p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {selectedCandidateUser.email}
-                  </p>
-                </div>
-              </div>
-            ) : null}
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Jabatan</Label>
-                <Select
-                  value={newStaffForm.role}
-                  onValueChange={(v) => setNewStaffForm({ ...newStaffForm, role: v as StaffRole })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="courier">Kurir Antar-Jemput</SelectItem>
-                    <SelectItem value="technician">Teknisi / QC Gear</SelectItem>
-                    <SelectItem value="admin_ops">Admin Operasional</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>WhatsApp / HP</Label>
-                <Input
-                  placeholder="Otomatis dari profil user"
-                  value={newStaffForm.phone}
-                  onChange={(e) => setNewStaffForm({ ...newStaffForm, phone: e.target.value })}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Kendaraan / Plat Nomor (opsional)</Label>
-              <Input
-                placeholder="GranMax Van L 1920 AB"
-                value={newStaffForm.vehicleInfo}
-                onChange={(e) =>
-                  setNewStaffForm({ ...newStaffForm, vehicleInfo: e.target.value })
-                }
-              />
-            </div>
-
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setCreateStaffOpen(false)}>
-                Batal
-              </Button>
-              <Button type="submit" disabled={!selectedCandidateUser}>
-                Simpan Karyawan
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Assign RBAC Role & Branch Dialog */}
-      <Dialog open={assignAdminOpen} onOpenChange={setAssignAdminOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Atur Role &amp; Akses Akun</DialogTitle>
@@ -828,28 +630,147 @@ export function StaffPage() {
           <div className="space-y-4">
             <div className="space-y-1.5">
               <Label>Akun Terdaftar</Label>
-              <Select
-                value={selectedUserUid}
-                onValueChange={(uid) => {
-                  setSelectedUserUid(uid);
-                  const found = allUsers.find((u) => u.uid === uid);
-                  if (found) {
-                    setAssignRole(found.role === 'user' ? 'admin' : found.role);
-                    setAssignTenantId(found.tenantId || fallbackTenantId);
-                  }
-                }}
+              <button
+                type="button"
+                onClick={() => setAccountPickerOpen((prev) => !prev)}
+                className="flex h-9 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-3 text-left text-xs shadow-sm transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               >
-                <SelectTrigger>
-                  <SelectValue placeholder="Pilih akun..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {assignableUsers.map((u) => (
-                    <SelectItem key={u.uid} value={u.uid}>
-                      {u.displayName} ({u.email}) — {u.role}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                <span
+                  className={
+                    selectedAssignableUser
+                      ? 'truncate font-medium text-foreground'
+                      : 'truncate text-muted-foreground'
+                  }
+                >
+                  {selectedAssignableUser
+                    ? `${selectedAssignableUser.displayName} (${selectedAssignableUser.email})`
+                    : 'Pilih akun terdaftar...'}
+                </span>
+                <ChevronsUpDown
+                  className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                  strokeWidth={1.5}
+                />
+              </button>
+
+              {accountPickerOpen ? (
+                <div className="rounded-md border bg-popover p-2.5 shadow-md space-y-2.5">
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <Search
+                        className="pointer-events-none absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground"
+                        strokeWidth={1.5}
+                      />
+                      <Input
+                        placeholder="Cari nama, email, atau NIK..."
+                        value={accountSearch}
+                        onChange={(e) => {
+                          setAccountSearch(e.target.value);
+                          setAccountPage(1);
+                        }}
+                        className="h-8 pl-8 text-xs"
+                      />
+                    </div>
+                    <Select
+                      value={accountRoleFilter}
+                      onValueChange={(v) => {
+                        setAccountRoleFilter(v as 'all' | UserRole);
+                        setAccountPage(1);
+                      }}
+                    >
+                      <SelectTrigger className="h-8 w-24 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Semua</SelectItem>
+                        <SelectItem value="user">User</SelectItem>
+                        <SelectItem value="admin">Admin</SelectItem>
+                        <SelectItem value="superadmin">Superadmin</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {paginatedAssignableUsers.length === 0 ? (
+                    <p className="py-4 text-center text-xs text-muted-foreground">
+                      Tidak ada akun yang cocok.
+                    </p>
+                  ) : (
+                    <div className="divide-y divide-border rounded-md border">
+                      {paginatedAssignableUsers.map((u) => {
+                        const isSelected = u.uid === selectedUserUid;
+                        return (
+                          <button
+                            key={u.uid}
+                            type="button"
+                            onClick={() => {
+                              setSelectedUserUid(u.uid);
+                              setAssignRole(u.role === 'user' ? 'admin' : u.role);
+                              setAssignTenantId(u.tenantId || fallbackTenantId);
+                              setAccountPickerOpen(false);
+                            }}
+                            className={`flex w-full items-center justify-between gap-2 px-2.5 py-2 text-left text-xs transition-colors hover:bg-muted/60 ${
+                              isSelected ? 'bg-muted/50' : ''
+                            }`}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate font-medium text-foreground">
+                                {u.displayName}
+                              </p>
+                              <p className="truncate text-[11px] text-muted-foreground">
+                                {u.email}
+                                {u.nik ? ` · ${u.nik}` : ''}
+                              </p>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-1.5">
+                              <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-secondary-foreground">
+                                {u.role}
+                              </span>
+                              {isSelected ? (
+                                <Check className="h-3.5 w-3.5 text-foreground" strokeWidth={2} />
+                              ) : null}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between gap-2 pt-0.5 text-[11px] text-muted-foreground">
+                    <span className="tabular-nums">
+                      {filteredAssignableUsers.length === 0
+                        ? '0 akun'
+                        : `${(safeAccountPage - 1) * ACCOUNT_PAGE_SIZE + 1}–${Math.min(
+                            safeAccountPage * ACCOUNT_PAGE_SIZE,
+                            filteredAssignableUsers.length
+                          )} dari ${filteredAssignableUsers.length}`}
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <span className="mr-1 tabular-nums">
+                        {safeAccountPage}/{totalAccountPages}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-6 px-1.5 text-[11px]"
+                        disabled={safeAccountPage <= 1}
+                        onClick={() => setAccountPage((p) => Math.max(1, p - 1))}
+                      >
+                        <ChevronLeft className="h-3 w-3" strokeWidth={1.5} />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-6 px-1.5 text-[11px]"
+                        disabled={safeAccountPage >= totalAccountPages}
+                        onClick={() => setAccountPage((p) => Math.min(totalAccountPages, p + 1))}
+                      >
+                        <ChevronRight className="h-3 w-3" strokeWidth={1.5} />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </div>
 
             <div className="space-y-1.5">
