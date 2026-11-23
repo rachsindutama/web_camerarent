@@ -115,13 +115,16 @@ export interface Booking {
   deliveryFee: number;
   courierName?: string;
   courierStatus?: CourierStatus;
+  courierTimestamps?: Partial<Record<CourierStatus, Timestamp>>;
   preRentalChecklist?: {
     photos: string[];
     notes: string;
     confirmedByUserAt: Timestamp | null;
   };
+  paidAt?: Timestamp;                  // Actual timestamp when payment verified by admin
   dispatchedAt?: Timestamp;            // Actual timestamp when gear handed over (active_rent)
   returnedAt?: Timestamp;              // Actual timestamp when gear returned & checked in
+  cancelledAt?: Timestamp;             // Actual timestamp when booking cancelled
   returnNotes?: string;                // Summary of post-rental return inspection
   subtotal: number;
   discountAmount?: number;             // Membership tier rental discount (IDR)

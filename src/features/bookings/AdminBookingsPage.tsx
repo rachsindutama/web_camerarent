@@ -97,6 +97,7 @@ export function AdminBookingsPage() {
       await updateDoc(doc(db, 'bookings', booking.id), {
         paymentStatus: 'paid',
         bookingStatus: 'confirmed',
+        paidAt: Timestamp.now(),
       });
       await syncAvailabilitySlotStatus(booking.id, 'confirmed');
 
@@ -155,6 +156,7 @@ export function AdminBookingsPage() {
     try {
       await updateDoc(doc(db, 'bookings', booking.id), {
         bookingStatus: 'cancelled',
+        cancelledAt: Timestamp.now(),
       });
       await syncAvailabilitySlotStatus(booking.id, 'cancelled');
       await queryClient.invalidateQueries({ queryKey: ['bookings'] });

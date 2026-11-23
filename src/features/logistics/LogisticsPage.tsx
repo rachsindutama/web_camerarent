@@ -84,11 +84,11 @@ export function LogisticsPage() {
   const handleAdvanceStatus = async (booking: Booking, nextStatus: CourierStatus) => {
     if (!db) return;
     try {
+      const now = Timestamp.now();
       await updateDoc(doc(db, 'bookings', booking.id), {
         courierStatus: nextStatus,
-        ...(nextStatus === 'returned' && !booking.returnedAt
-          ? { returnedAt: Timestamp.now() }
-          : {}),
+        [`courierTimestamps.${nextStatus}`]: now,
+        ...(nextStatus === 'returned' ? { returnedAt: now } : {}),
       });
       await queryClient.invalidateQueries({ queryKey: ['logistics', activeTenantId] });
       await queryClient.invalidateQueries({ queryKey: ['bookings'] });
@@ -224,17 +224,28 @@ export function LogisticsPage() {
                           <ArrowRight className="h-3.5 w-3.5" strokeWidth={1.5} />
                         </Button>
                       ) : (
-                        <span className="font-mono text-[11px] font-medium text-emerald-700">
-                          DISPATCH CYCLE COMPLETE
-                        </span>
+                        <div className="text-right">
+                          <span className="block font-mono text-[11px] font-medium text-emerald-700">
+                            DISPATCH CYCLE COMPLETE
+                          </span>
+                          {booking.returnedAt || booking.courierTimestamps?.returned ? (
+                            <span className="font-mono text-[10px] text-zinc-500">
+                              Dikembalikan:{' '}
+                              {formatDateTime(
+                                booking.returnedAt ?? booking.courierTimestamps?.returned
+                              )}
+                            </span>
+                          ) : null}
+                        </div>
                       )}
                     </div>
                   </div>
 
-                  {/* Horizontal Checkpoint Stepper */}
-                  <div className="grid grid-cols-5 gap-1.5 pt-1">
+                  {/* Horizontal Checkpoint Stepper with per-step timestamps */}
+                  <div className="grid grid-cols-2 gap-1.5 pt-1 sm:grid-cols-5">
                     {COURIER_STEPS.map((step, idx) => {
                       const done = idx <= currentIdx;
+                      const stepTs = booking.courierTimestamps?.[step.key];
                       return (
                         <button
                           key={step.key}
@@ -249,6 +260,13 @@ export function LogisticsPage() {
                           <span className="block font-mono text-[9px] opacity-70">0{idx + 1}</span>
                           <span className="block truncate text-[11px] font-medium">
                             {step.label}
+                          </span>
+                          <span
+                            className={`mt-0.5 block truncate font-mono text-[9px] ${
+                              done ? 'text-zinc-300' : 'text-zinc-400'
+                            }`}
+                          >
+                            {stepTs ? formatDateTime(stepTs) : done ? 'Selesai' : '—'}
                           </span>
                         </button>
                       );
