@@ -17,6 +17,7 @@ import {
 import { toast } from 'sonner';
 import { db, storage } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
+import { useI18n } from '@/hooks/useI18n';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { ImagePreviewModal } from '@/components/shared/ImagePreviewModal';
 import { Button } from '@/components/ui/button';
@@ -38,6 +39,7 @@ type KycFormValues = z.infer<typeof kycSchema>;
 
 export function KycOnboardingPage() {
   const { userProfile } = useAuth();
+  const { tx } = useI18n();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -83,11 +85,18 @@ export function KycOnboardingPage() {
     const valid: File[] = [];
     for (const file of list) {
       if (!file.type.startsWith('image/')) {
-        toast.error(`${file.name} bukan file gambar (gunakan PNG/JPG/WEBP).`);
+        toast.error(
+          tx(
+            `${file.name} is not an image file (use PNG/JPG/WEBP).`,
+            `${file.name} bukan file gambar (gunakan PNG/JPG/WEBP).`
+          )
+        );
         continue;
       }
       if (file.size > 5 * 1024 * 1024) {
-        toast.error(`${file.name} melebihi batas maksimal 5MB.`);
+        toast.error(
+          tx(`${file.name} exceeds the 5MB maximum limit.`, `${file.name} melebihi batas maksimal 5MB.`)
+        );
         continue;
       }
       valid.push(file);
@@ -106,17 +115,32 @@ export function KycOnboardingPage() {
     setUploadError(null);
 
     if (!db || !storage) {
-      toast.error('Firebase Storage / Firestore belum terkonfigurasi.');
+      toast.error(
+        tx(
+          'Firebase Storage / Firestore is not configured.',
+          'Firebase Storage / Firestore belum terkonfigurasi.'
+        )
+      );
       return;
     }
 
     if (selectedFiles.length === 0 && existingDocs.length === 0) {
-      toast.error('Pilih minimal satu foto identitas (KTP / Selfie dengan KTP).');
+      toast.error(
+        tx(
+          'Please select at least one identity photo (ID Card / Selfie with ID).',
+          'Pilih minimal satu foto identitas (KTP / Selfie dengan KTP).'
+        )
+      );
       return;
     }
 
     if (isVerified && selectedFiles.length === 0) {
-      toast.info('Pilih file gambar KTP / Selfie terlebih dahulu.');
+      toast.info(
+        tx(
+          'Please choose an ID Card / Selfie image file first.',
+          'Pilih file gambar KTP / Selfie terlebih dahulu.'
+        )
+      );
       return;
     }
 
@@ -147,15 +171,21 @@ export function KycOnboardingPage() {
       if (fileInputRef.current) fileInputRef.current.value = '';
       toast.success(
         isVerified
-          ? 'Dokumen identitas berhasil diunggah ke arsip KYC Anda.'
-          : 'Dossier KYC berhasil dikirim untuk ditinjau admin.'
+          ? tx(
+              'Identity documents uploaded to your KYC archive.',
+              'Dokumen identitas berhasil diunggah ke arsip KYC Anda.'
+            )
+          : tx(
+              'KYC dossier submitted for admin review.',
+              'Dossier KYC berhasil dikirim untuk ditinjau admin.'
+            )
       );
     } catch (error) {
       const err = error as { code?: string; message?: string };
       const detail = `${err?.code ? `[${err.code}] ` : ''}${err?.message ?? 'Upload failed'}`;
       console.error('KYC submission failed:', error);
       setUploadError(detail);
-      toast.error(`Upload gagal: ${detail}`);
+      toast.error(tx(`Upload failed: ${detail}`, `Upload gagal: ${detail}`));
     } finally {
       setSubmitting(false);
     }
@@ -166,11 +196,13 @@ export function KycOnboardingPage() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-base font-semibold tracking-tight text-zinc-950">
-            Renter Identity &amp; KYC Verification
+            {tx('Renter Identity & KYC Verification', 'Verifikasi Identitas & KYC Penyewa')}
           </h2>
           <p className="mt-1 text-xs text-zinc-500">
-            Verified National ID (NIK) is mandatory before equipment reservation and handover across
-            all rental branches.
+            {tx(
+              'Verified National ID (NIK) is mandatory before equipment reservation and handover across all rental branches.',
+              'Verifikasi NIK wajib diselesaikan sebelum pemesanan dan serah terima alat di semua cabang.'
+            )}
           </p>
         </div>
         <StatusBadge status={userProfile.kycStatus} />
@@ -181,12 +213,20 @@ export function KycOnboardingPage() {
           <CardContent className="flex items-start gap-3 p-4">
             <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-600" strokeWidth={1.5} />
             <div className="text-xs">
-              <p className="font-semibold text-emerald-900">Identity verified for rental checkout</p>
+              <p className="font-semibold text-emerald-900">
+                {tx('Identity verified for rental checkout', 'Identitas terverifikasi untuk checkout sewa')}
+              </p>
               <p className="mt-0.5 text-emerald-800">
-                NIK <span className="font-mono">{userProfile.nik}</span> is cleared against the
-                global blacklist registry.
+                NIK <span className="font-mono">{userProfile.nik}</span>{' '}
+                {tx(
+                  'is cleared against the global blacklist registry.',
+                  'lolos pengecekan daftar hitam global.'
+                )}
                 {existingDocs.length === 0
-                  ? ' Klik Browse Files di bawah untuk melampirkan foto KTP & Selfie sebagai arsip.'
+                  ? tx(
+                      ' Click Browse Files below to attach your ID Card & Selfie for records.',
+                      ' Klik Pilih File di bawah untuk melampirkan foto KTP & Selfie sebagai arsip.'
+                    )
                   : ''}
               </p>
             </div>
@@ -199,10 +239,14 @@ export function KycOnboardingPage() {
           <CardContent className="flex items-start gap-3 p-4">
             <Clock className="mt-0.5 h-4 w-4 text-amber-600" strokeWidth={1.5} />
             <div className="text-xs">
-              <p className="font-semibold text-amber-900">Verification in review queue</p>
+              <p className="font-semibold text-amber-900">
+                {tx('Verification in review queue', 'Verifikasi sedang dalam antrean tinjauan')}
+              </p>
               <p className="mt-0.5 text-amber-800">
-                Your NIK and identity documents are pending review by operations staff. Booking
-                checkout unlocks automatically upon approval.
+                {tx(
+                  'Your NIK and identity documents are pending review by operations staff. Booking checkout unlocks automatically upon approval.',
+                  'NIK dan dokumen identitas Anda sedang ditinjau tim operasional. Checkout booking terbuka otomatis setelah disetujui.'
+                )}
               </p>
             </div>
           </CardContent>
@@ -214,10 +258,14 @@ export function KycOnboardingPage() {
           <CardContent className="flex items-start gap-3 p-4">
             <AlertCircle className="mt-0.5 h-4 w-4 text-red-600" strokeWidth={1.5} />
             <div className="text-xs">
-              <p className="font-semibold text-red-900">Previous KYC submission rejected</p>
+              <p className="font-semibold text-red-900">
+                {tx('Previous KYC submission rejected', 'Pengajuan KYC sebelumnya ditolak')}
+              </p>
               <p className="mt-0.5 text-red-800">
-                Verify your 16-digit NIK and upload clear, uncropped photographs of your KTP and
-                selfie holding the ID card.
+                {tx(
+                  'Verify your 16-digit NIK and upload clear, uncropped photographs of your KTP and selfie holding the ID card.',
+                  'Periksa kembali 16 digit NIK Anda dan unggah foto KTP serta selfie memegang KTP dengan jelas tanpa terpotong.'
+                )}
               </p>
             </div>
           </CardContent>
@@ -237,18 +285,20 @@ export function KycOnboardingPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-sm">
             <FileCheck2 className="h-4 w-4 text-zinc-500" strokeWidth={1.5} />
-            KYC Dossier
+            {tx('KYC Dossier', 'Dokumen KYC')}
           </CardTitle>
           <CardDescription>
-            Stored privately in Firebase Storage and restricted to Superadmin &amp; Tenant Admin
-            reviewers.
+            {tx(
+              'Stored privately in Firebase Storage and restricted to Superadmin & Tenant Admin reviewers.',
+              'Disimpan secara privat di Firebase Storage dan hanya dapat diakses oleh Superadmin & Admin Cabang.'
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="nik">National ID (NIK — 16 digits)</Label>
+                <Label htmlFor="nik">{tx('National ID (NIK — 16 digits)', 'NIK (KTP — 16 digit)')}</Label>
                 <Input
                   id="nik"
                   placeholder="3174011203950004"
@@ -262,7 +312,7 @@ export function KycOnboardingPage() {
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="phone">WhatsApp / Phone Number</Label>
+                <Label htmlFor="phone">{tx('WhatsApp / Phone Number', 'Nomor WhatsApp / Telepon')}</Label>
                 <Input
                   id="phone"
                   placeholder="+62 812 9000 1234"
@@ -278,7 +328,12 @@ export function KycOnboardingPage() {
 
             {existingDocs.length > 0 ? (
               <div className="space-y-1.5">
-                <Label>Uploaded Documents ({existingDocs.length})</Label>
+                <Label>
+                  {tx(
+                    `Uploaded Documents (${existingDocs.length})`,
+                    `Dokumen Terunggah (${existingDocs.length})`
+                  )}
+                </Label>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                   {existingDocs.map((url, idx) => (
                     <button
@@ -305,11 +360,16 @@ export function KycOnboardingPage() {
             <div className="space-y-1.5">
               <Label>
                 {existingDocs.length > 0
-                  ? 'Add Additional Identity Documents (KTP / Selfie)'
-                  : 'Identity Documents (KTP & Selfie with KTP)'}
+                  ? tx(
+                      'Add Additional Identity Documents (KTP / Selfie)',
+                      'Tambah Dokumen Identitas Tambahan (KTP / Selfie)'
+                    )
+                  : tx(
+                      'Identity Documents (KTP & Selfie with KTP)',
+                      'Dokumen Identitas (KTP & Selfie dengan KTP)'
+                    )}
               </Label>
 
-              {/* Hidden native input triggered programmatically (reliable across Firefox, Chrome, Safari) */}
               <input
                 ref={fileInputRef}
                 type="file"
@@ -355,7 +415,10 @@ export function KycOnboardingPage() {
               >
                 <Upload className="h-4 w-4 text-zinc-400" strokeWidth={1.5} />
                 <span className="mt-2 text-xs font-medium text-zinc-800">
-                  Drag &amp; drop foto KTP / Selfie ke sini, atau klik untuk memilih file
+                  {tx(
+                    'Drag & drop ID Card / Selfie photos here, or click to select files',
+                    'Tarik & lepas foto KTP / Selfie ke sini, atau klik untuk memilih file'
+                  )}
                 </span>
                 <span className="mt-0.5 font-mono text-[10px] text-zinc-400">
                   PNG, JPG, WEBP · MAX 5MB PER FILE
@@ -372,14 +435,17 @@ export function KycOnboardingPage() {
                   }}
                 >
                   <FolderOpen className="h-3.5 w-3.5" strokeWidth={1.5} />
-                  Browse Files
+                  {tx('Browse Files', 'Pilih File')}
                 </Button>
               </div>
 
               {filePreviews.length > 0 ? (
                 <div className="space-y-2 pt-2">
                   <p className="font-mono text-[10px] uppercase text-zinc-500">
-                    Siap Diunggah ({filePreviews.length} file)
+                    {tx(
+                      `Ready to Upload (${filePreviews.length} file(s))`,
+                      `Siap Diunggah (${filePreviews.length} file)`
+                    )}
                   </p>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                     {filePreviews.map(({ file, previewUrl }, idx) => (
@@ -400,7 +466,7 @@ export function KycOnboardingPage() {
                               setSelectedFiles((prev) => prev.filter((_, i) => i !== idx))
                             }
                             className="shrink-0 text-zinc-400 hover:text-red-600"
-                            title="Hapus file"
+                            title={tx('Remove file', 'Hapus file')}
                           >
                             <Trash2 className="h-3 w-3" strokeWidth={1.5} />
                           </button>
@@ -421,14 +487,17 @@ export function KycOnboardingPage() {
                 disabled={uploadLocked || submitting || (isVerified && selectedFiles.length === 0)}
               >
                 {submitting
-                  ? 'Uploading to Storage...'
+                  ? tx('Uploading to Storage...', 'Mengunggah ke Storage...')
                   : isPendingReview
-                    ? 'Pending Admin Review'
+                    ? tx('Pending Admin Review', 'Menunggu Tinjauan Admin')
                     : isVerified
                       ? selectedFiles.length > 0
-                        ? `Upload ${selectedFiles.length} Document(s)`
-                        : 'Select Files Above First'
-                      : 'Submit for Verification'}
+                        ? tx(
+                            `Upload ${selectedFiles.length} Document(s)`,
+                            `Unggah ${selectedFiles.length} Dokumen`
+                          )
+                        : tx('Select Files Above First', 'Pilih File di Atas Terlebih Dahulu')
+                      : tx('Submit for Verification', 'Kirim untuk Verifikasi')}
               </Button>
             </div>
           </form>
@@ -443,7 +512,7 @@ export function KycOnboardingPage() {
           label: `KYC_DOC_${i + 1}`,
         }))}
         initialIndex={previewIndex ?? 0}
-        title="Uploaded Identity Document"
+        title={tx('Uploaded Identity Document', 'Dokumen Identitas Terunggah')}
       />
     </div>
   );

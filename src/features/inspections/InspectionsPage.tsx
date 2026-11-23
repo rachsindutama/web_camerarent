@@ -23,6 +23,7 @@ import { syncAvailabilitySlotStatus } from '@/lib/availability';
 import { formatDateTime } from '@/lib/utils';
 import { calculateOverdueFine } from '@/hooks/useOverdueCalc';
 import { useAuth } from '@/hooks/useAuth';
+import { useI18n } from '@/hooks/useI18n';
 import { useTenant } from '@/hooks/useTenant';
 import { CurrencyText } from '@/components/shared/CurrencyText';
 import { MembershipBadge } from '@/components/shared/MembershipBadge';
@@ -53,6 +54,7 @@ import {
 import type { Booking, DamageReport } from '@/types/schema';
 
 export function InspectionsPage() {
+  const { tx } = useI18n();
   const queryClient = useQueryClient();
   const { userProfile } = useAuth();
   const { activeTenantId, activeTenant, isAllTenants, tenantById } = useTenant();
@@ -107,8 +109,11 @@ export function InspectionsPage() {
     return (
       <EmptyState
         icon={ClipboardCheck}
-        title="No active rental branch selected"
-        description="Select a tenant branch to perform pre-rental and post-rental inspections."
+        title={tx('No active rental branch selected', 'Belum ada cabang aktif')}
+        description={tx(
+          'Select a tenant branch to perform pre-rental and post-rental inspections.',
+          'Pilih cabang rental untuk melakukan inspeksi pra-sewa dan pasca-sewa.'
+        )}
       />
     );
   }
@@ -152,13 +157,21 @@ export function InspectionsPage() {
       await queryClient.invalidateQueries({ queryKey: ['equipment_units'] });
       toast.success(
         dispatchActiveRent
-          ? `${handoverTarget.invoiceNumber} dispatched to Active Rent.`
-          : `Handover checklist saved for ${handoverTarget.invoiceNumber}.`
+          ? tx(
+              `${handoverTarget.invoiceNumber} dispatched to Active Rent.`,
+              `${handoverTarget.invoiceNumber} diserahkan ke status Active Rent.`
+            )
+          : tx(
+              `Handover checklist saved for ${handoverTarget.invoiceNumber}.`,
+              `Checklist serah terima disimpan untuk ${handoverTarget.invoiceNumber}.`
+            )
       );
       setHandoverTarget(null);
     } catch (error) {
       console.error('Pre-rental handover error:', error);
-      toast.error('Failed to update pre-rental checklist.');
+      toast.error(
+        tx('Failed to update pre-rental checklist.', 'Gagal memperbarui checklist serah terima.')
+      );
     }
   };
 
@@ -189,10 +202,12 @@ export function InspectionsPage() {
 
       await queryClient.invalidateQueries({ queryKey: ['inspections'] });
       await queryClient.invalidateQueries({ queryKey: ['transactions'] });
-      toast.success(`Booking flagged OVERDUE and fine recorded.`);
+      toast.success(
+        tx('Booking flagged OVERDUE and fine recorded.', 'Booking ditandai OVERDUE dan denda tercatat.')
+      );
     } catch (error) {
       console.error('Overdue update error:', error);
-      toast.error('Failed to apply overdue fine.');
+      toast.error(tx('Failed to apply overdue fine.', 'Gagal menerapkan denda keterlambatan.'));
     }
   };
 
@@ -291,18 +306,24 @@ export function InspectionsPage() {
       await queryClient.invalidateQueries({ queryKey: ['equipment_units'] });
       toast.success(
         finalOverdueFine > 0
-          ? `${booking.invoiceNumber} selesai dengan denda telat Rp ${finalOverdueFine.toLocaleString('id-ID')} & tercatat ke Cash Flow.`
-          : `${booking.invoiceNumber} completed. Units returned to available & deposit refunded.`
+          ? tx(
+              `${booking.invoiceNumber} completed with overdue fine Rp ${finalOverdueFine.toLocaleString('id-ID')} posted to Cash Flow.`,
+              `${booking.invoiceNumber} selesai dengan denda telat Rp ${finalOverdueFine.toLocaleString('id-ID')} & tercatat ke Cash Flow.`
+            )
+          : tx(
+              `${booking.invoiceNumber} completed. Units returned to available & deposit refunded.`,
+              `${booking.invoiceNumber} selesai. Unit kembali tersedia & deposit direfund.`
+            )
       );
     } catch (error) {
       console.error('Clean return error:', error);
-      toast.error('Failed to complete clean return.');
+      toast.error(tx('Failed to complete clean return.', 'Gagal menyelesaikan pengembalian.'));
     }
   };
 
   const handleSubmitDamageReport = async () => {
     if (!db || !userProfile || !damageTarget || !damageUnitId) {
-      toast.error('Select the damaged physical unit.');
+      toast.error(tx('Select the damaged physical unit.', 'Pilih unit fisik yang mengalami kerusakan.'));
       return;
     }
 
@@ -402,12 +423,17 @@ export function InspectionsPage() {
       await queryClient.invalidateQueries({ queryKey: ['damage_reports'] });
       await queryClient.invalidateQueries({ queryKey: ['transactions'] });
       await queryClient.invalidateQueries({ queryKey: ['equipment_units'] });
-      toast.success('Damage report filed, unit moved to maintenance, and ledger updated.');
+      toast.success(
+        tx(
+          'Damage report filed, unit moved to maintenance, and ledger updated.',
+          'Laporan kerusakan dicatat, unit dipindah ke maintenance, dan ledger diperbarui.'
+        )
+      );
       setDamageTarget(null);
       setDamageDesc('');
     } catch (error) {
       console.error('Damage report error:', error);
-      toast.error('Failed to file damage report.');
+      toast.error(tx('Failed to file damage report.', 'Gagal mencatat laporan kerusakan.'));
     }
   };
 
@@ -415,34 +441,47 @@ export function InspectionsPage() {
     <div className="space-y-5">
       <div className="border-b border-zinc-200 pb-4">
         <h2 className="text-base font-semibold tracking-tight text-zinc-950">
-          Pre-Rental &amp; Post-Rental Inspections
+          {tx('Pre-Rental & Post-Rental Inspections', 'Inspeksi Pra-Sewa & Pasca-Sewa')}
         </h2>
         <p className="mt-0.5 text-xs text-zinc-500">
           {isAllTenants
-            ? 'Semua Cabang — dokumentasi serah terima, pemantauan grace period overdue, dan laporan kerusakan.'
-            : `Document physical unit condition before dispatch, monitor overdue grace windows (${activeTenant?.overdueGraceMinutes ?? 60}m grace / ${activeTenant?.overdueHourlyRatePercent ?? 10}% per late hour), and process damage deductions.`}
+            ? tx(
+                'All Branches — handover documentation, overdue grace period monitoring, and damage reports.',
+                'Semua Cabang — dokumentasi serah terima, pemantauan grace period overdue, dan laporan kerusakan.'
+              )
+            : tx(
+                `Document physical unit condition before dispatch, monitor overdue grace windows (${activeTenant?.overdueGraceMinutes ?? 60}m grace / ${activeTenant?.overdueHourlyRatePercent ?? 10}% per late hour), and process damage deductions.`,
+                `Dokumentasikan kondisi unit fisik sebelum serah terima, pantau batas grace period (${activeTenant?.overdueGraceMinutes ?? 60} menit / ${activeTenant?.overdueHourlyRatePercent ?? 10}% per jam telat), dan proses potongan kerusakan.`
+              )}
         </p>
       </div>
 
       <Tabs defaultValue="pre">
         <TabsList>
-          <TabsTrigger value="pre">Pre-Rental Handover ({preRentalBookings.length})</TabsTrigger>
-          <TabsTrigger value="post">
-            Post-Rental Return &amp; Overdue ({postRentalBookings.length})
+          <TabsTrigger value="pre">
+            {tx('Pre-Rental Handover', 'Serah Terima Pra-Sewa')} ({preRentalBookings.length})
           </TabsTrigger>
-          <TabsTrigger value="reports">Damage Reports ({damageReports.length})</TabsTrigger>
+          <TabsTrigger value="post">
+            {tx('Post-Rental Return & Overdue', 'Pengembalian & Overdue')} ({postRentalBookings.length})
+          </TabsTrigger>
+          <TabsTrigger value="reports">
+            {tx('Damage Reports', 'Laporan Kerusakan')} ({damageReports.length})
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="pre" className="space-y-3">
           {isLoading ? (
             <div className="rounded-md border border-zinc-200 bg-white p-8 text-center font-mono text-xs text-zinc-400">
-              LOADING HANDOVER QUEUE...
+              {tx('LOADING HANDOVER QUEUE...', 'MEMUAT ANTRIAN SERAH TERIMA...')}
             </div>
           ) : preRentalBookings.length === 0 ? (
             <EmptyState
               icon={ClipboardCheck}
-              title="No confirmed bookings awaiting handover"
-              description="Once payment is verified in Bookings, reservations appear here for pre-rental inspection."
+              title={tx('No confirmed bookings awaiting handover', 'Tidak ada booking menunggu serah terima')}
+              description={tx(
+                'Once payment is verified in Bookings, reservations appear here for pre-rental inspection.',
+                'Setelah pembayaran diverifikasi di menu Booking, reservasi akan muncul di sini untuk inspeksi pra-sewa.'
+              )}
             />
           ) : (
             preRentalBookings.map((booking) => (
@@ -453,9 +492,15 @@ export function InspectionsPage() {
                       <CardTitle className="font-mono text-sm">{booking.invoiceNumber}</CardTitle>
                       <StatusBadge status={booking.bookingStatus} />
                       {booking.preRentalChecklist?.confirmedByUserAt ? (
-                        <StatusBadge status="verified" label="Renter Confirmed" />
+                        <StatusBadge
+                          status="verified"
+                          label={tx('Renter Confirmed', 'Dikonfirmasi Penyewa')}
+                        />
                       ) : booking.preRentalChecklist ? (
-                        <StatusBadge status="pending" label="Awaiting Renter Sign-Off" />
+                        <StatusBadge
+                          status="pending"
+                          label={tx('Awaiting Renter Sign-Off', 'Menunggu Konfirmasi Penyewa')}
+                        />
                       ) : null}
                     </div>
                     <Button
@@ -472,7 +517,7 @@ export function InspectionsPage() {
                       }}
                     >
                       <ClipboardCheck className="h-3.5 w-3.5" strokeWidth={1.5} />
-                      Inspect &amp; Dispatch
+                      {tx('Inspect & Dispatch', 'Inspeksi & Serahkan')}
                     </Button>
                   </div>
                 </CardHeader>
@@ -486,7 +531,7 @@ export function InspectionsPage() {
                     ))}
                   </div>
                   <span className="font-mono text-[11px] text-zinc-500">
-                    Start: {formatDateTime(booking.startDate)}
+                    {tx('Start:', 'Mulai:')} {formatDateTime(booking.startDate)}
                   </span>
                 </CardContent>
               </Card>
@@ -498,8 +543,11 @@ export function InspectionsPage() {
           {postRentalBookings.length === 0 ? (
             <EmptyState
               icon={Clock}
-              title="No active rentals awaiting return"
-              description="Dispatched bookings in active_rent or overdue will appear here for return inspection."
+              title={tx('No active rentals awaiting return', 'Tidak ada sewa aktif menunggu kembali')}
+              description={tx(
+                'Dispatched bookings in active rent or overdue will appear here for return inspection.',
+                'Booking yang sedang disewa atau terlambat akan tampil di sini untuk inspeksi pengembalian.'
+              )}
             />
           ) : (
             postRentalBookings.map((booking) => {
@@ -530,7 +578,7 @@ export function InspectionsPage() {
                         ) : null}
                         {overdue.isOverdue ? (
                           <span className="font-mono text-[11px] font-medium text-red-700">
-                            +{overdue.billableLateHours}h late · Est. Fine{' '}
+                            +{overdue.billableLateHours}h {tx('late · Est. Fine', 'telat · Est. Denda')}{' '}
                             <CurrencyText amount={overdue.estimatedFine} />
                           </span>
                         ) : null}
@@ -545,7 +593,7 @@ export function InspectionsPage() {
                             }
                           >
                             <AlertTriangle className="h-3.5 w-3.5" strokeWidth={1.5} />
-                            Flag Overdue &amp; Post Fine
+                            {tx('Flag Overdue & Post Fine', 'Tandai Overdue & Catat Denda')}
                           </Button>
                         ) : null}
                         <Button
@@ -558,13 +606,13 @@ export function InspectionsPage() {
                           }}
                         >
                           <ShieldAlert className="h-3.5 w-3.5 text-red-600" strokeWidth={1.5} />
-                          Report Damage
+                          {tx('Report Damage', 'Laporkan Kerusakan')}
                         </Button>
                         <Button size="sm" onClick={() => void handleCleanReturn(booking)}>
                           <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={1.5} />
                           {overdue.isOverdue && booking.overdueFine === 0
-                            ? `Return + Denda Telat`
-                            : 'Clean Return & Refund'}
+                            ? tx('Return + Overdue Fine', 'Kembali + Denda Telat')
+                            : tx('Clean Return & Refund', 'Kembali Baik & Refund')}
                         </Button>
                       </div>
                     </div>
@@ -572,10 +620,11 @@ export function InspectionsPage() {
                   <CardContent className="grid grid-cols-1 gap-4 pt-3 text-xs md:grid-cols-2">
                     <div className="rounded border border-zinc-200 bg-zinc-50 p-3">
                       <p className="font-mono text-[10px] uppercase text-zinc-400">
-                        Pre-Rental Baseline
+                        {tx('Pre-Rental Baseline', 'Catatan Awal Pra-Sewa')}
                       </p>
                       <p className="mt-1 text-zinc-700">
-                        {booking.preRentalChecklist?.notes ?? 'No baseline notes recorded.'}
+                        {booking.preRentalChecklist?.notes ??
+                          tx('No baseline notes recorded.', 'Belum ada catatan baseline.')}
                       </p>
                       <div className="mt-2 flex flex-wrap gap-1">
                         {booking.items.map((item) => (
@@ -585,17 +634,17 @@ export function InspectionsPage() {
                     </div>
                     <div className="rounded border border-zinc-200 bg-white p-3 font-mono text-[11px] space-y-1">
                       <div className="flex justify-between">
-                        <span className="text-zinc-400">DUE RETURN</span>
+                        <span className="text-zinc-400">{tx('DUE RETURN', 'JADWAL KEMBALI')}</span>
                         <span>{formatDateTime(booking.endDate)}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-zinc-400">
-                          GRACE DEADLINE ({overdue.effectiveGraceMinutes}m)
+                          {tx('GRACE DEADLINE', 'BATAS GRACE')} ({overdue.effectiveGraceMinutes}m)
                         </span>
                         <span>{formatDateTime(overdue.graceDeadline)}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-zinc-400">DEPOSIT HELD</span>
+                        <span className="text-zinc-400">{tx('DEPOSIT HELD', 'DEPOSIT DITAHAN')}</span>
                         <CurrencyText amount={booking.deposit} />
                       </div>
                     </div>
@@ -610,8 +659,11 @@ export function InspectionsPage() {
           {damageReports.length === 0 ? (
             <EmptyState
               icon={ShieldAlert}
-              title="No damage incidents filed"
-              description="Post-rental damage assessments and deposit deductions are logged here."
+              title={tx('No damage incidents filed', 'Belum ada laporan kerusakan')}
+              description={tx(
+                'Post-rental damage assessments and deposit deductions are logged here.',
+                'Penilaian kerusakan pasca-sewa dan pemotongan deposit dicatat di sini.'
+              )}
             />
           ) : (
             damageReports.map((rep) => (
@@ -628,14 +680,16 @@ export function InspectionsPage() {
                   </div>
                   <div className="text-right font-mono text-[11px]">
                     <p className="font-semibold text-zinc-950">
-                      Repair: <CurrencyText amount={rep.repairCost} />
+                      {tx('Repair:', 'Perbaikan:')} <CurrencyText amount={rep.repairCost} />
                     </p>
                     <p className="text-zinc-500">
-                      From Deposit: <CurrencyText amount={rep.deductedFromDeposit} />
+                      {tx('From Deposit:', 'Potong Deposit:')}{' '}
+                      <CurrencyText amount={rep.deductedFromDeposit} />
                     </p>
                     {rep.extraFineAmount > 0 ? (
                       <p className="text-red-700">
-                        Extra Fine: <CurrencyText amount={rep.extraFineAmount} />
+                        {tx('Extra Fine:', 'Denda Tambahan:')}{' '}
+                        <CurrencyText amount={rep.extraFineAmount} />
                       </p>
                     ) : null}
                   </div>
@@ -650,21 +704,30 @@ export function InspectionsPage() {
       <Dialog open={Boolean(handoverTarget)} onOpenChange={(o) => !o && setHandoverTarget(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Pre-Rental Handover — {handoverTarget?.invoiceNumber}</DialogTitle>
+            <DialogTitle>
+              {tx('Pre-Rental Handover', 'Serah Terima Pra-Sewa')} — {handoverTarget?.invoiceNumber}
+            </DialogTitle>
             <DialogDescription>
-              Log baseline gear condition before handing over serialized equipment.
+              {tx(
+                'Log baseline gear condition before handing over serialized equipment.',
+                'Catat kondisi awal perangkat sebelum menyerahkan unit bernomor seri.'
+              )}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
-              <Label>Handover Condition Notes &amp; Accessories Check</Label>
+              <Label>
+                {tx('Handover Condition Notes & Accessories Check', 'Catatan Kondisi & Kelengkapan Aksesoris')}
+              </Label>
               <Textarea
                 value={handoverNotes}
                 onChange={(e) => setHandoverNotes(e.target.value)}
               />
             </div>
             <div className="space-y-1">
-              <Label>Handover Photo URLs (one per line, optional)</Label>
+              <Label>
+                {tx('Handover Photo URLs (one per line, optional)', 'URL Foto Serah Terima (satu per baris, opsional)')}
+              </Label>
               <Textarea
                 placeholder="https://..."
                 value={handoverPhotosText}
@@ -674,10 +737,10 @@ export function InspectionsPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => void handleSavePreRentalChecklist(false)}>
-              Save Checklist Only
+              {tx('Save Checklist Only', 'Simpan Checklist Saja')}
             </Button>
             <Button onClick={() => void handleSavePreRentalChecklist(true)}>
-              Save &amp; Start Active Rent
+              {tx('Save & Start Active Rent', 'Simpan & Mulai Masa Sewa')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -687,19 +750,19 @@ export function InspectionsPage() {
       <Dialog open={Boolean(damageTarget)} onOpenChange={(o) => !o && setDamageTarget(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Post-Rental Damage Assessment</DialogTitle>
+            <DialogTitle>{tx('Post-Rental Damage Assessment', 'Penilaian Kerusakan Pasca-Sewa')}</DialogTitle>
             <DialogDescription>
-              {damageTarget?.invoiceNumber} · Deposit held:{' '}
+              {damageTarget?.invoiceNumber} · {tx('Deposit held:', 'Deposit ditahan:')}{' '}
               <CurrencyText amount={damageTarget?.deposit ?? 0} />
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-3">
             <div className="space-y-1">
-              <Label>Affected Physical Unit (SN)</Label>
+              <Label>{tx('Affected Physical Unit (SN)', 'Unit Fisik Terdampak (SN)')}</Label>
               <Select value={damageUnitId} onValueChange={setDamageUnitId}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select unit..." />
+                  <SelectValue placeholder={tx('Select unit...', 'Pilih unit...')} />
                 </SelectTrigger>
                 <SelectContent>
                   {damageTarget?.items.map((item) => (
@@ -713,7 +776,7 @@ export function InspectionsPage() {
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <Label>Severity</Label>
+                <Label>{tx('Severity', 'Tingkat Kerusakan')}</Label>
                 <Select
                   value={damageSeverity}
                   onValueChange={(v) => setDamageSeverity(v as DamageReport['severity'])}
@@ -722,14 +785,14 @@ export function InspectionsPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="minor">Minor</SelectItem>
-                    <SelectItem value="major">Major</SelectItem>
-                    <SelectItem value="total_loss">Total Loss</SelectItem>
+                    <SelectItem value="minor">{tx('Minor', 'Ringan')}</SelectItem>
+                    <SelectItem value="major">{tx('Major', 'Berat')}</SelectItem>
+                    <SelectItem value="total_loss">{tx('Total Loss', 'Hilang / Rusak Total')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-1">
-                <Label>Repair Cost (IDR)</Label>
+                <Label>{tx('Repair Cost (IDR)', 'Biaya Perbaikan (IDR)')}</Label>
                 <Input
                   type="number"
                   className="font-mono"
@@ -741,13 +804,17 @@ export function InspectionsPage() {
 
             <div className="rounded-md border border-zinc-200 bg-zinc-50 p-2.5 font-mono text-[11px] space-y-1">
               <div className="flex justify-between">
-                <span className="text-zinc-500">DEDUCTED FROM DEPOSIT</span>
+                <span className="text-zinc-500">
+                  {tx('DEDUCTED FROM DEPOSIT', 'DIPOTONG DARI DEPOSIT')}
+                </span>
                 <CurrencyText
                   amount={Math.min(damageRepairCost, damageTarget?.deposit ?? 0)}
                 />
               </div>
               <div className="flex justify-between">
-                <span className="text-zinc-500">EXTRA FINE BILLABLE</span>
+                <span className="text-zinc-500">
+                  {tx('EXTRA FINE BILLABLE', 'DENDA TAMBAHAN DITAGIH')}
+                </span>
                 <CurrencyText
                   amount={Math.max(0, damageRepairCost - (damageTarget?.deposit ?? 0))}
                   className="text-red-700"
@@ -756,16 +823,21 @@ export function InspectionsPage() {
             </div>
 
             <div className="space-y-1">
-              <Label>Damage Description</Label>
+              <Label>{tx('Damage Description', 'Deskripsi Kerusakan')}</Label>
               <Textarea
-                placeholder="e.g., Front optical element scratch on RF 24-70mm f/2.8L..."
+                placeholder={tx(
+                  'e.g., Front optical element scratch on RF 24-70mm f/2.8L...',
+                  'mis. Goresan elemen optik depan pada RF 24-70mm f/2.8L...'
+                )}
                 value={damageDesc}
                 onChange={(e) => setDamageDesc(e.target.value)}
               />
             </div>
 
             <div className="space-y-1">
-              <Label>Evidence Photo URLs (optional, one per line)</Label>
+              <Label>
+                {tx('Evidence Photo URLs (optional, one per line)', 'URL Foto Bukti (opsional, satu per baris)')}
+              </Label>
               <Textarea
                 placeholder="https://..."
                 value={damagePhotosText}
@@ -776,10 +848,10 @@ export function InspectionsPage() {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setDamageTarget(null)}>
-              Cancel
+              {tx('Cancel', 'Batal')}
             </Button>
             <Button variant="destructive" onClick={() => void handleSubmitDamageReport()}>
-              Log Damage &amp; Move Unit to Maintenance
+              {tx('Log Damage & Move Unit to Maintenance', 'Catat Kerusakan & Pindah ke Maintenance')}
             </Button>
           </DialogFooter>
         </DialogContent>

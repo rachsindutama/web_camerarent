@@ -15,6 +15,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useI18n } from '@/hooks/useI18n';
+import { txStatic } from '@/lib/i18n';
 import {
   Dialog,
   DialogContent,
@@ -57,7 +59,8 @@ const TILE_LAYERS = {
 
 function createPinIcon(variant: 'branch' | 'delivery'): L.DivIcon {
   const color = variant === 'branch' ? '#18181b' : '#2563eb';
-  const label = variant === 'branch' ? 'CABANG' : 'TUJUAN';
+  const label =
+    variant === 'branch' ? txStatic('BRANCH', 'CABANG') : txStatic('DESTINATION', 'TUJUAN');
   return L.divIcon({
     className: 'camerarent-map-pin',
     html: `
@@ -85,6 +88,7 @@ export function LocationPickerModal({
   title,
   onConfirm,
 }: LocationPickerModalProps) {
+  const { tx } = useI18n();
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
@@ -252,7 +256,7 @@ export function LocationPickerModal({
 
   const handleUseCurrentGps = () => {
     if (!navigator.geolocation) {
-      toast.error('Browser tidak mendukung GPS / Geolocation.');
+      toast.error(tx('Browser does not support GPS / Geolocation.', 'Browser tidak mendukung GPS / Geolocation.'));
       return;
     }
     setLocatingGps(true);
@@ -265,11 +269,11 @@ export function LocationPickerModal({
         void updatePinPosition(next);
         mapRef.current?.setView([next.lat, next.lng], 16, { animate: true });
         setLocatingGps(false);
-        toast.success('Lokasi GPS Shareloc berhasil dikunci.');
+        toast.success(tx('GPS location pinned successfully.', 'Lokasi GPS Shareloc berhasil dikunci.'));
       },
       (err) => {
         setLocatingGps(false);
-        toast.error(`Gagal mengambil lokasi GPS: ${err.message}`);
+        toast.error(tx(`Failed to fetch GPS location: ${err.message}`, `Gagal mengambil lokasi GPS: ${err.message}`));
       },
       { enableHighAccuracy: true, timeout: 10000 }
     );
@@ -284,7 +288,7 @@ export function LocationPickerModal({
       setSearchResults([]);
       await updatePinPosition(parsedCoords);
       mapRef.current?.setView([parsedCoords.lat, parsedCoords.lng], 16, { animate: true });
-      toast.success('Koordinat dari link Google Maps berhasil diterapkan.');
+      toast.success(tx('Coordinates from Google Maps link applied.', 'Koordinat dari link Google Maps berhasil diterapkan.'));
       return;
     }
 
@@ -293,7 +297,7 @@ export function LocationPickerModal({
     setSearchResults(results);
     setSearching(false);
     if (results.length === 0) {
-      toast.info('Lokasi tidak ditemukan. Coba kata kunci lain atau geser pin di peta.');
+      toast.info(tx('Location not found. Try another keyword or drag the map pin.', 'Lokasi tidak ditemukan. Coba kata kunci lain atau geser pin di peta.'));
     }
   };
 
@@ -313,13 +317,19 @@ export function LocationPickerModal({
             <MapPin className="h-4 w-4 text-primary" strokeWidth={1.5} />
             {title ??
               (readOnly
-                ? 'Delivery Pin Location'
-                : 'Pin Delivery / Shooting Set Location')}
+                ? tx('Delivery Pin Location', 'Titik Lokasi Pengiriman')
+                : tx('Pin Delivery / Shooting Set Location', 'Pilih Titik Lokasi Pengiriman / Syuting'))}
           </DialogTitle>
           <DialogDescription>
             {readOnly
-              ? `Rute dari ${branchName} (${distanceKm} km estimasi jarak jalan).`
-              : 'Klik peta, geser pin, cari nama jalan/gedung, tempel link Google Maps, atau klik Shareloc GPS.'}
+              ? tx(
+                  `Route from ${branchName} (${distanceKm} km estimated road distance).`,
+                  `Rute dari ${branchName} (${distanceKm} km estimasi jarak jalan).`
+                )
+              : tx(
+                  'Click the map, drag the pin, search a street/building, paste a Google Maps link, or use GPS Shareloc.',
+                  'Klik peta, geser pin, cari nama jalan/gedung, tempel link Google Maps, atau klik Shareloc GPS.'
+                )}
           </DialogDescription>
         </DialogHeader>
 
@@ -332,14 +342,17 @@ export function LocationPickerModal({
                   strokeWidth={1.5}
                 />
                 <Input
-                  placeholder="Cari alamat (mis. Tunjungan Plaza Surabaya) atau tempel link Google Maps..."
+                  placeholder={tx(
+                    'Search address (e.g. Tunjungan Plaza Surabaya) or paste Google Maps link...',
+                    'Cari alamat (mis. Tunjungan Plaza Surabaya) atau tempel link Google Maps...'
+                  )}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-8"
                 />
               </div>
               <Button type="submit" variant="outline" size="sm" disabled={searching}>
-                {searching ? 'Mencari...' : 'Cari'}
+                {searching ? tx('Searching...', 'Mencari...') : tx('Search', 'Cari')}
               </Button>
               <Button
                 type="button"
@@ -349,7 +362,7 @@ export function LocationPickerModal({
                 onClick={handleUseCurrentGps}
               >
                 <Crosshair className="h-3.5 w-3.5" strokeWidth={1.5} />
-                {locatingGps ? 'Mencari GPS...' : 'Shareloc (GPS)'}
+                {locatingGps ? tx('Locating GPS...', 'Mencari GPS...') : tx('GPS Shareloc', 'Shareloc (GPS)')}
               </Button>
             </form>
 
@@ -388,7 +401,7 @@ export function LocationPickerModal({
               }`}
             >
               <Layers className="h-3 w-3" strokeWidth={1.5} />
-              Peta Jalan
+              {tx('Street Map', 'Peta Jalan')}
             </button>
             <button
               type="button"
@@ -399,7 +412,7 @@ export function LocationPickerModal({
                   : 'text-zinc-600 hover:bg-zinc-100'
               }`}
             >
-              Satelit
+              {tx('Satellite', 'Satelit')}
             </button>
           </div>
         </div>
@@ -408,26 +421,31 @@ export function LocationPickerModal({
         <div className="grid grid-cols-1 gap-3 rounded-md border border-zinc-200 bg-zinc-50 p-3 sm:grid-cols-12">
           <div className="space-y-1 sm:col-span-7">
             <Label className="font-mono text-[10px] uppercase text-zinc-500">
-              {resolvingAddress ? 'Mengambil nama jalan...' : 'Alamat Lengkap / Catatan Lokasi'}
+              {resolvingAddress
+                ? tx('Resolving street address...', 'Mengambil nama jalan...')
+                : tx('Full Address / Location Notes', 'Alamat Lengkap / Catatan Lokasi')}
             </Label>
             <Input
               value={address}
               readOnly={readOnly}
               onChange={(e) => setAddress(e.target.value)}
-              placeholder="Detail studio, lantai, patokan gerbang..."
+              placeholder={tx(
+                'Studio details, floor, gate landmark...',
+                'Detail studio, lantai, patokan gerbang...'
+              )}
               className="bg-white"
             />
           </div>
           <div className="flex flex-col justify-center space-y-1 font-mono text-[11px] sm:col-span-5">
             <div className="flex items-center justify-between">
-              <span className="text-zinc-400">KOORDINAT</span>
+              <span className="text-zinc-400">{tx('COORDINATES', 'KOORDINAT')}</span>
               <span className="text-zinc-900">
                 {pinCoords.lat.toFixed(5)}, {pinCoords.lng.toFixed(5)}
               </span>
             </div>
             {!singlePinMode ? (
               <div className="flex items-center justify-between">
-                <span className="text-zinc-400">EST. JARAK</span>
+                <span className="text-zinc-400">{tx('EST. DISTANCE', 'EST. JARAK')}</span>
                 <span className="font-semibold text-primary">{distanceKm} km</span>
               </div>
             ) : null}
@@ -445,13 +463,13 @@ export function LocationPickerModal({
               rel="noreferrer"
             >
               <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.5} />
-              Buka di Google Maps
+              {tx('Open in Google Maps', 'Buka di Google Maps')}
             </a>
           </Button>
 
           <div className="flex items-center gap-2">
             <Button type="button" variant="outline" size="sm" onClick={() => onOpenChange(false)}>
-              {readOnly ? 'Close' : 'Cancel'}
+              {readOnly ? tx('Close', 'Tutup') : tx('Cancel', 'Batal')}
             </Button>
             {!readOnly && onConfirm ? (
               <Button
@@ -469,8 +487,11 @@ export function LocationPickerModal({
               >
                 <Navigation className="h-3.5 w-3.5" strokeWidth={1.5} />
                 {singlePinMode
-                  ? 'Simpan Koordinat Cabang'
-                  : `Gunakan Titik Lokasi Ini (${distanceKm} km)`}
+                  ? tx('Save Branch Coordinates', 'Simpan Koordinat Cabang')
+                  : tx(
+                      `Use This Location (${distanceKm} km)`,
+                      `Gunakan Titik Lokasi Ini (${distanceKm} km)`
+                    )}
               </Button>
             ) : null}
           </div>

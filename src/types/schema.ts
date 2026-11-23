@@ -3,17 +3,6 @@ import { Timestamp } from 'firebase/firestore';
 export type UserRole = 'superadmin' | 'admin' | 'user';
 export type StaffRole = 'courier' | 'technician' | 'admin_ops';
 export type MembershipTier = 'basic' | 'premium';
-
-export interface MembershipBenefitConfig {
-  tier: MembershipTier;
-  label: string;
-  rentalDiscountPercent: number;
-  depositDiscountPercent: number;
-  extraOverdueGraceMinutes: number;
-  freeDeliveryKm: number;
-  maxUnitsPerBooking: number | null;
-  prioritySupport: boolean;
-}
 export type KycStatus = 'unverified' | 'pending' | 'verified' | 'rejected';
 export type UnitCondition = 'mint' | 'good' | 'fair' | 'damaged';
 export type UnitStatus = 'available' | 'rented' | 'maintenance';
@@ -44,7 +33,6 @@ export interface Tenant {
   bufferHours: number;                 // e.g., 3 hours turnaround for charging/cleaning
   overdueGraceMinutes: number;         // e.g., 60 minutes grace period
   overdueHourlyRatePercent: number;    // e.g., 10% of dailyRate per late hour
-  membershipTiers?: Record<MembershipTier, MembershipBenefitConfig>; // Optional branch-specific tier config
   bankDetails: { bankName: string; accountNumber: string; accountHolder: string };
   status: 'active' | 'suspended';
   createdAt: Timestamp;

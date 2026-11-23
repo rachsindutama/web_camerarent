@@ -33,6 +33,7 @@ import {
 import { estimateRoadDistanceKm, reverseGeocode } from '@/lib/geo';
 import { calculateTierPricing, formatTierSummaryParts, getMembershipBenefits } from '@/lib/membership';
 import { useAuth } from '@/hooks/useAuth';
+import { useI18n } from '@/hooks/useI18n';
 import { usePlatformSettings } from '@/hooks/usePlatformSettings';
 import { useTenant } from '@/hooks/useTenant';
 import { useAvailability } from '@/hooks/useAvailability';
@@ -59,14 +60,14 @@ import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { BookingItem, Bundle, Equipment, UserProfile } from '@/types/schema';
 
-const CATALOG_CATEGORIES: { value: string; label: string }[] = [
-  { value: 'all', label: 'Semua' },
-  { value: 'camera', label: 'Camera' },
-  { value: 'lens', label: 'Lens' },
-  { value: 'lighting', label: 'Lighting' },
-  { value: 'audio', label: 'Audio' },
-  { value: 'stabilizer', label: 'Stabilizer' },
-  { value: 'accessory', label: 'Accessory' },
+const CATALOG_CATEGORIES: { value: string; labelEn: string; labelId: string }[] = [
+  { value: 'all', labelEn: 'All', labelId: 'Semua' },
+  { value: 'camera', labelEn: 'Camera', labelId: 'Kamera' },
+  { value: 'lens', labelEn: 'Lens', labelId: 'Lensa' },
+  { value: 'lighting', labelEn: 'Lighting', labelId: 'Lighting' },
+  { value: 'audio', labelEn: 'Audio', labelId: 'Audio' },
+  { value: 'stabilizer', labelEn: 'Stabilizer', labelId: 'Stabilizer' },
+  { value: 'accessory', labelEn: 'Accessory', labelId: 'Aksesori' },
 ];
 
 interface CatalogPageProps {
@@ -77,6 +78,7 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { userProfile } = useAuth();
+  const { tx } = useI18n();
   const { settings } = usePlatformSettings();
   const {
     activeTenant: scopedTenant,
@@ -244,7 +246,7 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
   if (loadingTenants) {
     return (
       <div className="rounded-md border border-zinc-200 bg-white p-10 text-center text-xs text-muted-foreground">
-        Memuat cabang &amp; katalog alat...
+        {tx('Loading branch & equipment catalog...', 'Memuat cabang & katalog alat...')}
       </div>
     );
   }
@@ -253,8 +255,11 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
     return (
       <EmptyState
         icon={Camera}
-        title="No active rental house available"
-        description="Select a rental branch from the topbar switcher or provision one in Superadmin → Tenants."
+        title={tx('No active rental house available', 'Belum ada cabang aktif')}
+        description={tx(
+          'Select a rental branch from the topbar switcher or provision one in Superadmin → Tenants.',
+          'Pilih cabang rental di topbar atau tambahkan cabang di menu Superadmin → Cabang.'
+        )}
       />
     );
   }
@@ -303,7 +308,12 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
 
   const handleQuickShareloc = () => {
     if (!navigator.geolocation) {
-      toast.error('Browser tidak mendukung GPS / Shareloc. Gunakan Pin on Map.');
+      toast.error(
+        tx(
+          'Browser does not support GPS / Shareloc. Use Pin on Map instead.',
+          'Browser tidak mendukung GPS / Shareloc. Gunakan Pin di Peta.'
+        )
+      );
       setMapPickerOpen(true);
       return;
     }
@@ -319,11 +329,21 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
           distanceKm: dist,
         });
         setLocatingShareloc(false);
-        toast.success(`Shareloc GPS dikunci (${dist} km dari ${activeTenant.name}).`);
+        toast.success(
+          tx(
+            `GPS location locked (${dist} km from ${activeTenant.name}).`,
+            `Shareloc GPS dikunci (${dist} km dari ${activeTenant.name}).`
+          )
+        );
       },
       (err) => {
         setLocatingShareloc(false);
-        toast.error(`GPS gagal (${err.message}). Pilih titik secara manual di peta.`);
+        toast.error(
+          tx(
+            `GPS failed (${err.message}). Pin your location manually on the map.`,
+            `GPS gagal (${err.message}). Pilih titik secara manual di peta.`
+          )
+        );
         setMapPickerOpen(true);
       },
       { enableHighAccuracy: true, timeout: 10000 }
@@ -332,7 +352,9 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
 
   const handleCheckout = async () => {
     if (!startDate || !endDate || !isValidRange) {
-      toast.error('Select a valid start and return date range.');
+      toast.error(
+        tx('Select a valid start and return date range.', 'Pilih rentang tanggal mulai dan kembali yang valid.')
+      );
       return;
     }
     if (!userProfile) {
@@ -346,29 +368,54 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
     }
     if (isOperator) {
       if (!selectedRenter) {
-        toast.error('Pilih penyewa (member) terlebih dahulu di kolom Booking Draft.');
+        toast.error(
+          tx(
+            'Select a renter (member) first in the Booking Draft panel.',
+            'Pilih penyewa (member) terlebih dahulu di kolom Booking Draft.'
+          )
+        );
         return;
       }
       if (selectedRenter.isBlacklisted) {
-        toast.error('Member ini masuk Global Blacklist dan tidak dapat melakukan booking.');
+        toast.error(
+          tx(
+            'This member is on the Global Blacklist and cannot place bookings.',
+            'Member ini masuk Global Blacklist dan tidak dapat melakukan booking.'
+          )
+        );
         return;
       }
     } else if (!isKycVerified) {
-      toast.error('Verified KYC is required before booking checkout.');
+      toast.error(
+        tx(
+          'Verified KYC is required before booking checkout.',
+          'Verifikasi KYC wajib diselesaikan sebelum checkout booking.'
+        )
+      );
       return;
     }
     if (exceedsUnitLimit) {
       toast.error(
-        `Basic members are limited to ${tierBenefits.maxUnitsPerBooking} units per booking. Upgrade to Premium for unlimited units.`
+        tx(
+          `Basic members are limited to ${tierBenefits.maxUnitsPerBooking} units per booking. Upgrade to Premium for unlimited units.`,
+          `Member Basic dibatasi maksimal ${tierBenefits.maxUnitsPerBooking} unit per booking. Upgrade ke Premium untuk unit tak terbatas.`
+        )
       );
       return;
     }
     if (logisticsType === 'delivery' && !deliveryCoordinates) {
-      toast.error('Tentukan titik lokasi via Pin di Peta atau Shareloc GPS terlebih dahulu.');
+      toast.error(
+        tx(
+          'Pin a delivery location on the map or use GPS Shareloc first.',
+          'Tentukan titik lokasi via Pin di Peta atau Shareloc GPS terlebih dahulu.'
+        )
+      );
       return;
     }
     if (logisticsType === 'delivery' && deliveryAddress.trim().length < 8) {
-      toast.error('Enter the full Antar-Jemput delivery address.');
+      toast.error(
+        tx('Enter the full delivery address.', 'Masukkan alamat pengiriman lengkap.')
+      );
       return;
     }
 
@@ -465,19 +512,31 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
       await queryClient.invalidateQueries({ queryKey: ['bookings'] });
       if (isOperator && selectedRenter) {
         toast.success(
-          `Booking berhasil dibuat atas nama ${selectedRenter.displayName}. Lanjutkan verifikasi di menu Bookings.`
+          tx(
+            `Booking created for ${selectedRenter.displayName}. Proceed to verification in Bookings.`,
+            `Booking berhasil dibuat atas nama ${selectedRenter.displayName}. Lanjutkan verifikasi di menu Booking.`
+          )
         );
         setSelectedRenterUid('');
         navigate('/admin/bookings');
       } else {
         toast.success(
-          'Booking locked with serial numbers allocated. Upload transfer proof to confirm.'
+          tx(
+            'Booking locked with serial numbers allocated. Upload transfer proof to confirm.',
+            'Booking terkunci dengan nomor seri teralokasi. Unggah bukti transfer untuk konfirmasi.'
+          )
         );
         navigate('/bookings');
       }
     } catch (error) {
       console.error('Checkout error:', error);
-      toast.error((error as Error).message || 'Unable to allocate equipment for selected dates.');
+      toast.error(
+        (error as Error).message ||
+          tx(
+            'Unable to allocate equipment for selected dates.',
+            'Gagal mengalokasikan alat untuk tanggal yang dipilih.'
+          )
+      );
     } finally {
       setSubmitting(false);
     }
@@ -503,16 +562,33 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
     );
   });
 
+  const isDefaultHeading =
+    settings.seo.catalogHeading === 'Camera & Production Gear Catalog' ||
+    settings.seo.catalogHeading === 'Katalog Kamera & Gear Produksi';
+  const isDefaultSubtitle =
+    settings.seo.catalogSubtitle.startsWith('Browse cinema cameras') ||
+    settings.seo.catalogSubtitle.startsWith('Jelajahi kamera');
+
+  const displayHeading = isDefaultHeading
+    ? tx('Camera & Production Gear Catalog', 'Katalog Kamera & Gear Produksi')
+    : settings.seo.catalogHeading;
+  const displaySubtitle = isDefaultSubtitle
+    ? tx(
+        'Browse cinema cameras, lenses, lighting, and production kits available at',
+        'Jelajahi kamera, lensa, lighting, dan paket produksi yang tersedia di'
+      )
+    : settings.seo.catalogSubtitle;
+
   return (
     <div className="space-y-5">
       {/* Storefront Hero & Search Header */}
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div className="space-y-1">
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-            {settings.seo.catalogHeading}
+            {displayHeading}
           </h1>
           <p className="text-sm text-muted-foreground">
-            {settings.seo.catalogSubtitle}{' '}
+            {displaySubtitle}{' '}
             <span className="font-medium text-foreground">({activeTenant.name})</span>
           </p>
         </div>
@@ -523,7 +599,7 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
             strokeWidth={1.5}
           />
           <Input
-            placeholder="Cari kamera, lensa, brand..."
+            placeholder={tx('Search camera, lens, brand...', 'Cari kamera, lensa, brand...')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="bg-background pl-9"
@@ -538,7 +614,7 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
             <CardContent className="grid grid-cols-1 gap-3 p-3.5 sm:grid-cols-12 sm:items-end">
               <div className="space-y-1 sm:col-span-4">
                 <Label className="font-mono text-[10px] uppercase text-zinc-500">
-                  Pickup / Start
+                  {tx('Pickup / Start', 'Ambil / Mulai')}
                 </Label>
                 <Input
                   type="datetime-local"
@@ -549,7 +625,7 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
               </div>
               <div className="space-y-1 sm:col-span-4">
                 <Label className="font-mono text-[10px] uppercase text-zinc-500">
-                  Return / End
+                  {tx('Return / End', 'Kembali / Selesai')}
                 </Label>
                 <Input
                   type="datetime-local"
@@ -562,15 +638,19 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
                 <div className="flex items-center justify-between text-[11px] text-zinc-600">
                   <span className="flex items-center gap-1">
                     <CalendarClock className="h-3 w-3" strokeWidth={1.5} />
-                    Durasi
+                    {tx('Duration', 'Durasi')}
                   </span>
                   <span className="font-mono font-semibold text-zinc-950">
-                    {isValidRange ? `${rentalDays} hari` : 'Rentang tidak valid'}
+                    {isValidRange
+                      ? tx(`${rentalDays} day(s)`, `${rentalDays} hari`)
+                      : tx('Invalid range', 'Rentang tidak valid')}
                   </span>
                 </div>
                 <div className="mt-0.5 flex items-center justify-between font-mono text-[10px] text-zinc-400">
-                  <span>+{activeTenant.bufferHours}j buffer</span>
-                  <span>{checkingAvail ? 'SYNCING' : 'LIVE'}</span>
+                  <span>
+                    {tx(`+${activeTenant.bufferHours}h buffer`, `+${activeTenant.bufferHours}j buffer`)}
+                  </span>
+                  <span>{checkingAvail ? tx('SYNCING', 'MEMERIKSA') : 'LIVE'}</span>
                 </div>
               </div>
             </CardContent>
@@ -580,7 +660,7 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
             <div className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-900">
               <div className="flex items-center gap-2 font-semibold">
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} />
-                <span>Availability Check Error</span>
+                <span>{tx('Availability Check Error', 'Gagal Memeriksa Ketersediaan')}</span>
               </div>
               <p className="mt-1 break-all font-mono text-[11px] text-red-800">
                 {(availabilityError as Error).message}
@@ -595,8 +675,12 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
           >
             <div className="flex flex-wrap items-center justify-between gap-3">
               <TabsList>
-                <TabsTrigger value="gear">Gear Satuan ({filteredEquipment.length})</TabsTrigger>
-                <TabsTrigger value="bundles">Paket Kit ({filteredBundles.length})</TabsTrigger>
+                <TabsTrigger value="gear">
+                  {tx('Individual Gear', 'Gear Satuan')} ({filteredEquipment.length})
+                </TabsTrigger>
+                <TabsTrigger value="bundles">
+                  {tx('Production Kits', 'Paket Kit')} ({filteredBundles.length})
+                </TabsTrigger>
               </TabsList>
 
               {catalogTab === 'gear' ? (
@@ -612,7 +696,7 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
                           : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'
                       }`}
                     >
-                      {cat.label}
+                      {tx(cat.labelEn, cat.labelId)}
                     </button>
                   ))}
                 </div>
@@ -622,13 +706,19 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
             <TabsContent value="gear" className="mt-0">
               {loadingEq ? (
                 <div className="rounded-md border border-zinc-200 bg-white p-10 text-center text-xs text-muted-foreground">
-                  Memeriksa ketersediaan stok real-time...
+                  {tx(
+                    'Checking real-time unit availability...',
+                    'Memeriksa ketersediaan stok real-time...'
+                  )}
                 </div>
               ) : filteredEquipment.length === 0 ? (
                 <EmptyState
                   icon={Camera}
-                  title="Belum ada gear yang sesuai"
-                  description="Coba ubah filter kategori, cabang, atau kata kunci pencarian."
+                  title={tx('No matching gear found', 'Belum ada gear yang sesuai')}
+                  description={tx(
+                    'Try changing the category filter, rental branch, or search keyword.',
+                    'Coba ubah filter kategori, cabang, atau kata kunci pencarian.'
+                  )}
                 />
               ) : (
                 <div
@@ -665,7 +755,7 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
                                 );
                               }}
                               className="group relative block h-full w-full focus:outline-none"
-                              title="Klik untuk memperbesar foto"
+                              title={tx('Click to zoom photo', 'Klik untuk memperbesar foto')}
                             >
                               <img
                                 src={coverImage}
@@ -678,7 +768,7 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
                               />
                               <span className="pointer-events-none absolute bottom-2 right-2 inline-flex items-center gap-1 rounded-md border bg-background/90 px-1.5 py-0.5 text-[10px] font-medium text-foreground opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
                                 <ZoomIn className="h-3 w-3" strokeWidth={1.5} />
-                                Preview
+                                {tx('Preview', 'Pratinjau')}
                               </span>
                             </button>
                           ) : (
@@ -701,10 +791,10 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
                               }
                               label={
                                 availUnits.length > 0
-                                  ? `${availUnits.length} free`
+                                  ? tx(`${availUnits.length} free`, `${availUnits.length} tersedia`)
                                   : eq.totalUnits === 0
-                                    ? 'No SN'
-                                    : '0 free'
+                                    ? tx('No SN', 'Tanpa SN')
+                                    : tx('0 free', '0 tersedia')
                               }
                             />
                           </div>
@@ -742,10 +832,14 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
                                   amount={eq.dailyRate}
                                   className="text-sm font-semibold text-foreground"
                                 />
-                                <span className="text-xs text-muted-foreground"> / hari</span>
+                                <span className="text-xs text-muted-foreground">
+                                  {' '}
+                                  {tx('/ day', '/ hari')}
+                                </span>
                               </div>
                               <span className="text-[11px] text-muted-foreground">
-                                Deposit <CurrencyText amount={eq.depositAmount} />
+                                {tx('Deposit', 'Deposit')}{' '}
+                                <CurrencyText amount={eq.depositAmount} />
                               </span>
                             </div>
 
@@ -760,7 +854,10 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
                                   <Minus className="h-3.5 w-3.5" strokeWidth={1.5} />
                                 </Button>
                                 <span className="font-mono text-xs font-semibold text-foreground">
-                                  {inCartQty} di Booking Draft
+                                  {tx(
+                                    `${inCartQty} in Booking Draft`,
+                                    `${inCartQty} di Booking Draft`
+                                  )}
                                 </span>
                                 <Button
                                   variant="ghost"
@@ -796,7 +893,7 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
                                 }
                               >
                                 <Plus className="h-3.5 w-3.5" strokeWidth={1.5} />
-                                Tambah ke Booking
+                                {tx('Add to Booking', 'Tambah ke Booking')}
                               </Button>
                             )}
                           </div>
@@ -812,8 +909,11 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
               {filteredBundles.length === 0 ? (
                 <EmptyState
                   icon={Package}
-                  title="Belum ada paket kit tersedia"
-                  description="Paket produksi untuk cabang terpilih belum tersedia saat ini."
+                  title={tx('No production kits available', 'Belum ada paket kit tersedia')}
+                  description={tx(
+                    'Production kits for the selected branch are not available yet.',
+                    'Paket produksi untuk cabang terpilih belum tersedia saat ini.'
+                  )}
                 />
               ) : (
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -841,7 +941,11 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
                             <div className="flex items-start justify-between gap-2">
                               <div>
                                 <p className="text-xs text-muted-foreground">
-                                  {activeTenant.name} · {bundle.equipmentIds.length} item
+                                  {activeTenant.name} ·{' '}
+                                  {tx(
+                                    `${bundle.equipmentIds.length} items`,
+                                    `${bundle.equipmentIds.length} item`
+                                  )}
                                 </p>
                                 <h2 className="mt-0.5 text-base font-semibold text-foreground">
                                   {bundle.name}
@@ -849,7 +953,11 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
                               </div>
                               <StatusBadge
                                 status={kitReady ? 'available' : 'rented'}
-                                label={kitReady ? `${minAvailable} kit free` : 'Unavailable'}
+                                label={
+                                  kitReady
+                                    ? tx(`${minAvailable} kit free`, `${minAvailable} kit tersedia`)
+                                    : tx('Unavailable', 'Tidak Tersedia')
+                                }
                               />
                             </div>
 
@@ -908,7 +1016,10 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
                                   amount={bundle.bundleDailyRate}
                                   className="text-sm font-semibold text-foreground"
                                 />
-                                <span className="text-xs text-muted-foreground"> / hari</span>
+                                <span className="text-xs text-muted-foreground">
+                                  {' '}
+                                  {tx('/ day', '/ hari')}
+                                </span>
                               </div>
                               <span className="text-xs text-muted-foreground">
                                 Deposit <CurrencyText amount={bundle.bundleDeposit} />
@@ -931,11 +1042,11 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
                               }
                             >
                               {alreadyInCart ? (
-                                'Sudah di Booking Draft'
+                                tx('Already in Booking Draft', 'Sudah di Booking Draft')
                               ) : (
                                 <>
                                   <Plus className="h-3.5 w-3.5" strokeWidth={1.5} />
-                                  Book Paket Ini
+                                  {tx('Book This Kit', 'Book Paket Ini')}
                                 </>
                               )}
                             </Button>
@@ -974,7 +1085,7 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
               <div className="space-y-3 rounded-md border bg-muted/30 p-3">
                 {isAllTenants && tenants.length > 1 ? (
                   <div className="space-y-1">
-                    <Label className="text-xs">Cabang Katalog</Label>
+                    <Label className="text-xs">{tx('Catalog Branch', 'Cabang Katalog')}</Label>
                     <Select
                       value={activeTenant.id}
                       onValueChange={(tid) => {
@@ -999,7 +1110,7 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
                 <div className="space-y-1.5">
                   <Label className="flex items-center gap-1.5 text-xs">
                     <UserCheck className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.5} />
-                    Bantu Booking untuk Penyewa (Member)
+                    {tx('Assisted Booking for Renter (Member)', 'Bantu Booking untuk Penyewa (Member)')}
                   </Label>
                   <button
                     type="button"
@@ -1015,7 +1126,7 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
                     >
                       {selectedRenter
                         ? `${selectedRenter.displayName} (${selectedRenter.email})`
-                        : 'Pilih member penyewa...'}
+                        : tx('Select member renter...', 'Pilih member penyewa...')}
                     </span>
                     <ChevronsUpDown
                       className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
@@ -1031,7 +1142,7 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
                           strokeWidth={1.5}
                         />
                         <Input
-                          placeholder="Cari nama, email, atau NIK..."
+                          placeholder={tx('Search name, email, or NIK...', 'Cari nama, email, atau NIK...')}
                           value={renterSearch}
                           onChange={(e) => {
                             setRenterSearch(e.target.value);
@@ -1043,7 +1154,7 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
 
                       {paginatedMembers.length === 0 ? (
                         <p className="py-3 text-center text-xs text-muted-foreground">
-                          Tidak ada member ditemukan.
+                          {tx('No members found.', 'Tidak ada member ditemukan.')}
                         </p>
                       ) : (
                         <div className="divide-y divide-border rounded-md border">
@@ -1085,11 +1196,11 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
                       <div className="flex items-center justify-between text-[11px] text-muted-foreground">
                         <span className="tabular-nums">
                           {filteredMembers.length === 0
-                            ? '0 member'
+                            ? tx('0 members', '0 member')
                             : `${(safeRenterPage - 1) * RENTER_PAGE_SIZE + 1}–${Math.min(
                                 safeRenterPage * RENTER_PAGE_SIZE,
                                 filteredMembers.length
-                              )} dari ${filteredMembers.length}`}
+                              )} ${tx('of', 'dari')} ${filteredMembers.length}`}
                         </span>
                         <div className="flex items-center gap-1">
                           <span className="mr-1 tabular-nums">
@@ -1130,11 +1241,17 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
 
                   {selectedRenter?.isBlacklisted ? (
                     <p className="text-xs font-medium text-destructive">
-                      Member diblokir (Global Blacklist) — tidak dapat dibooking.
+                      {tx(
+                        'Member is blocked (Global Blacklist) — cannot create booking.',
+                        'Member diblokir (Global Blacklist) — tidak dapat dibooking.'
+                      )}
                     </p>
                   ) : selectedRenter && selectedRenter.kycStatus !== 'verified' ? (
                     <p className="text-[11px] text-amber-700">
-                      KYC member belum verified — pastikan KTP fisik dicek saat serah terima.
+                      {tx(
+                        'Member KYC is not verified — verify physical ID card during handover.',
+                        'KYC member belum verified — pastikan KTP fisik dicek saat serah terima.'
+                      )}
                     </p>
                   ) : null}
                 </div>
@@ -1298,7 +1415,7 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
                       : 'border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50'
                   }`}
                 >
-                  <p className="font-medium">Antar-Jemput</p>
+                  <p className="font-medium">{tx('Delivery & Pickup', 'Antar-Jemput')}</p>
                   <p className="font-mono text-[10px] opacity-75">
                     <CurrencyText amount={activeTenant.deliveryRatePerKm} suffix="/km" />
                   </p>
@@ -1316,7 +1433,9 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
                       onClick={() => setMapPickerOpen(true)}
                     >
                       <MapPin className="h-3.5 w-3.5 text-primary" strokeWidth={1.5} />
-                      {deliveryCoordinates ? 'Ubah Pin Map' : 'Pin di Peta'}
+                      {deliveryCoordinates
+                        ? tx('Change Map Pin', 'Ubah Pin Map')
+                        : tx('Pin on Map', 'Pin di Peta')}
                     </Button>
                     <Button
                       type="button"
@@ -1327,7 +1446,9 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
                       onClick={handleQuickShareloc}
                     >
                       <Crosshair className="h-3.5 w-3.5" strokeWidth={1.5} />
-                      {locatingShareloc ? 'Mencari GPS...' : 'Shareloc GPS'}
+                      {locatingShareloc
+                        ? tx('Locating GPS...', 'Mencari GPS...')
+                        : tx('GPS Shareloc', 'Shareloc GPS')}
                     </Button>
                   </div>
 
@@ -1341,15 +1462,22 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
                     </div>
                   ) : (
                     <p className="text-[10px] text-amber-700">
-                      Wajib pin lokasi di peta atau tekan Shareloc GPS agar jarak &amp; ongkir
-                      dikunci otomatis oleh sistem.
+                      {tx(
+                        'Pin a map location or tap GPS Shareloc to automatically lock road distance & delivery fee.',
+                        'Wajib pin lokasi di peta atau tekan Shareloc GPS agar jarak & ongkir dikunci otomatis oleh sistem.'
+                      )}
                     </p>
                   )}
 
                   <div className="space-y-1">
-                    <Label className="text-[11px]">Delivery / Set Address</Label>
+                    <Label className="text-[11px]">
+                      {tx('Delivery / Set Address', 'Alamat Pengiriman / Lokasi Syuting')}
+                    </Label>
                     <Input
-                      placeholder="Studio / shooting location address..."
+                      placeholder={tx(
+                        'Studio / shooting location address...',
+                        'Alamat studio / lokasi syuting...'
+                      )}
                       value={deliveryAddress}
                       onChange={(e) => setDeliveryAddress(e.target.value)}
                       className="bg-white"
@@ -1359,10 +1487,12 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
                     <div className="flex items-center justify-between">
                       <Label className="flex items-center gap-1 text-[11px]">
                         <Lock className="h-3 w-3 text-zinc-400" strokeWidth={1.5} />
-                        Distance from Branch (km)
+                        {tx('Distance from Branch (km)', 'Jarak dari Cabang (km)')}
                       </Label>
                       <span className="font-mono text-[10px] text-zinc-500">
-                        {deliveryCoordinates ? 'LOCKED BY GPS/PIN' : 'PIN REQUIRED'}
+                        {deliveryCoordinates
+                          ? tx('LOCKED BY GPS/PIN', 'TERKUNCI GPS/PIN')
+                          : tx('PIN REQUIRED', 'WAJIB PIN')}
                       </span>
                     </div>
                     <Input
@@ -1373,7 +1503,10 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
                       value={
                         deliveryCoordinates
                           ? `${lockedDistanceKm} km`
-                          : 'Belum ada titik lokasi (Pin / Shareloc)'
+                          : tx(
+                              'No location pinned yet (Pin / Shareloc)',
+                              'Belum ada titik lokasi (Pin / Shareloc)'
+                            )
                       }
                     />
                   </div>
@@ -1386,12 +1519,17 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
             {/* Price Breakdown */}
             <div className="space-y-1.5 text-xs">
               <div className="flex justify-between text-zinc-600">
-                <span>Rental Subtotal</span>
+                <span>{tx('Rental Subtotal', 'Subtotal Sewa')}</span>
                 <CurrencyText amount={pricing.grossSubtotal} />
               </div>
               {pricing.discountAmount > 0 ? (
                 <div className="flex justify-between text-emerald-700">
-                  <span>Member Discount ({tierBenefits.rentalDiscountPercent}%)</span>
+                  <span>
+                    {tx(
+                      `Member Discount (${tierBenefits.rentalDiscountPercent}%)`,
+                      `Diskon Member (${tierBenefits.rentalDiscountPercent}%)`
+                    )}
+                  </span>
                   <span className="font-mono tabular-nums">
                     - <CurrencyText amount={pricing.discountAmount} />
                   </span>
@@ -1399,10 +1537,10 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
               ) : null}
               <div className="flex justify-between text-zinc-600">
                 <span>
-                  Antar-Jemput Fee
+                  {tx('Delivery Fee', 'Biaya Antar-Jemput')}
                   {logisticsType === 'delivery' && tierBenefits.freeDeliveryKm > 0 ? (
                     <span className="ml-1 font-mono text-[10px] text-emerald-700">
-                      ({tierBenefits.freeDeliveryKm}km free)
+                      ({tierBenefits.freeDeliveryKm}km {tx('free', 'gratis')})
                     </span>
                   ) : null}
                 </span>
@@ -1410,7 +1548,7 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
               </div>
               <div className="flex justify-between text-zinc-600">
                 <span>
-                  Refundable Deposit
+                  {tx('Refundable Deposit', 'Deposit Jaminan')}
                   {tierBenefits.depositDiscountPercent > 0 ? (
                     <span className="ml-1 font-mono text-[10px] text-emerald-700">
                       (-{tierBenefits.depositDiscountPercent}%)
@@ -1421,7 +1559,7 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
               </div>
               <Separator />
               <div className="flex justify-between pt-1 text-sm font-semibold text-zinc-950">
-                <span>Total Payable</span>
+                <span>{tx('Total Payable', 'Total Tagihan')}</span>
                 <CurrencyText amount={totalAmount} />
               </div>
             </div>
@@ -1441,14 +1579,17 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
               onClick={() => void handleCheckout()}
             >
               {submitting
-                ? 'Mengalokasikan Unit SN...'
+                ? tx('Allocating Serial Units...', 'Mengalokasikan Unit SN...')
                 : isGuest
-                  ? 'Masuk untuk Checkout'
+                  ? tx('Sign In to Checkout', 'Masuk untuk Checkout')
                   : isOperator
                     ? selectedRenter
-                      ? `Buat Booking — ${selectedRenter.displayName}`
-                      : 'Pilih Penyewa Terlebih Dahulu'
-                    : 'Confirm & Lock Booking'}
+                      ? tx(
+                          `Create Booking — ${selectedRenter.displayName}`,
+                          `Buat Booking — ${selectedRenter.displayName}`
+                        )
+                      : tx('Select Renter First', 'Pilih Penyewa Terlebih Dahulu')
+                    : tx('Confirm & Lock Booking', 'Konfirmasi & Kunci Booking')}
             </Button>
           </CardContent>
         </Card>
@@ -1463,7 +1604,12 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
         initialAddress={deliveryAddress}
         onConfirm={({ coordinates, address, distanceKm }) => {
           setDeliveryLocation({ coordinates, address, distanceKm });
-          toast.success(`Lokasi pengiriman dikunci (${distanceKm} km dari cabang).`);
+          toast.success(
+            tx(
+              `Delivery location locked (${distanceKm} km from branch).`,
+              `Lokasi pengiriman dikunci (${distanceKm} km dari cabang).`
+            )
+          );
         }}
       />
 

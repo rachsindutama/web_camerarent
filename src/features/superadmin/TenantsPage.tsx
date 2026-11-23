@@ -28,6 +28,8 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { db } from '@/lib/firebase';
+import { txStatic } from '@/lib/i18n';
+import { useI18n } from '@/hooks/useI18n';
 import { usePlatformSettings } from '@/hooks/usePlatformSettings';
 import { useTenant } from '@/hooks/useTenant';
 import { seedSampleRentalHouse } from '@/features/superadmin/seedDemoData';
@@ -59,22 +61,33 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { Booking, Tenant, Transaction } from '@/types/schema';
 
 const tenantSchema = z.object({
-  name: z.string().min(2, 'Nama cabang wajib diisi'),
+  name: z.string().min(2, txStatic('Branch name is required', 'Nama cabang wajib diisi')),
   slug: z
     .string()
-    .min(2, 'Slug wajib diisi')
-    .regex(/^[a-z0-9-]+$/, 'Gunakan huruf kecil, angka, dan tanda hubung (-) saja'),
-  address: z.string().min(5, 'Alamat lengkap wajib diisi'),
+    .min(2, txStatic('Slug is required', 'Slug wajib diisi'))
+    .regex(
+      /^[a-z0-9-]+$/,
+      txStatic(
+        'Use lowercase letters, numbers, and hyphens (-) only',
+        'Gunakan huruf kecil, angka, dan tanda hubung (-) saja'
+      )
+    ),
+  address: z.string().min(5, txStatic('Full address is required', 'Alamat lengkap wajib diisi')),
   lat: z.coerce.number().min(-90).max(90),
   lng: z.coerce.number().min(-180).max(180),
-  bankName: z.string().min(2, 'Nama bank wajib diisi'),
-  accountNumber: z.string().min(4, 'Nomor rekening wajib diisi'),
-  accountHolder: z.string().min(2, 'Nama pemilik rekening wajib diisi'),
+  bankName: z.string().min(2, txStatic('Bank name is required', 'Nama bank wajib diisi')),
+  accountNumber: z
+    .string()
+    .min(4, txStatic('Account number is required', 'Nomor rekening wajib diisi')),
+  accountHolder: z
+    .string()
+    .min(2, txStatic('Account holder name is required', 'Nama pemilik rekening wajib diisi')),
 });
 
 type TenantFormValues = z.infer<typeof tenantSchema>;
 
 export function TenantsPage() {
+  const { tx } = useI18n();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { allTenants, isLoading: loadingTenants, setSelectedTenantId } = useTenant();
@@ -174,7 +187,9 @@ export function TenantsPage() {
 
       if (detailTenant) {
         await updateDoc(doc(db, 'tenants', detailTenant.id), basePayload);
-        toast.success(`Data cabang ${values.name} diperbarui.`);
+        toast.success(
+          tx(`Branch ${values.name} updated.`, `Data cabang ${values.name} diperbarui.`)
+        );
         setDetailTab('overview');
       } else {
         const ref = await addDoc(collection(db, 'tenants'), {
@@ -183,19 +198,20 @@ export function TenantsPage() {
           bufferHours: settings.defaultBufferHours,
           overdueGraceMinutes: settings.defaultOverdueGraceMinutes,
           overdueHourlyRatePercent: settings.defaultOverdueHourlyRatePercent,
-          membershipTiers: settings.tiers,
           status: 'active',
           createdAt: serverTimestamp(),
         });
         setSelectedTenantId(ref.id);
-        toast.success(`Cabang ${values.name} berhasil ditambahkan.`);
+        toast.success(
+          tx(`Branch ${values.name} created successfully.`, `Cabang ${values.name} berhasil ditambahkan.`)
+        );
         setCreateDialogOpen(false);
       }
 
       await queryClient.invalidateQueries({ queryKey: ['tenants'] });
     } catch (error) {
       console.error('Failed to save tenant:', error);
-      toast.error('Gagal menyimpan konfigurasi cabang.');
+      toast.error(tx('Failed to save branch configuration.', 'Gagal menyimpan konfigurasi cabang.'));
     }
   };
 
@@ -205,10 +221,14 @@ export function TenantsPage() {
     try {
       await updateDoc(doc(db, 'tenants', tenant.id), { status: nextStatus });
       await queryClient.invalidateQueries({ queryKey: ['tenants'] });
-      toast.success(`${tenant.name} ditandai ${nextStatus === 'active' ? 'aktif' : 'suspended'}.`);
+      toast.success(
+        nextStatus === 'active'
+          ? tx(`${tenant.name} marked as active.`, `${tenant.name} ditandai aktif.`)
+          : tx(`${tenant.name} suspended.`, `${tenant.name} ditandai suspended.`)
+      );
     } catch (error) {
       console.error('Failed to toggle tenant status:', error);
-      toast.error('Gagal mengubah status cabang.');
+      toast.error(tx('Failed to update branch status.', 'Gagal mengubah status cabang.'));
     }
   };
 
@@ -220,10 +240,20 @@ export function TenantsPage() {
       await queryClient.invalidateQueries({ queryKey: ['tenants'] });
       await queryClient.invalidateQueries({ queryKey: ['equipment'] });
       await queryClient.invalidateQueries({ queryKey: ['bundles'] });
-      toast.success('Berhasil menambahkan contoh cabang & inventaris.');
+      toast.success(
+        tx(
+          'Sample branch and inventory seeded successfully.',
+          'Berhasil menambahkan contoh cabang & inventaris.'
+        )
+      );
     } catch (error) {
       console.error('Seed error:', error);
-      toast.error('Gagal seed cabang contoh. Pastikan login sebagai Superadmin.');
+      toast.error(
+        tx(
+          'Failed to seed sample branch. Ensure you are signed in as Superadmin.',
+          'Gagal seed cabang contoh. Pastikan login sebagai Superadmin.'
+        )
+      );
     } finally {
       setSeeding(false);
     }
@@ -282,14 +312,14 @@ export function TenantsPage() {
     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
-          <Label htmlFor="t-name">Nama Cabang</Label>
+          <Label htmlFor="t-name">{tx('Branch Name', 'Nama Cabang')}</Label>
           <Input id="t-name" placeholder="CameraRent Jakarta Selatan" {...form.register('name')} />
           {form.formState.errors.name ? (
             <p className="text-xs text-destructive">{form.formState.errors.name.message}</p>
           ) : null}
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="t-slug">Slug Identifier</Label>
+          <Label htmlFor="t-slug">{tx('Slug Identifier', 'Slug Identifier')}</Label>
           <Input
             id="t-slug"
             placeholder="camerarent-jaksel"
@@ -303,7 +333,7 @@ export function TenantsPage() {
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="t-address">Alamat Lengkap Cabang</Label>
+        <Label htmlFor="t-address">{tx('Full Branch Address', 'Alamat Lengkap Cabang')}</Label>
         <Input
           id="t-address"
           placeholder="Jl. Kemang Raya No. 48, Jakarta Selatan"
@@ -323,7 +353,7 @@ export function TenantsPage() {
               readOnly
               value={Number(form.watch('lat')).toFixed(6)}
               onClick={() => setBranchMapOpen(true)}
-              title="Klik untuk ubah melalui Pin Cabang di Peta"
+              title={tx('Click to change via Branch Map Pin', 'Klik untuk ubah melalui Pin Cabang di Peta')}
               className="cursor-pointer bg-muted/50 font-mono text-xs text-muted-foreground"
             />
           </div>
@@ -337,7 +367,7 @@ export function TenantsPage() {
               readOnly
               value={Number(form.watch('lng')).toFixed(6)}
               onClick={() => setBranchMapOpen(true)}
-              title="Klik untuk ubah melalui Pin Cabang di Peta"
+              title={tx('Click to change via Branch Map Pin', 'Klik untuk ubah melalui Pin Cabang di Peta')}
               className="cursor-pointer bg-muted/50 font-mono text-xs text-muted-foreground"
             />
           </div>
@@ -348,33 +378,39 @@ export function TenantsPage() {
             onClick={() => setBranchMapOpen(true)}
           >
             <MapPin className="h-3.5 w-3.5" strokeWidth={1.5} />
-            Pin Cabang di Peta
+            {tx('Pin Branch on Map', 'Pin Cabang di Peta')}
           </Button>
         </div>
         <p className="text-[11px] text-muted-foreground">
-          Koordinat terkunci otomatis mengikuti titik pin peta cabang.
+          {tx(
+            'Coordinates are automatically locked to the pinned branch map location.',
+            'Koordinat terkunci otomatis mengikuti titik pin peta cabang.'
+          )}
         </p>
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="space-y-1.5">
-          <Label htmlFor="t-bank">Nama Bank</Label>
+          <Label htmlFor="t-bank">{tx('Bank Name', 'Nama Bank')}</Label>
           <Input id="t-bank" placeholder="BCA" {...form.register('bankName')} />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="t-acc">No. Rekening</Label>
+          <Label htmlFor="t-acc">{tx('Account Number', 'No. Rekening')}</Label>
           <Input id="t-acc" className="font-mono text-xs" {...form.register('accountNumber')} />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="t-holder">Atas Nama</Label>
+          <Label htmlFor="t-holder">{tx('Account Holder', 'Atas Nama')}</Label>
           <Input id="t-holder" {...form.register('accountHolder')} />
         </div>
       </div>
 
       <div className="rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-        Tarif ongkir, buffer, grace period, dan denda diatur terpusat melalui menu{' '}
+        {tx(
+          'Delivery rates, turnaround buffer, grace period, and overdue fees are managed centrally in ',
+          'Tarif ongkir, buffer, grace period, dan denda diatur terpusat melalui menu '
+        )}
         <Link to="/superadmin/settings" className="font-medium text-foreground underline">
-          Settings
+          {tx('Settings', 'Pengaturan')}
         </Link>
         .
       </div>
@@ -385,10 +421,10 @@ export function TenantsPage() {
           variant="outline"
           onClick={() => (isEdit ? setDetailTab('overview') : setCreateDialogOpen(false))}
         >
-          Batal
+          {tx('Cancel', 'Batal')}
         </Button>
         <Button type="submit" disabled={form.formState.isSubmitting}>
-          {isEdit ? 'Simpan Perubahan' : 'Buat Cabang'}
+          {isEdit ? tx('Save Changes', 'Simpan Perubahan') : tx('Create Branch', 'Buat Cabang')}
         </Button>
       </DialogFooter>
     </form>
@@ -400,21 +436,23 @@ export function TenantsPage() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="space-y-1">
           <h2 className="text-xl font-semibold tracking-tight text-foreground">
-            Tenants &amp; Global GMV
+            {tx('Tenants & Global GMV', 'Cabang & GMV Global')}
           </h2>
           <p className="text-sm text-muted-foreground">
-            Pantau performa pendapatan lintas cabang, liabilitas deposit, dan kelola konfigurasi
-            cabang rental.
+            {tx(
+              'Monitor cross-branch revenue performance, deposit liabilities, and manage rental branch configurations.',
+              'Pantau performa pendapatan lintas cabang, liabilitas deposit, dan kelola konfigurasi cabang rental.'
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={handleSeedDemo} disabled={seeding}>
             <Database className="h-3.5 w-3.5" strokeWidth={1.5} />
-            {seeding ? 'Seeding...' : 'Seed Sample Branch'}
+            {seeding ? tx('Seeding...', 'Menambahkan...') : tx('Seed Sample Branch', 'Seed Cabang Contoh')}
           </Button>
           <Button size="sm" onClick={openCreate}>
             <Plus className="h-3.5 w-3.5" strokeWidth={1.5} />
-            Tambah Cabang
+            {tx('Add Branch', 'Tambah Cabang')}
           </Button>
         </div>
       </div>
@@ -424,7 +462,7 @@ export function TenantsPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-xs font-medium text-muted-foreground">
-              Platform Revenue (GMV)
+              {tx('Platform Revenue (GMV)', 'Pendapatan Platform (GMV)')}
             </CardTitle>
             <TrendingUp className="h-4 w-4 text-muted-foreground" strokeWidth={1.5} />
           </CardHeader>
@@ -433,7 +471,7 @@ export function TenantsPage() {
               <CurrencyText amount={totalRevenue} />
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              Sewa + ongkir + denda keterlambatan
+              {tx('Rental + delivery + overdue penalties', 'Sewa + ongkir + denda keterlambatan')}
             </p>
           </CardContent>
         </Card>
@@ -441,7 +479,7 @@ export function TenantsPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-xs font-medium text-muted-foreground">
-              Deposit Liability Held
+              {tx('Deposit Liability Held', 'Liabilitas Deposit Ditahan')}
             </CardTitle>
             <Landmark className="h-4 w-4 text-muted-foreground" strokeWidth={1.5} />
           </CardHeader>
@@ -449,14 +487,16 @@ export function TenantsPage() {
             <div className="text-xl font-semibold text-foreground">
               <CurrencyText amount={depositLiabilityHeld} />
             </div>
-            <p className="mt-1 text-xs text-muted-foreground">Terpisah dari pendapatan platform</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {tx('Segregated from platform revenue', 'Terpisah dari pendapatan platform')}
+            </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-xs font-medium text-muted-foreground">
-              Active Fleet Rentals
+              {tx('Active Fleet Rentals', 'Sewa Armada Aktif')}
             </CardTitle>
             <BarChart3 className="h-4 w-4 text-muted-foreground" strokeWidth={1.5} />
           </CardHeader>
@@ -465,7 +505,10 @@ export function TenantsPage() {
               {activeRentals}
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              Di {allTenants.filter((t) => t.status === 'active').length} cabang aktif
+              {tx(
+                `Across ${allTenants.filter((t) => t.status === 'active').length} active branches`,
+                `Di ${allTenants.filter((t) => t.status === 'active').length} cabang aktif`
+              )}
             </p>
           </CardContent>
         </Card>
@@ -473,7 +516,7 @@ export function TenantsPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-xs font-medium text-muted-foreground">
-              Overdue Alerts
+              {tx('Overdue Alerts', 'Peringatan Terlambat')}
             </CardTitle>
             <ShieldAlert
               className={`h-4 w-4 ${overdueBookings > 0 ? 'text-destructive' : 'text-muted-foreground'}`}
@@ -487,7 +530,7 @@ export function TenantsPage() {
               {overdueBookings}
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              Booking aktif melewati grace period
+              {tx('Active bookings past grace period', 'Booking aktif melewati grace period')}
             </p>
           </CardContent>
         </Card>
@@ -501,34 +544,37 @@ export function TenantsPage() {
             strokeWidth={1.5}
           />
           <Input
-            placeholder="Cari nama cabang, slug, atau alamat..."
+            placeholder={tx('Search branch name, slug, or address...', 'Cari nama cabang, slug, atau alamat...')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
           />
         </div>
         <span className="text-xs text-muted-foreground">
-          {filtered.length} dari {allTenants.length} cabang
+          {tx(`${filtered.length} of ${allTenants.length} branches`, `${filtered.length} dari ${allTenants.length} cabang`)}
         </span>
       </div>
 
       {/* Unified Clickable Branch & GMV Table */}
       {isLoading ? (
         <div className="rounded-lg border bg-card p-10 text-center text-sm text-muted-foreground">
-          Memuat data cabang &amp; GMV...
+          {tx('Loading branches & GMV data...', 'Memuat data cabang & GMV...')}
         </div>
       ) : filtered.length === 0 ? (
         <EmptyState
           icon={Building2}
-          title="Belum ada cabang rental"
-          description="Buat cabang pertama atau klik Seed Sample Branch untuk menambahkan contoh cabang lengkap."
+          title={tx('No rental branches yet', 'Belum ada cabang rental')}
+          description={tx(
+            'Create your first branch or click Seed Sample Branch to populate a complete demo branch.',
+            'Buat cabang pertama atau klik Seed Cabang Contoh untuk menambahkan contoh cabang lengkap.'
+          )}
           action={
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" onClick={handleSeedDemo} disabled={seeding}>
-                Seed Sample Branch
+                {tx('Seed Sample Branch', 'Seed Cabang Contoh')}
               </Button>
               <Button size="sm" onClick={openCreate}>
-                Tambah Cabang
+                {tx('Add Branch', 'Tambah Cabang')}
               </Button>
             </div>
           }
@@ -537,12 +583,12 @@ export function TenantsPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Cabang</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Booking</TableHead>
-              <TableHead className="text-right">Revenue (GMV)</TableHead>
-              <TableHead className="text-right">Deposit Held</TableHead>
-              <TableHead>Ongkir &amp; Buffer</TableHead>
+              <TableHead>{tx('Branch', 'Cabang')}</TableHead>
+              <TableHead>{tx('Status', 'Status')}</TableHead>
+              <TableHead>{tx('Bookings', 'Booking')}</TableHead>
+              <TableHead className="text-right">{tx('Revenue (GMV)', 'Revenue (GMV)')}</TableHead>
+              <TableHead className="text-right">{tx('Deposit Held', 'Deposit Ditahan')}</TableHead>
+              <TableHead>{tx('Delivery & Buffer', 'Ongkir & Buffer')}</TableHead>
               <TableHead className="w-10" />
             </TableRow>
           </TableHeader>
@@ -566,13 +612,13 @@ export function TenantsPage() {
                   </TableCell>
                   <TableCell className="tabular-nums text-xs">
                     <div className="font-medium text-foreground">
-                      {metrics.totalBookings} booking
+                      {metrics.totalBookings} {tx('bookings', 'booking')}
                     </div>
                     <div className="text-muted-foreground">
-                      {metrics.active} aktif
+                      {metrics.active} {tx('active', 'aktif')}
                       {metrics.overdue > 0 ? (
                         <span className="ml-1.5 font-medium text-destructive">
-                          · {metrics.overdue} overdue
+                          · {metrics.overdue} {tx('overdue', 'terlambat')}
                         </span>
                       ) : null}
                     </div>
@@ -631,32 +677,32 @@ export function TenantsPage() {
                 onValueChange={(v) => setDetailTab(v as 'overview' | 'edit')}
               >
                 <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="overview">Ringkasan &amp; GMV</TabsTrigger>
-                  <TabsTrigger value="edit">Edit Konfigurasi</TabsTrigger>
+                  <TabsTrigger value="overview">{tx('Overview & GMV', 'Ringkasan & GMV')}</TabsTrigger>
+                  <TabsTrigger value="edit">{tx('Edit Configuration', 'Edit Konfigurasi')}</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="overview" className="mt-4 space-y-5">
                   <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                     <div className="rounded-md border bg-muted/30 p-3">
-                      <p className="text-[11px] text-muted-foreground">Revenue</p>
+                      <p className="text-[11px] text-muted-foreground">{tx('Revenue', 'Pendapatan')}</p>
                       <p className="mt-1 text-sm font-semibold text-foreground">
                         <CurrencyText amount={detailMetrics.revenue} />
                       </p>
                     </div>
                     <div className="rounded-md border bg-muted/30 p-3">
-                      <p className="text-[11px] text-muted-foreground">Deposit Held</p>
+                      <p className="text-[11px] text-muted-foreground">{tx('Deposit Held', 'Deposit Ditahan')}</p>
                       <p className="mt-1 text-sm font-semibold text-foreground">
                         <CurrencyText amount={detailMetrics.depositHeld} />
                       </p>
                     </div>
                     <div className="rounded-md border bg-muted/30 p-3">
-                      <p className="text-[11px] text-muted-foreground">Total Booking</p>
+                      <p className="text-[11px] text-muted-foreground">{tx('Total Bookings', 'Total Booking')}</p>
                       <p className="mt-1 tabular-nums text-sm font-semibold text-foreground">
                         {detailMetrics.totalBookings}
                       </p>
                     </div>
                     <div className="rounded-md border bg-muted/30 p-3">
-                      <p className="text-[11px] text-muted-foreground">Aktif / Overdue</p>
+                      <p className="text-[11px] text-muted-foreground">{tx('Active / Overdue', 'Aktif / Terlambat')}</p>
                       <p className="mt-1 tabular-nums text-sm font-semibold text-foreground">
                         {detailMetrics.active} /{' '}
                         <span className={detailMetrics.overdue > 0 ? 'text-destructive' : ''}>
@@ -668,11 +714,11 @@ export function TenantsPage() {
 
                   <dl className="divide-y divide-border text-sm">
                     <div className="flex items-start justify-between gap-4 py-2.5">
-                      <dt className="shrink-0 text-muted-foreground">Alamat</dt>
+                      <dt className="shrink-0 text-muted-foreground">{tx('Address', 'Alamat')}</dt>
                       <dd className="text-right text-foreground">{detailTenant.address}</dd>
                     </div>
                     <div className="flex items-center justify-between gap-4 py-2.5">
-                      <dt className="text-muted-foreground">Koordinat Peta</dt>
+                      <dt className="text-muted-foreground">{tx('Map Coordinates', 'Koordinat Peta')}</dt>
                       <dd className="flex items-center gap-2 font-mono text-xs text-foreground">
                         <span>
                           {detailTenant.coordinates.lat.toFixed(6)},{' '}
@@ -683,27 +729,27 @@ export function TenantsPage() {
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex items-center text-muted-foreground hover:text-foreground"
-                          title="Buka di Google Maps"
+                          title={tx('Open in Google Maps', 'Buka di Google Maps')}
                         >
                           <ArrowUpRight className="h-3.5 w-3.5" strokeWidth={1.5} />
                         </a>
                       </dd>
                     </div>
                     <div className="flex items-center justify-between py-2.5">
-                      <dt className="text-muted-foreground">Tarif Ongkir</dt>
+                      <dt className="text-muted-foreground">{tx('Delivery Rate', 'Tarif Ongkir')}</dt>
                       <dd className="font-medium text-foreground">
                         <CurrencyText amount={detailTenant.deliveryRatePerKm} suffix="/km" />
                       </dd>
                     </div>
                     <div className="flex items-center justify-between py-2.5">
-                      <dt className="text-muted-foreground">Buffer / Grace / Denda</dt>
+                      <dt className="text-muted-foreground">{tx('Buffer / Grace / Penalty', 'Buffer / Grace / Denda')}</dt>
                       <dd className="tabular-nums text-xs font-medium text-foreground">
-                        {detailTenant.bufferHours} jam · {detailTenant.overdueGraceMinutes} menit ·{' '}
-                        {detailTenant.overdueHourlyRatePercent}%/jam
+                        {detailTenant.bufferHours} {tx('hrs', 'jam')} · {detailTenant.overdueGraceMinutes}{' '}
+                        {tx('mins', 'menit')} · {detailTenant.overdueHourlyRatePercent}%/{tx('hr', 'jam')}
                       </dd>
                     </div>
                     <div className="flex items-start justify-between gap-4 py-2.5">
-                      <dt className="shrink-0 text-muted-foreground">Rekening Bank</dt>
+                      <dt className="shrink-0 text-muted-foreground">{tx('Bank Account', 'Rekening Bank')}</dt>
                       <dd className="text-right text-xs text-foreground">
                         <div className="font-mono font-medium">
                           {detailTenant.bankDetails.bankName} ·{' '}
@@ -726,7 +772,7 @@ export function TenantsPage() {
                         navigate('/admin/finance');
                       }}
                     >
-                      Buka Cash Flow Cabang
+                      {tx('Open Branch Cash Flow', 'Buka Cash Flow Cabang')}
                       <ArrowUpRight className="h-3.5 w-3.5" strokeWidth={1.5} />
                     </Button>
                     <Button
@@ -739,7 +785,9 @@ export function TenantsPage() {
                       }
                       onClick={() => void toggleStatus(detailTenant)}
                     >
-                      {detailTenant.status === 'active' ? 'Suspend Cabang' : 'Aktifkan Cabang'}
+                      {detailTenant.status === 'active'
+                        ? tx('Suspend Branch', 'Suspend Cabang')
+                        : tx('Activate Branch', 'Aktifkan Cabang')}
                     </Button>
                   </div>
                 </TabsContent>
@@ -757,10 +805,12 @@ export function TenantsPage() {
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>Tambah Cabang Baru</DialogTitle>
+            <DialogTitle>{tx('Add New Branch', 'Tambah Cabang Baru')}</DialogTitle>
             <DialogDescription>
-              Nilai ongkir, buffer, grace period, dan denda otomatis mengikuti standar di menu
-              Settings.
+              {tx(
+                'Delivery rates, turnaround buffer, grace period, and overdue fees automatically inherit defaults from Settings.',
+                'Nilai ongkir, buffer, grace period, dan denda otomatis mengikuti standar di menu Pengaturan.'
+              )}
             </DialogDescription>
           </DialogHeader>
           {renderTenantFormFields(false)}
@@ -770,7 +820,7 @@ export function TenantsPage() {
       <LocationPickerModal
         open={branchMapOpen}
         onOpenChange={setBranchMapOpen}
-        branchName={form.watch('name') || 'Lokasi Cabang'}
+        branchName={form.watch('name') || tx('Branch Location', 'Lokasi Cabang')}
         branchCoordinates={{
           lat: Number(form.watch('lat')) || -6.2088,
           lng: Number(form.watch('lng')) || 106.8456,
@@ -781,7 +831,7 @@ export function TenantsPage() {
         }}
         initialAddress={form.watch('address')}
         singlePinMode
-        title="Pin Lokasi Cabang Rental"
+        title={tx('Pin Rental Branch Location', 'Pin Lokasi Cabang Rental')}
         onConfirm={({ coordinates, address }) => {
           form.setValue('lat', Number(coordinates.lat.toFixed(6)), {
             shouldDirty: true,
@@ -795,7 +845,10 @@ export function TenantsPage() {
             form.setValue('address', address, { shouldDirty: true, shouldValidate: true });
           }
           toast.success(
-            `Titik cabang diperbarui (${coordinates.lat.toFixed(6)}, ${coordinates.lng.toFixed(6)}).`
+            tx(
+              `Branch coordinates updated (${coordinates.lat.toFixed(6)}, ${coordinates.lng.toFixed(6)}).`,
+              `Titik cabang diperbarui (${coordinates.lat.toFixed(6)}, ${coordinates.lng.toFixed(6)}).`
+            )
           );
         }}
       />

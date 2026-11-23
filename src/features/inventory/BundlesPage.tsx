@@ -13,6 +13,7 @@ import {
 import { Check, Package, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { db } from '@/lib/firebase';
+import { useI18n } from '@/hooks/useI18n';
 import { useTenant } from '@/hooks/useTenant';
 import { CurrencyText } from '@/components/shared/CurrencyText';
 import { EmptyState } from '@/components/shared/EmptyState';
@@ -41,6 +42,7 @@ import type { Bundle, Equipment } from '@/types/schema';
 
 export function BundlesPage() {
   const queryClient = useQueryClient();
+  const { tx } = useI18n();
   const { activeTenantId, activeTenant, isAllTenants, allTenants, tenantById } = useTenant();
   const [open, setOpen] = useState(false);
   const [bundleTenantId, setBundleTenantId] = useState('');
@@ -80,8 +82,11 @@ export function BundlesPage() {
     return (
       <EmptyState
         icon={Package}
-        title="No active rental house selected"
-        description="Select a tenant branch in the topbar to manage kit bundles."
+        title={tx('No active rental house selected', 'Belum ada cabang aktif dipilih')}
+        description={tx(
+          'Select a tenant branch in the topbar to manage kit bundles.',
+          'Pilih cabang di topbar untuk mengelola paket kit.'
+        )}
       />
     );
   }
@@ -154,34 +159,41 @@ export function BundlesPage() {
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-200 pb-4">
         <div>
           <h2 className="text-base font-semibold tracking-tight text-zinc-950">
-            Production Kit Bundles
+            {tx('Production Kit Bundles', 'Paket Kit Produksi')}
           </h2>
           <p className="mt-0.5 text-xs text-zinc-500">
-            Branch:{' '}
+            {tx('Branch:', 'Cabang:')}{' '}
             <span className="font-medium text-zinc-800">
-              {isAllTenants ? 'Semua Cabang' : activeTenant?.name}
+              {isAllTenants ? tx('All Branches', 'Semua Cabang') : activeTenant?.name}
             </span>{' '}
-            · Bundle checkout atomically verifies and locks one physical unit for every component.
+            ·{' '}
+            {tx(
+              'Bundle checkout atomically verifies and locks one physical unit for every component.',
+              'Checkout paket secara otomatis memverifikasi dan mengunci satu unit fisik untuk setiap komponen.'
+            )}
           </p>
         </div>
         <Button size="sm" onClick={openCreateModal}>
           <Plus className="h-3.5 w-3.5" strokeWidth={1.5} />
-          New Kit Bundle
+          {tx('New Kit Bundle', 'Buat Paket Kit')}
         </Button>
       </div>
 
       {isLoading ? (
         <div className="rounded-md border border-zinc-200 bg-white p-8 text-center font-mono text-xs text-zinc-400">
-          LOADING BUNDLES...
+          {tx('LOADING BUNDLES...', 'MEMUAT PAKET KIT...')}
         </div>
       ) : bundles.length === 0 ? (
         <EmptyState
           icon={Package}
-          title="No kit bundles configured"
-          description="Combine camera bodies, lenses, and stabilizers into discounted production packages."
+          title={tx('No kit bundles configured', 'Belum ada paket kit')}
+          description={tx(
+            'Combine camera bodies, lenses, and stabilizers into discounted production packages.',
+            'Gabungkan kamera, lensa, dan stabilizer menjadi paket produksi dengan tarif hemat.'
+          )}
           action={
             <Button size="sm" onClick={() => setOpen(true)}>
-              Build First Kit
+              {tx('Build First Kit', 'Buat Paket Pertama')}
             </Button>
           }
         />
@@ -209,14 +221,14 @@ export function BundlesPage() {
                     </div>
                     <StatusBadge
                       status={bundle.isActive ? 'active' : 'suspended'}
-                      label={bundle.isActive ? 'Active' : 'Archived'}
+                      label={bundle.isActive ? tx('Active', 'Aktif') : tx('Archived', 'Diarsipkan')}
                     />
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="space-y-1 rounded-md border border-zinc-200 bg-zinc-50 p-2.5">
                     <p className="font-mono text-[10px] uppercase tracking-wider text-zinc-400">
-                      Included Equipment ({components.length})
+                      {tx('Included Equipment', 'Alat Termasuk')} ({components.length})
                     </p>
                     {components.map((item) => (
                       <div key={item.id} className="flex items-center justify-between text-xs">
@@ -229,13 +241,14 @@ export function BundlesPage() {
                   <div className="flex items-center justify-between border-t border-zinc-100 pt-2">
                     <div>
                       <div className="text-sm font-semibold text-zinc-950">
-                        <CurrencyText amount={bundle.bundleDailyRate} suffix="/day" />
+                        <CurrencyText amount={bundle.bundleDailyRate} suffix={tx('/day', '/hari')} />
                       </div>
                       <div className="text-[11px] text-zinc-500">
                         Deposit <CurrencyText amount={bundle.bundleDeposit} />
                         {savings > 0 ? (
                           <span className="ml-2 text-emerald-700">
-                            Save <CurrencyText amount={savings} />/d
+                            {tx('Save', 'Hemat')} <CurrencyText amount={savings} />
+                            {tx('/d', '/hr')}
                           </span>
                         ) : null}
                       </div>
@@ -246,7 +259,7 @@ export function BundlesPage() {
                         size="sm"
                         onClick={() => void handleToggleActive(bundle)}
                       >
-                        {bundle.isActive ? 'Archive' : 'Activate'}
+                        {bundle.isActive ? tx('Archive', 'Arsipkan') : tx('Activate', 'Aktifkan')}
                       </Button>
                       <Button
                         variant="ghost"
@@ -267,15 +280,18 @@ export function BundlesPage() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>Build Production Kit Bundle</DialogTitle>
+            <DialogTitle>{tx('Build Production Kit Bundle', 'Buat Paket Kit Produksi')}</DialogTitle>
             <DialogDescription>
-              Select catalog items to group into an atomically bookable kit.
+              {tx(
+                'Select catalog items to group into an atomically bookable kit.',
+                'Pilih item katalog untuk digabungkan ke dalam satu paket sewa.'
+              )}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleCreateBundle} className="space-y-3">
             {isAllTenants ? (
               <div className="space-y-1">
-                <Label>Cabang</Label>
+                <Label>{tx('Branch', 'Cabang')}</Label>
                 <Select
                   value={effectiveBundleTenantId}
                   onValueChange={(v) => {
@@ -284,7 +300,7 @@ export function BundlesPage() {
                   }}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Pilih cabang..." />
+                    <SelectValue placeholder={tx('Select branch...', 'Pilih cabang...')} />
                   </SelectTrigger>
                   <SelectContent>
                     {allTenants.map((t) => (
@@ -297,7 +313,7 @@ export function BundlesPage() {
               </div>
             ) : null}
             <div className="space-y-1">
-              <Label>Bundle Name</Label>
+              <Label>{tx('Bundle Name', 'Nama Paket')}</Label>
               <Input
                 placeholder="Commercial Cinema Rig — FX3 + GM II + RS3 Pro"
                 value={name}
@@ -306,16 +322,21 @@ export function BundlesPage() {
             </div>
 
             <div className="space-y-1">
-              <Label>Description</Label>
+              <Label>{tx('Description', 'Deskripsi')}</Label>
               <Textarea
-                placeholder="Recommended crew kit description..."
+                placeholder={tx('Recommended crew kit description...', 'Deskripsi singkat paket produksi...')}
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
               />
             </div>
 
             <div className="space-y-1.5">
-              <Label>Select Component Equipment ({selectedIds.length} selected)</Label>
+              <Label>
+                {tx(
+                  `Select Component Equipment (${selectedIds.length} selected)`,
+                  `Pilih Komponen Alat (${selectedIds.length} dipilih)`
+                )}
+              </Label>
               <div className="max-h-44 space-y-1 overflow-y-auto rounded-md border border-zinc-200 p-2">
                 {dialogEquipmentList.map((eq) => {
                   const checked = selectedIds.includes(eq.id);
@@ -347,14 +368,15 @@ export function BundlesPage() {
               </div>
               {standardRateSum > 0 ? (
                 <p className="font-mono text-[11px] text-zinc-500">
-                  A-la-carte sum: <CurrencyText amount={standardRateSum} suffix="/day" />
+                  {tx('A-la-carte sum:', 'Total satuan:')}{' '}
+                  <CurrencyText amount={standardRateSum} suffix={tx('/day', '/hari')} />
                 </p>
               ) : null}
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <Label>Bundle Daily Rate (IDR)</Label>
+                <Label>{tx('Bundle Daily Rate (IDR)', 'Tarif Paket / Hari (IDR)')}</Label>
                 <Input
                   type="number"
                   className="font-mono"
@@ -363,7 +385,7 @@ export function BundlesPage() {
                 />
               </div>
               <div className="space-y-1">
-                <Label>Bundle Deposit (IDR)</Label>
+                <Label>{tx('Bundle Deposit (IDR)', 'Deposit Paket (IDR)')}</Label>
                 <Input
                   type="number"
                   className="font-mono"
@@ -375,9 +397,9 @@ export function BundlesPage() {
 
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-                Cancel
+                {tx('Cancel', 'Batal')}
               </Button>
-              <Button type="submit">Create Bundle</Button>
+              <Button type="submit">{tx('Create Bundle', 'Buat Paket')}</Button>
             </DialogFooter>
           </form>
         </DialogContent>

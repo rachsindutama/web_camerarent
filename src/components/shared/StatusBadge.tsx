@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils';
+import { useI18n } from '@/hooks/useI18n';
 
 export type StatusVariant =
   | 'available'
@@ -21,7 +22,8 @@ export type StatusVariant =
   | 'blacklisted';
 
 interface StatusStyle {
-  label: string;
+  labelEn: string;
+  labelId: string;
   badgeClass: string;
   dotClass: string;
 }
@@ -30,24 +32,24 @@ const NEUTRAL_BADGE = 'border-border bg-background text-foreground';
 const DESTRUCTIVE_BADGE = 'border-destructive/30 bg-destructive/10 text-destructive';
 
 const STATUS_MAP: Record<StatusVariant, StatusStyle> = {
-  available: { label: 'Available', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-emerald-500' },
-  rented: { label: 'Rented', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-zinc-900' },
-  maintenance: { label: 'Maintenance', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-amber-500' },
-  damaged: { label: 'Damaged', badgeClass: DESTRUCTIVE_BADGE, dotClass: 'bg-red-500' },
-  overdue: { label: 'Overdue', badgeClass: DESTRUCTIVE_BADGE, dotClass: 'bg-red-500' },
-  unverified: { label: 'Unverified', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-zinc-300' },
-  pending: { label: 'KYC Pending', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-amber-500' },
-  verified: { label: 'KYC Verified', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-emerald-500' },
-  rejected: { label: 'KYC Rejected', badgeClass: DESTRUCTIVE_BADGE, dotClass: 'bg-red-500' },
-  pending_payment: { label: 'Pending Payment', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-zinc-300' },
-  waiting_verification: { label: 'Waiting Verification', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-amber-500' },
-  confirmed: { label: 'Confirmed', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-zinc-900' },
-  active_rent: { label: 'Active Rent', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-zinc-900' },
-  completed: { label: 'Completed', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-emerald-500' },
-  cancelled: { label: 'Cancelled', badgeClass: 'border-border bg-muted text-muted-foreground', dotClass: 'bg-zinc-400' },
-  active: { label: 'Active', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-emerald-500' },
-  suspended: { label: 'Suspended', badgeClass: DESTRUCTIVE_BADGE, dotClass: 'bg-red-500' },
-  blacklisted: { label: 'Blacklisted', badgeClass: DESTRUCTIVE_BADGE, dotClass: 'bg-red-500' },
+  available: { labelEn: 'Available', labelId: 'Tersedia', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-emerald-500' },
+  rented: { labelEn: 'Rented', labelId: 'Disewa', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-zinc-900' },
+  maintenance: { labelEn: 'Maintenance', labelId: 'Perawatan', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-amber-500' },
+  damaged: { labelEn: 'Damaged', labelId: 'Rusak', badgeClass: DESTRUCTIVE_BADGE, dotClass: 'bg-red-500' },
+  overdue: { labelEn: 'Overdue', labelId: 'Terlambat', badgeClass: DESTRUCTIVE_BADGE, dotClass: 'bg-red-500' },
+  unverified: { labelEn: 'Unverified', labelId: 'Belum Verifikasi', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-zinc-300' },
+  pending: { labelEn: 'KYC Pending', labelId: 'KYC Menunggu', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-amber-500' },
+  verified: { labelEn: 'KYC Verified', labelId: 'KYC Terverifikasi', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-emerald-500' },
+  rejected: { labelEn: 'KYC Rejected', labelId: 'KYC Ditolak', badgeClass: DESTRUCTIVE_BADGE, dotClass: 'bg-red-500' },
+  pending_payment: { labelEn: 'Pending Payment', labelId: 'Menunggu Pembayaran', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-zinc-300' },
+  waiting_verification: { labelEn: 'Waiting Verification', labelId: 'Menunggu Verifikasi', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-amber-500' },
+  confirmed: { labelEn: 'Confirmed', labelId: 'Dikonfirmasi', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-zinc-900' },
+  active_rent: { labelEn: 'Active Rent', labelId: 'Sedang Disewa', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-zinc-900' },
+  completed: { labelEn: 'Completed', labelId: 'Selesai', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-emerald-500' },
+  cancelled: { labelEn: 'Cancelled', labelId: 'Dibatalkan', badgeClass: 'border-border bg-muted text-muted-foreground', dotClass: 'bg-zinc-400' },
+  active: { labelEn: 'Active', labelId: 'Aktif', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-emerald-500' },
+  suspended: { labelEn: 'Suspended', labelId: 'Ditangguhkan', badgeClass: DESTRUCTIVE_BADGE, dotClass: 'bg-red-500' },
+  blacklisted: { labelEn: 'Blacklisted', labelId: 'Daftar Hitam', badgeClass: DESTRUCTIVE_BADGE, dotClass: 'bg-red-500' },
 };
 
 interface StatusBadgeProps {
@@ -57,6 +59,7 @@ interface StatusBadgeProps {
 }
 
 export function StatusBadge({ status, label, className }: StatusBadgeProps) {
+  const { tx } = useI18n();
   const config = STATUS_MAP[status];
   return (
     <span
@@ -67,7 +70,7 @@ export function StatusBadge({ status, label, className }: StatusBadgeProps) {
       )}
     >
       <span className={cn('h-1.5 w-1.5 rounded-full', config.dotClass)} />
-      {label ?? config.label}
+      {label ?? tx(config.labelEn, config.labelId)}
     </span>
   );
 }

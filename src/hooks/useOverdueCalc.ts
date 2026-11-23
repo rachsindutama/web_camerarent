@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { getMembershipBenefits, resolveTenantMembershipTiers } from '@/lib/membership';
+import { getMembershipBenefits } from '@/lib/membership';
 import type { Booking, Tenant } from '@/types/schema';
 
 export interface OverdueCalculation {
@@ -13,13 +13,12 @@ export interface OverdueCalculation {
 
 export function calculateOverdueFine(
   booking: Pick<Booking, 'endDate' | 'items' | 'bookingStatus' | 'membershipTier'>,
-  tenant: Pick<Tenant, 'overdueGraceMinutes' | 'overdueHourlyRatePercent' | 'membershipTiers'> | null,
+  tenant: Pick<Tenant, 'overdueGraceMinutes' | 'overdueHourlyRatePercent'> | null,
   now = new Date()
 ): OverdueCalculation {
   const endDate = booking.endDate.toDate();
   const baseGraceMinutes = tenant?.overdueGraceMinutes ?? 60;
-  const resolvedTiers = resolveTenantMembershipTiers(tenant);
-  const tierBenefits = getMembershipBenefits(booking.membershipTier, resolvedTiers);
+  const tierBenefits = getMembershipBenefits(booking.membershipTier);
   const effectiveGraceMinutes = baseGraceMinutes + tierBenefits.extraOverdueGraceMinutes;
   const hourlyRatePercent = tenant?.overdueHourlyRatePercent ?? 10;
   const graceDeadline = new Date(endDate.getTime() + effectiveGraceMinutes * 60 * 1000);

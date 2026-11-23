@@ -1,6 +1,7 @@
 import { Building2, Check, ChevronsUpDown, Globe, LocateFixed, Lock, MapPin } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatBranchDistanceKm } from '@/lib/geo';
+import { useI18n } from '@/hooks/useI18n';
 import { useTenant } from '@/hooks/useTenant';
 import { ALL_TENANTS_SCOPE } from '@/store/useTenantStore';
 import { Button } from '@/components/ui/button';
@@ -14,6 +15,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 
 export function TenantSwitcher() {
+  const { tx } = useI18n();
   const {
     tenants,
     sortedTenants,
@@ -33,7 +35,7 @@ export function TenantSwitcher() {
       <div className="inline-flex h-7 items-center gap-1.5 rounded-md border border-zinc-200 bg-zinc-50 px-2.5 text-xs text-zinc-700">
         <Lock className="h-3 w-3 text-zinc-400" strokeWidth={1.5} />
         <span className="font-medium text-zinc-900">
-          {activeTenant?.name ?? 'Assigned Rental House'}
+          {activeTenant?.name ?? tx('Assigned Rental House', 'Cabang Tugas')}
         </span>
       </div>
     );
@@ -46,11 +48,21 @@ export function TenantSwitcher() {
   const handleDetectNearest = async () => {
     const loc = await detectNearestBranch();
     if (!loc) {
-      toast.error('Tidak dapat mendeteksi lokasi. Pilih cabang secara manual.');
+      toast.error(
+        tx(
+          'Unable to detect location. Please select a branch manually.',
+          'Tidak dapat mendeteksi lokasi. Pilih cabang secara manual.'
+        )
+      );
       return;
     }
     setSelectedTenantId(null, false);
-    toast.success('Cabang otomatis disesuaikan ke area terdekat Anda.');
+    toast.success(
+      tx(
+        'Branch automatically matched to your nearest area.',
+        'Cabang otomatis disesuaikan ke area terdekat Anda.'
+      )
+    );
   };
 
   return (
@@ -71,9 +83,9 @@ export function TenantSwitcher() {
             )}
             <span className="max-w-[210px] truncate font-medium">
               {isLoading
-                ? 'Mendeteksi cabang...'
+                ? tx('Detecting branch...', 'Mendeteksi cabang...')
                 : isAllTenants
-                  ? `Semua Cabang (${tenants.length})`
+                  ? tx(`All Branches (${tenants.length})`, `Semua Cabang (${tenants.length})`)
                   : activeTenant
                     ? `${activeTenant.name}${
                         activeDistKm !== undefined
@@ -81,15 +93,17 @@ export function TenantSwitcher() {
                           : ''
                       }`
                     : tenants.length === 0
-                      ? 'No active tenant'
-                      : 'Pilih cabang'}
+                      ? tx('No active branch', 'Belum ada cabang aktif')
+                      : tx('Select branch', 'Pilih cabang')}
             </span>
             <ChevronsUpDown className="h-3 w-3 text-zinc-400" strokeWidth={1.5} />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-64">
           <DropdownMenuLabel>
-            {isSuperAdmin ? 'Scope Cabang' : 'Pilih Cabang Rental'}
+            {isSuperAdmin
+              ? tx('Branch Scope', 'Scope Cabang')
+              : tx('Select Rental Branch', 'Pilih Cabang Rental')}
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
           {isSuperAdmin ? (
@@ -99,9 +113,11 @@ export function TenantSwitcher() {
                 className="flex items-center justify-between"
               >
                 <div className="min-w-0">
-                  <p className="truncate font-medium text-zinc-900">Semua Cabang</p>
+                  <p className="truncate font-medium text-zinc-900">
+                    {tx('All Branches', 'Semua Cabang')}
+                  </p>
                   <p className="truncate text-[10px] text-zinc-500">
-                    Tampilkan seluruh data lintas cabang
+                    {tx('Show all cross-branch data', 'Tampilkan seluruh data lintas cabang')}
                   </p>
                 </div>
                 {isAllTenants ? <Check className="h-3.5 w-3.5 text-primary" strokeWidth={1.5} /> : null}
@@ -110,7 +126,9 @@ export function TenantSwitcher() {
             </>
           ) : null}
           {listToRender.length === 0 ? (
-            <div className="px-2 py-2 text-xs text-zinc-500">Belum ada cabang terdaftar.</div>
+            <div className="px-2 py-2 text-xs text-zinc-500">
+              {tx('No branches registered yet.', 'Belum ada cabang terdaftar.')}
+            </div>
           ) : (
             listToRender.map((tenant) => {
               const isSelected = !isAllTenants && tenant.id === activeTenant?.id;
@@ -125,7 +143,10 @@ export function TenantSwitcher() {
                     <p className="truncate font-medium text-zinc-900">{tenant.name}</p>
                     <p className="truncate font-mono text-[10px] text-zinc-400">
                       {distKm !== undefined
-                        ? `~${formatBranchDistanceKm(distKm)} dari lokasi Anda`
+                        ? tx(
+                            `~${formatBranchDistanceKm(distKm)} from your location`,
+                            `~${formatBranchDistanceKm(distKm)} dari lokasi Anda`
+                          )
                         : tenant.slug}
                     </p>
                   </div>
@@ -143,7 +164,11 @@ export function TenantSwitcher() {
                 className="gap-2 text-xs text-muted-foreground"
               >
                 <LocateFixed className="h-3.5 w-3.5" strokeWidth={1.5} />
-                <span>{detectingNearest ? 'Mendeteksi lokasi...' : 'Gunakan Cabang Terdekat'}</span>
+                <span>
+                  {detectingNearest
+                    ? tx('Detecting location...', 'Mendeteksi lokasi...')
+                    : tx('Use Nearest Branch', 'Gunakan Cabang Terdekat')}
+                </span>
               </DropdownMenuItem>
             </>
           ) : null}
@@ -158,7 +183,7 @@ export function TenantSwitcher() {
           className="h-7 w-7 text-muted-foreground hover:text-foreground"
           disabled={detectingNearest}
           onClick={() => void handleDetectNearest()}
-          title="Deteksi cabang terdekat dari lokasi Anda"
+          title={tx('Detect nearest branch from your location', 'Deteksi cabang terdekat dari lokasi Anda')}
         >
           <LocateFixed
             className={`h-3.5 w-3.5 ${detectingNearest ? 'animate-pulse' : ''}`}

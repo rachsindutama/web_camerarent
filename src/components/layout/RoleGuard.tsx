@@ -1,6 +1,7 @@
 import { Navigate, Outlet, useLocation, Link } from 'react-router-dom';
 import { ShieldAlert, ArrowLeft } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { useI18n } from '@/hooks/useI18n';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { UserRole } from '@/types/schema';
@@ -18,6 +19,7 @@ export function getDefaultRouteForRole(role: UserRole): string {
 }
 
 function AuthLoadingScreen() {
+  const { tx } = useI18n();
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50">
       <div className="w-72 space-y-3 rounded-md border border-zinc-200 bg-white p-5">
@@ -28,7 +30,7 @@ function AuthLoadingScreen() {
         <Skeleton className="h-2.5 w-full" />
         <Skeleton className="h-2.5 w-3/4" />
         <p className="pt-1 font-mono text-[10px] uppercase tracking-wider text-zinc-400">
-          Verifying session &amp; RBAC claims
+          {tx('Verifying session & RBAC claims', 'Memverifikasi sesi & hak akses')}
         </p>
       </div>
     </div>
@@ -88,6 +90,7 @@ interface RoleGuardProps {
 
 export function RoleGuard({ allowedRoles, children }: RoleGuardProps) {
   const { firebaseUser, userProfile, needsRegistration, loading } = useAuth();
+  const { tx } = useI18n();
   const location = useLocation();
 
   if (loading) {
@@ -113,22 +116,23 @@ export function RoleGuard({ allowedRoles, children }: RoleGuardProps) {
           <div className="flex items-center gap-2.5 text-red-700">
             <ShieldAlert className="h-4 w-4" strokeWidth={1.5} />
             <span className="font-mono text-xs font-semibold uppercase tracking-wider">
-              403 // Access Restricted
+              {tx('403 // Access Restricted', '403 // Akses Dibatasi')}
             </span>
           </div>
           <h1 className="mt-3 text-base font-semibold text-zinc-950">
-            Insufficient role permissions
+            {tx('Insufficient role permissions', 'Izin peran tidak mencukupi')}
           </h1>
           <p className="mt-1.5 text-xs leading-relaxed text-zinc-500">
-            Your current role (<span className="font-mono text-zinc-800">{userProfile.role}</span>)
-            does not have authorization to access{' '}
+            {tx('Your current role', 'Peran Anda saat ini')} (
+            <span className="font-mono text-zinc-800">{userProfile.role}</span>){' '}
+            {tx('does not have authorization to access', 'tidak memiliki izin untuk mengakses')}{' '}
             <span className="font-mono text-zinc-800">{location.pathname}</span>.
           </p>
           <div className="mt-5 flex items-center gap-2 border-t border-zinc-100 pt-4">
             <Button asChild variant="outline" size="sm">
               <Link to={getDefaultRouteForRole(userProfile.role)}>
                 <ArrowLeft className="h-3.5 w-3.5" strokeWidth={1.5} />
-                Return to workspace
+                {tx('Return to workspace', 'Kembali ke ruang kerja')}
               </Link>
             </Button>
           </div>

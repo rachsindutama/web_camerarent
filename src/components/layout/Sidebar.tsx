@@ -17,60 +17,67 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
+import { useI18n } from '@/hooks/useI18n';
 import { BrandMark } from '@/components/shared/BrandMark';
 import type { UserRole } from '@/types/auth';
 
 interface NavItem {
-  label: string;
+  labelEn: string;
+  labelId: string;
   to: string;
   icon: LucideIcon;
 }
 
 interface NavGroup {
-  heading: string;
+  headingEn: string;
+  headingId: string;
   roles: UserRole[];
   items: NavItem[];
 }
 
 const NAV_GROUPS: NavGroup[] = [
   {
-    heading: 'Platform Governance',
+    headingEn: 'Platform Governance',
+    headingId: 'Tata Kelola Platform',
     roles: ['superadmin'],
     items: [
-      { label: 'Tenants', to: '/superadmin/tenants', icon: Building2 },
-      { label: 'Settings', to: '/superadmin/settings', icon: Settings },
+      { labelEn: 'Tenants & GMV', labelId: 'Cabang & GMV', to: '/superadmin/tenants', icon: Building2 },
+      { labelEn: 'Settings', labelId: 'Pengaturan', to: '/superadmin/settings', icon: Settings },
     ],
   },
   {
-    heading: 'Rental Operations',
+    headingEn: 'Rental Operations',
+    headingId: 'Operasional Rental',
     roles: ['superadmin', 'admin'],
     items: [
-      { label: 'Katalog Gear', to: '/catalog', icon: LayoutGrid },
-      { label: 'Inventory & SN', to: '/admin/inventory', icon: Camera },
-      { label: 'Kit Bundles', to: '/admin/bundles', icon: Package },
-      { label: 'Bookings', to: '/admin/bookings', icon: CalendarClock },
-      { label: 'Antar-Jemput', to: '/admin/logistics', icon: Truck },
-      { label: 'Inspections', to: '/admin/inspections', icon: ClipboardCheck },
-      { label: 'Cash Flow Ledger', to: '/admin/finance', icon: ReceiptText },
-      { label: 'Staff & Karyawan', to: '/admin/staff', icon: Briefcase },
-      { label: 'Member', to: '/admin/members', icon: Users },
-      { label: 'Client Chat', to: '/admin/chat', icon: MessageSquare },
+      { labelEn: 'Gear Catalog', labelId: 'Katalog Gear', to: '/catalog', icon: LayoutGrid },
+      { labelEn: 'Inventory & SN', labelId: 'Inventaris & SN', to: '/admin/inventory', icon: Camera },
+      { labelEn: 'Kit Bundles', labelId: 'Paket Kit', to: '/admin/bundles', icon: Package },
+      { labelEn: 'Bookings', labelId: 'Booking', to: '/admin/bookings', icon: CalendarClock },
+      { labelEn: 'Delivery & Pickup', labelId: 'Antar-Jemput', to: '/admin/logistics', icon: Truck },
+      { labelEn: 'Inspections', labelId: 'Inspeksi QC', to: '/admin/inspections', icon: ClipboardCheck },
+      { labelEn: 'Cash Flow Ledger', labelId: 'Buku Kas', to: '/admin/finance', icon: ReceiptText },
+      { labelEn: 'Branch Staff', labelId: 'Staff & Karyawan', to: '/admin/staff', icon: Briefcase },
+      { labelEn: 'Members', labelId: 'Member', to: '/admin/members', icon: Users },
+      { labelEn: 'Client Chat', labelId: 'Chat Klien', to: '/admin/chat', icon: MessageSquare },
     ],
   },
   {
-    heading: 'Renter Portal',
+    headingEn: 'Renter Portal',
+    headingId: 'Portal Penyewa',
     roles: ['user'],
     items: [
-      { label: 'Gear Catalog', to: '/catalog', icon: Camera },
-      { label: 'My Bookings', to: '/bookings', icon: CalendarClock },
-      { label: 'KYC Verification', to: '/kyc', icon: FileCheck2 },
-      { label: 'Support Chat', to: '/chat', icon: MessageSquare },
+      { labelEn: 'Gear Catalog', labelId: 'Katalog Gear', to: '/catalog', icon: Camera },
+      { labelEn: 'My Bookings', labelId: 'Pesanan Saya', to: '/bookings', icon: CalendarClock },
+      { labelEn: 'KYC Verification', labelId: 'Verifikasi KYC', to: '/kyc', icon: FileCheck2 },
+      { labelEn: 'Support Chat', labelId: 'Chat Bantuan', to: '/chat', icon: MessageSquare },
     ],
   },
 ];
 
 export function Sidebar() {
   const { userProfile } = useAuth();
+  const { tx } = useI18n();
   const role = userProfile?.role ?? 'user';
 
   const visibleGroups = NAV_GROUPS.filter((group) => group.roles.includes(role));
@@ -83,9 +90,9 @@ export function Sidebar() {
 
       <nav className="flex-1 space-y-5 overflow-y-auto px-2.5 py-4">
         {visibleGroups.map((group) => (
-          <div key={group.heading} className="space-y-1">
+          <div key={group.headingEn} className="space-y-1">
             <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
-              {group.heading}
+              {tx(group.headingEn, group.headingId)}
             </div>
             {group.items.map((item) => {
               const Icon = item.icon;
@@ -103,7 +110,7 @@ export function Sidebar() {
                   }
                 >
                   <Icon className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} />
-                  <span className="truncate">{item.label}</span>
+                  <span className="truncate">{tx(item.labelEn, item.labelId)}</span>
                 </NavLink>
               );
             })}
@@ -113,11 +120,10 @@ export function Sidebar() {
 
       <div className="border-t border-zinc-200 px-4 py-3">
         <div className="flex items-center justify-between text-[11px] text-zinc-500">
-          <span>Role Scope</span>
+          <span>{tx('Role Scope', 'Peran Akses')}</span>
           <span className="font-mono text-[10px] font-medium uppercase text-zinc-800">{role}</span>
         </div>
       </div>
     </aside>
   );
 }
-

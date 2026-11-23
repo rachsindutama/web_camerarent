@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { LogIn, UserPlus } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { useI18n } from '@/hooks/useI18n';
 import { usePlatformSettings } from '@/hooks/usePlatformSettings';
 import { useBookingDraftStore } from '@/store/useBookingDraftStore';
 import { AppShell } from '@/components/layout/AppShell';
@@ -9,12 +10,14 @@ import { getDefaultRouteForRole } from '@/components/layout/RoleGuard';
 import { TenantSwitcher } from '@/components/layout/TenantSwitcher';
 import { AuthDialog, type CheckoutAuthSummary } from '@/components/shared/AuthDialog';
 import { BrandMark } from '@/components/shared/BrandMark';
+import { LanguageToggle } from '@/components/shared/LanguageToggle';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CatalogPage } from '@/features/inventory/CatalogPage';
 
 export function UnifiedCatalogShell() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const { tx } = useI18n();
   const {
     firebaseUser,
     userProfile,
@@ -90,7 +93,6 @@ export function UnifiedCatalogShell() {
       return <Navigate to="/blacklisted" replace />;
     }
 
-    // If an admin/superadmin just signed in from the public catalog without a draft cart, land on their console
     if (
       wasGuestRef.current &&
       userProfile.role !== 'user' &&
@@ -120,10 +122,11 @@ export function UnifiedCatalogShell() {
           </div>
 
           <div className="flex items-center gap-2">
+            <LanguageToggle />
             <Button asChild variant="outline" size="sm">
               <Link to="/register">
                 <UserPlus className="h-3.5 w-3.5" strokeWidth={1.5} />
-                Daftar
+                {tx('Register', 'Daftar')}
               </Link>
             </Button>
             <Button
@@ -134,7 +137,7 @@ export function UnifiedCatalogShell() {
               }}
             >
               <LogIn className="h-3.5 w-3.5" strokeWidth={1.5} />
-              Masuk
+              {tx('Sign In', 'Masuk')}
             </Button>
           </div>
         </div>
@@ -161,10 +164,10 @@ export function UnifiedCatalogShell() {
               }}
               className="hover:text-foreground hover:underline"
             >
-              Masuk
+              {tx('Sign In', 'Masuk')}
             </button>
             <Link to="/register" className="hover:text-foreground hover:underline">
-              Daftar Akun
+              {tx('Create Account', 'Daftar Akun')}
             </Link>
           </div>
         </div>
@@ -184,4 +187,3 @@ export function UnifiedCatalogShell() {
     </div>
   );
 }
-

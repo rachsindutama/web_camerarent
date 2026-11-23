@@ -23,6 +23,7 @@ import { toast } from 'sonner';
 import { db } from '@/lib/firebase';
 import { formatDateTime } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
+import { useI18n } from '@/hooks/useI18n';
 import { useTenant } from '@/hooks/useTenant';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { WhatsAppButton } from '@/components/shared/WhatsAppButton';
@@ -56,12 +57,6 @@ import {
 } from '@/components/ui/table';
 import type { StaffRole, TenantStaff, UserProfile, UserRole } from '@/types/schema';
 
-const STAFF_ROLE_LABELS: Record<StaffRole, string> = {
-  courier: 'Kurir Antar-Jemput',
-  technician: 'Teknisi / QC Gear',
-  admin_ops: 'Admin Operasional',
-};
-
 function getInitials(name: string): string {
   return name
     .trim()
@@ -72,7 +67,13 @@ function getInitials(name: string): string {
 }
 
 export function StaffPage() {
+  const { tx } = useI18n();
   const queryClient = useQueryClient();
+  const staffRoleLabels: Record<StaffRole, string> = {
+    courier: tx('Delivery Courier', 'Kurir Antar-Jemput'),
+    technician: tx('Gear Technician / QC', 'Teknisi / QC Gear'),
+    admin_ops: tx('Operations Admin', 'Admin Operasional'),
+  };
   const { userProfile } = useAuth();
   const { activeTenantId, activeTenant, allTenants, isAllTenants, tenantById } = useTenant();
   const isSuperAdmin = userProfile?.role === 'superadmin';
@@ -143,8 +144,11 @@ export function StaffPage() {
     return (
       <EmptyState
         icon={Users}
-        title="Belum ada cabang aktif"
-        description="Pilih cabang rental di bagian atas terlebih dahulu untuk mengelola karyawan dan admin."
+        title={tx('No active branch selected', 'Belum ada cabang aktif')}
+        description={tx(
+          'Select a rental branch in the topbar first to manage staff and branch admins.',
+          'Pilih cabang rental di bagian atas terlebih dahulu untuk mengelola karyawan dan admin.'
+        )}
       />
     );
   }
@@ -237,7 +241,12 @@ export function StaffPage() {
     e.preventDefault();
     if (!db || !detailStaff) return;
     if (!editStaffForm.name.trim() || !editStaffForm.phone.trim()) {
-      toast.error('Nama dan nomor HP/WhatsApp karyawan wajib diisi.');
+      toast.error(
+        tx(
+          'Staff name and WhatsApp / phone number are required.',
+          'Nama dan nomor HP/WhatsApp karyawan wajib diisi.'
+        )
+      );
       return;
     }
 
@@ -250,11 +259,15 @@ export function StaffPage() {
         vehicleInfo: editStaffForm.vehicleInfo.trim(),
       });
       await queryClient.invalidateQueries({ queryKey: ['tenant_staff'] });
-      toast.success(`Data ${editStaffForm.name.trim()} disimpan.`);
+      toast.success(
+        tx(`${editStaffForm.name.trim()}'s record saved.`, `Data ${editStaffForm.name.trim()} disimpan.`)
+      );
       setStaffModalTab('detail');
     } catch (error) {
       console.error('Update staff error:', error);
-      toast.error('Gagal menyimpan perubahan data karyawan.');
+      toast.error(
+        tx('Failed to save staff changes.', 'Gagal menyimpan perubahan data karyawan.')
+      );
     } finally {
       setSavingStaffEdit(false);
     }
@@ -264,7 +277,11 @@ export function StaffPage() {
     if (!db) return;
     await updateDoc(doc(db, 'tenant_staff', staff.id), { isActive: !staff.isActive });
     await queryClient.invalidateQueries({ queryKey: ['tenant_staff'] });
-    toast.success(`${staff.name} kini ${!staff.isActive ? 'aktif' : 'nonaktif'}.`);
+    toast.success(
+      !staff.isActive
+        ? tx(`${staff.name} is now active.`, `${staff.name} kini aktif.`)
+        : tx(`${staff.name} is now inactive.`, `${staff.name} kini nonaktif.`)
+    );
   };
 
   const handleDeleteStaff = async (staff: TenantStaff) => {
@@ -272,7 +289,7 @@ export function StaffPage() {
     await deleteDoc(doc(db, 'tenant_staff', staff.id));
     await queryClient.invalidateQueries({ queryKey: ['tenant_staff'] });
     setDetailStaffId(null);
-    toast.success(`Karyawan ${staff.name} dihapus.`);
+    toast.success(tx(`Staff ${staff.name} deleted.`, `Karyawan ${staff.name} dihapus.`));
   };
 
   const handleSaveAdminEdit = async (e: React.FormEvent) => {
@@ -284,16 +301,23 @@ export function StaffPage() {
     const cleanNik = adminEditForm.nik.replace(/\D/g, '');
 
     if (cleanName.length < 2) {
-      toast.error('Nama lengkap minimal 2 karakter.');
+      toast.error(tx('Full name must be at least 2 characters.', 'Nama lengkap minimal 2 karakter.'));
       return;
     }
     if (cleanNik.length > 0 && cleanNik.length !== 16) {
-      toast.error('NIK harus 16 digit angka (atau kosongkan jika belum ada).');
+      toast.error(
+        tx(
+          'National ID (NIK) must be 16 digits (or leave blank if unavailable).',
+          'NIK harus 16 digit angka (atau kosongkan jika belum ada).'
+        )
+      );
       return;
     }
 
     if (isSuperAdmin && adminEditForm.role === 'admin' && !adminEditForm.tenantId) {
-      toast.error('Pilih cabang untuk role Branch Admin.');
+      toast.error(
+        tx('Select a branch for the Branch Admin role.', 'Pilih cabang untuk role Branch Admin.')
+      );
       return;
     }
 
@@ -321,7 +345,7 @@ export function StaffPage() {
       await queryClient.invalidateQueries({ queryKey: ['staff-users'] });
       await queryClient.invalidateQueries({ queryKey: ['tenant_admin_staff'] });
       await queryClient.invalidateQueries({ queryKey: ['members'] });
-      toast.success(`Profil ${cleanName} disimpan.`);
+      toast.success(tx(`${cleanName}'s profile saved.`, `Profil ${cleanName} disimpan.`));
       if (payload.role === 'user') {
         setDetailAdminUid(null);
       } else {
@@ -329,7 +353,9 @@ export function StaffPage() {
       }
     } catch (error) {
       console.error('Update admin profile error:', error);
-      toast.error('Gagal menyimpan perubahan profil akun.');
+      toast.error(
+        tx('Failed to save account profile changes.', 'Gagal menyimpan perubahan profil akun.')
+      );
     } finally {
       setSavingAdminEdit(false);
     }
@@ -338,7 +364,9 @@ export function StaffPage() {
   const handleAssignAccountRole = async () => {
     if (!db || !selectedUserUid) return;
     if (assignRole === 'admin' && !assignTenantId) {
-      toast.error('Pilih cabang untuk role Branch Admin.');
+      toast.error(
+        tx('Select a branch for the Branch Admin role.', 'Pilih cabang untuk role Branch Admin.')
+      );
       return;
     }
     try {
@@ -353,14 +381,16 @@ export function StaffPage() {
         assignRole === 'superadmin'
           ? 'Superadmin'
           : assignRole === 'admin'
-            ? `Branch Admin (${allTenants.find((t) => t.id === assignTenantId)?.name ?? activeTenant?.name ?? 'Cabang'})`
+            ? `Branch Admin (${allTenants.find((t) => t.id === assignTenantId)?.name ?? activeTenant?.name ?? tx('Branch', 'Cabang')})`
             : 'Member (User)';
-      toast.success(`Role akun diperbarui menjadi ${roleLabel}.`);
+      toast.success(
+        tx(`Account role updated to ${roleLabel}.`, `Role akun diperbarui menjadi ${roleLabel}.`)
+      );
       setAssignAdminOpen(false);
       setSelectedUserUid('');
     } catch (error) {
       console.error('Assign role error:', error);
-      toast.error('Gagal memperbarui role akun.');
+      toast.error(tx('Failed to update account role.', 'Gagal memperbarui role akun.'));
     }
   };
 
@@ -375,10 +405,15 @@ export function StaffPage() {
       await queryClient.invalidateQueries({ queryKey: ['tenant_admin_staff'] });
       await queryClient.invalidateQueries({ queryKey: ['members'] });
       setDetailAdminUid(null);
-      toast.success(`Akses Admin cabang dicabut dari ${adminUser.displayName}.`);
+      toast.success(
+        tx(
+          `Branch Admin access revoked from ${adminUser.displayName}.`,
+          `Akses Admin cabang dicabut dari ${adminUser.displayName}.`
+        )
+      );
     } catch (error) {
       console.error('Revoke branch admin error:', error);
-      toast.error('Gagal mencabut akses Admin.');
+      toast.error(tx('Failed to revoke Admin access.', 'Gagal mencabut akses Admin.'));
     }
   };
 
@@ -387,20 +422,24 @@ export function StaffPage() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="space-y-1">
           <h2 className="text-xl font-semibold tracking-tight text-foreground">
-            Staff &amp; Karyawan
+            {tx('Staff & Employees', 'Staff & Karyawan')}
           </h2>
           <p className="text-sm text-muted-foreground">
-            Cabang{' '}
+            {tx('Branch', 'Cabang')}{' '}
             <span className="font-medium text-foreground">
-              {isAllTenants ? 'Semua Cabang' : activeTenant?.name}
+              {isAllTenants ? tx('All Branches', 'Semua Cabang') : activeTenant?.name}
             </span>{' '}
-            — kelola kurir antar-jemput, teknisi QC, dan akun admin cabang.
+            —{' '}
+            {tx(
+              'manage delivery couriers, QC technicians, and branch admin accounts.',
+              'kelola kurir antar-jemput, teknisi QC, dan akun admin cabang.'
+            )}
           </p>
         </div>
         {isSuperAdmin ? (
           <Button size="sm" onClick={openAssignRoleDialog}>
             <UserCog className="h-3.5 w-3.5" strokeWidth={1.5} />
-            Atur Role Akun
+            {tx('Assign Account Role', 'Atur Role Akun')}
           </Button>
         ) : null}
       </div>
@@ -408,10 +447,10 @@ export function StaffPage() {
       <Tabs defaultValue="employees">
         <TabsList>
           <TabsTrigger value="employees">
-            Karyawan Operasional ({branchStaff.length})
+            {tx('Operational Staff', 'Karyawan Operasional')} ({branchStaff.length})
           </TabsTrigger>
           <TabsTrigger value="admins">
-            Admin &amp; Superadmin ({branchAdmins.length})
+            {tx('Admins & Superadmins', 'Admin & Superadmin')} ({branchAdmins.length})
           </TabsTrigger>
         </TabsList>
 
@@ -425,7 +464,7 @@ export function StaffPage() {
                   strokeWidth={1.5}
                 />
                 <Input
-                  placeholder="Cari nama, HP, plat..."
+                  placeholder={tx('Search name, phone, plate...', 'Cari nama, HP, plat...')}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="pl-9"
@@ -439,38 +478,45 @@ export function StaffPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Semua Jabatan</SelectItem>
-                  <SelectItem value="courier">Kurir Antar-Jemput</SelectItem>
-                  <SelectItem value="technician">Teknisi / QC Gear</SelectItem>
-                  <SelectItem value="admin_ops">Admin Operasional</SelectItem>
+                  <SelectItem value="all">{tx('All Roles', 'Semua Jabatan')}</SelectItem>
+                  <SelectItem value="courier">{staffRoleLabels.courier}</SelectItem>
+                  <SelectItem value="technician">{staffRoleLabels.technician}</SelectItem>
+                  <SelectItem value="admin_ops">{staffRoleLabels.admin_ops}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <span className="text-xs text-muted-foreground">
-              {branchStaff.filter((s) => s.isActive).length} aktif ·{' '}
-              {branchStaff.filter((s) => s.role === 'courier' && s.isActive).length} kurir
+              {branchStaff.filter((s) => s.isActive).length} {tx('active', 'aktif')} ·{' '}
+              {branchStaff.filter((s) => s.role === 'courier' && s.isActive).length}{' '}
+              {tx('couriers', 'kurir')}
             </span>
           </div>
 
           {loadingStaff ? (
             <div className="rounded-lg border bg-card p-10 text-center text-sm text-muted-foreground">
-              Memuat daftar karyawan...
+              {tx('Loading staff list...', 'Memuat daftar karyawan...')}
             </div>
           ) : filteredStaff.length === 0 ? (
             <EmptyState
               icon={Users}
-              title={`Belum ada karyawan di ${isAllTenants ? 'semua cabang' : activeTenant?.name}`}
-              description="Daftar karyawan operasional cabang yang aktif akan tampil di sini."
+              title={tx(
+                `No staff yet in ${isAllTenants ? 'all branches' : activeTenant?.name}`,
+                `Belum ada karyawan di ${isAllTenants ? 'semua cabang' : activeTenant?.name}`
+              )}
+              description={tx(
+                'Active operational staff for this branch will appear here.',
+                'Daftar karyawan operasional cabang yang aktif akan tampil di sini.'
+              )}
             />
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Karyawan</TableHead>
-                  <TableHead>Jabatan</TableHead>
-                  <TableHead>WhatsApp / HP</TableHead>
-                  <TableHead>Kendaraan</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead>{tx('Employee', 'Karyawan')}</TableHead>
+                  <TableHead>{tx('Role', 'Jabatan')}</TableHead>
+                  <TableHead>{tx('WhatsApp / Phone', 'WhatsApp / HP')}</TableHead>
+                  <TableHead>{tx('Vehicle', 'Kendaraan')}</TableHead>
+                  <TableHead>{tx('Status', 'Status')}</TableHead>
                   <TableHead className="w-10" />
                 </TableRow>
               </TableHeader>
@@ -503,7 +549,7 @@ export function StaffPage() {
                     </TableCell>
                     <TableCell>
                       <span className="inline-flex items-center rounded-md bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">
-                        {STAFF_ROLE_LABELS[staff.role]}
+                        {staffRoleLabels[staff.role]}
                       </span>
                     </TableCell>
                     <TableCell className="tabular-nums text-xs text-muted-foreground">
@@ -515,7 +561,7 @@ export function StaffPage() {
                     <TableCell>
                       <StatusBadge
                         status={staff.isActive ? 'active' : 'suspended'}
-                        label={staff.isActive ? 'Aktif' : 'Nonaktif'}
+                        label={staff.isActive ? tx('Active', 'Aktif') : tx('Inactive', 'Nonaktif')}
                       />
                     </TableCell>
                     <TableCell className="text-right">
@@ -535,18 +581,24 @@ export function StaffPage() {
         <TabsContent value="admins" className="space-y-4">
           {loadingAdmins ? (
             <div className="rounded-lg border bg-card p-10 text-center text-sm text-muted-foreground">
-              Memuat akun admin...
+              {tx('Loading admin accounts...', 'Memuat akun admin...')}
             </div>
           ) : branchAdmins.length === 0 ? (
             <EmptyState
               icon={BadgeCheck}
-              title={`Belum ada admin khusus di ${isAllTenants ? 'semua cabang' : activeTenant?.name}`}
-              description="Superadmin dapat menugaskan akun terdaftar menjadi admin cabang ini."
+              title={tx(
+                `No dedicated admin in ${isAllTenants ? 'all branches' : activeTenant?.name}`,
+                `Belum ada admin khusus di ${isAllTenants ? 'semua cabang' : activeTenant?.name}`
+              )}
+              description={tx(
+                'A Superadmin can assign a registered account as Branch Admin here.',
+                'Superadmin dapat menugaskan akun terdaftar menjadi admin cabang ini.'
+              )}
               action={
                 isSuperAdmin ? (
                   <Button size="sm" onClick={openAssignRoleDialog}>
                     <UserCog className="h-3.5 w-3.5" strokeWidth={1.5} />
-                    Atur Role Akun
+                    {tx('Assign Account Role', 'Atur Role Akun')}
                   </Button>
                 ) : undefined
               }
@@ -555,9 +607,9 @@ export function StaffPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Akun</TableHead>
-                  <TableHead>NIK &amp; WhatsApp</TableHead>
-                  <TableHead>Role</TableHead>
+                  <TableHead>{tx('Account', 'Akun')}</TableHead>
+                  <TableHead>{tx('NIK & WhatsApp', 'NIK & WhatsApp')}</TableHead>
+                  <TableHead>{tx('Role', 'Role')}</TableHead>
                   <TableHead className="w-10" />
                 </TableRow>
               </TableHeader>
@@ -622,14 +674,17 @@ export function StaffPage() {
       >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Atur Role &amp; Akses Akun</DialogTitle>
+            <DialogTitle>{tx('Assign Account Role & Access', 'Atur Role & Akses Akun')}</DialogTitle>
             <DialogDescription>
-              Tetapkan role login akun terdaftar sebagai Member, Branch Admin, atau Superadmin.
+              {tx(
+                'Assign a registered account as Member, Branch Admin, or Superadmin.',
+                'Tetapkan role login akun terdaftar sebagai Member, Branch Admin, atau Superadmin.'
+              )}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-1.5">
-              <Label>Akun Terdaftar</Label>
+              <Label>{tx('Registered Account', 'Akun Terdaftar')}</Label>
               <button
                 type="button"
                 onClick={() => setAccountPickerOpen((prev) => !prev)}
@@ -644,7 +699,7 @@ export function StaffPage() {
                 >
                   {selectedAssignableUser
                     ? `${selectedAssignableUser.displayName} (${selectedAssignableUser.email})`
-                    : 'Pilih akun terdaftar...'}
+                    : tx('Select registered account...', 'Pilih akun terdaftar...')}
                 </span>
                 <ChevronsUpDown
                   className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
@@ -661,7 +716,7 @@ export function StaffPage() {
                         strokeWidth={1.5}
                       />
                       <Input
-                        placeholder="Cari nama, email, atau NIK..."
+                        placeholder={tx('Search name, email, or NIK...', 'Cari nama, email, atau NIK...')}
                         value={accountSearch}
                         onChange={(e) => {
                           setAccountSearch(e.target.value);
@@ -681,7 +736,7 @@ export function StaffPage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="all">Semua</SelectItem>
+                        <SelectItem value="all">{tx('All', 'Semua')}</SelectItem>
                         <SelectItem value="user">User</SelectItem>
                         <SelectItem value="admin">Admin</SelectItem>
                         <SelectItem value="superadmin">Superadmin</SelectItem>
@@ -691,7 +746,7 @@ export function StaffPage() {
 
                   {paginatedAssignableUsers.length === 0 ? (
                     <p className="py-4 text-center text-xs text-muted-foreground">
-                      Tidak ada akun yang cocok.
+                      {tx('No matching accounts.', 'Tidak ada akun yang cocok.')}
                     </p>
                   ) : (
                     <div className="divide-y divide-border rounded-md border">
@@ -737,11 +792,11 @@ export function StaffPage() {
                   <div className="flex items-center justify-between gap-2 pt-0.5 text-[11px] text-muted-foreground">
                     <span className="tabular-nums">
                       {filteredAssignableUsers.length === 0
-                        ? '0 akun'
+                        ? tx('0 accounts', '0 akun')
                         : `${(safeAccountPage - 1) * ACCOUNT_PAGE_SIZE + 1}–${Math.min(
                             safeAccountPage * ACCOUNT_PAGE_SIZE,
                             filteredAssignableUsers.length
-                          )} dari ${filteredAssignableUsers.length}`}
+                          )} ${tx('of', 'dari')} ${filteredAssignableUsers.length}`}
                     </span>
                     <div className="flex items-center gap-1">
                       <span className="mr-1 tabular-nums">
@@ -774,13 +829,15 @@ export function StaffPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label>Role Akses</Label>
+              <Label>{tx('Access Role', 'Role Akses')}</Label>
               <Select value={assignRole} onValueChange={(v) => setAssignRole(v as UserRole)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="user">Member / Penyewa (user)</SelectItem>
+                  <SelectItem value="user">
+                    {tx('Member / Renter (user)', 'Member / Penyewa (user)')}
+                  </SelectItem>
                   <SelectItem value="admin">Branch Admin (admin)</SelectItem>
                   <SelectItem value="superadmin">Platform Superadmin (superadmin)</SelectItem>
                 </SelectContent>
@@ -789,10 +846,10 @@ export function StaffPage() {
 
             {assignRole === 'admin' ? (
               <div className="space-y-1.5">
-                <Label>Cabang Ditugaskan</Label>
+                <Label>{tx('Assigned Branch', 'Cabang Ditugaskan')}</Label>
                 <Select value={assignTenantId} onValueChange={setAssignTenantId}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Pilih cabang..." />
+                    <SelectValue placeholder={tx('Select branch...', 'Pilih cabang...')} />
                   </SelectTrigger>
                   <SelectContent>
                     {allTenants.map((t) => (
@@ -807,10 +864,10 @@ export function StaffPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAssignAdminOpen(false)}>
-              Batal
+              {tx('Cancel', 'Batal')}
             </Button>
             <Button disabled={!selectedUserUid} onClick={() => void handleAssignAccountRole()}>
-              Simpan Role
+              {tx('Save Role', 'Simpan Role')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -829,13 +886,17 @@ export function StaffPage() {
                   <div className="min-w-0 flex-1">
                     <DialogTitle className="truncate">{detailStaff.name}</DialogTitle>
                     <DialogDescription className="mt-1">
-                      {STAFF_ROLE_LABELS[detailStaff.role]} ·{' '}
-                      {tenantById[detailStaff.tenantId]?.name ?? activeTenant?.name ?? 'Cabang'}
+                      {staffRoleLabels[detailStaff.role]} ·{' '}
+                      {tenantById[detailStaff.tenantId]?.name ??
+                        activeTenant?.name ??
+                        tx('Branch', 'Cabang')}
                     </DialogDescription>
                     <div className="mt-2">
                       <StatusBadge
                         status={detailStaff.isActive ? 'active' : 'suspended'}
-                        label={detailStaff.isActive ? 'Aktif' : 'Nonaktif'}
+                        label={
+                          detailStaff.isActive ? tx('Active', 'Aktif') : tx('Inactive', 'Nonaktif')
+                        }
                       />
                     </div>
                   </div>
@@ -847,36 +908,42 @@ export function StaffPage() {
                 onValueChange={(v) => setStaffModalTab(v as 'detail' | 'edit')}
               >
                 <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="detail">Detail</TabsTrigger>
-                  <TabsTrigger value="edit">Edit</TabsTrigger>
+                  <TabsTrigger value="detail">{tx('Details', 'Detail')}</TabsTrigger>
+                  <TabsTrigger value="edit">{tx('Edit', 'Edit')}</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="detail" className="mt-4 space-y-5">
                   <dl className="divide-y divide-border text-sm">
                     {detailStaff.email ? (
                       <div className="flex items-center justify-between gap-4 py-2.5">
-                        <dt className="shrink-0 text-muted-foreground">Email Akun</dt>
+                        <dt className="shrink-0 text-muted-foreground">
+                          {tx('Account Email', 'Email Akun')}
+                        </dt>
                         <dd className="truncate text-foreground">{detailStaff.email}</dd>
                       </div>
                     ) : null}
                     <div className="flex items-center justify-between py-2.5">
-                      <dt className="text-muted-foreground">Jabatan</dt>
+                      <dt className="text-muted-foreground">{tx('Role', 'Jabatan')}</dt>
                       <dd className="font-medium text-foreground">
-                        {STAFF_ROLE_LABELS[detailStaff.role]}
+                        {staffRoleLabels[detailStaff.role]}
                       </dd>
                     </div>
                     <div className="flex items-center justify-between py-2.5">
-                      <dt className="text-muted-foreground">WhatsApp / HP</dt>
+                      <dt className="text-muted-foreground">
+                        {tx('WhatsApp / Phone', 'WhatsApp / HP')}
+                      </dt>
                       <dd className="tabular-nums font-medium text-foreground">
                         {detailStaff.phone || '—'}
                       </dd>
                     </div>
                     <div className="flex items-center justify-between py-2.5">
-                      <dt className="text-muted-foreground">Kendaraan / Plat</dt>
+                      <dt className="text-muted-foreground">
+                        {tx('Vehicle / Plate', 'Kendaraan / Plat')}
+                      </dt>
                       <dd className="text-foreground">{detailStaff.vehicleInfo || '—'}</dd>
                     </div>
                     <div className="flex items-center justify-between py-2.5">
-                      <dt className="text-muted-foreground">Terdaftar</dt>
+                      <dt className="text-muted-foreground">{tx('Registered', 'Terdaftar')}</dt>
                       <dd className="text-xs text-foreground">
                         {formatDateTime(detailStaff.createdAt)}
                       </dd>
@@ -886,7 +953,10 @@ export function StaffPage() {
                   <div className="space-y-2.5 border-t pt-4">
                     <WhatsAppButton
                       phone={detailStaff.phone}
-                      message={`Halo ${detailStaff.name}, koordinasi operasional cabang ${tenantById[detailStaff.tenantId]?.name ?? activeTenant?.name ?? 'CameraRent'}.`}
+                      message={tx(
+                        `Hello ${detailStaff.name}, branch operational coordination for ${tenantById[detailStaff.tenantId]?.name ?? activeTenant?.name ?? 'CameraRent'}.`,
+                        `Halo ${detailStaff.name}, koordinasi operasional cabang ${tenantById[detailStaff.tenantId]?.name ?? activeTenant?.name ?? 'CameraRent'}.`
+                      )}
                       className="w-full"
                     />
                     <div className="flex items-center justify-between">
@@ -895,7 +965,9 @@ export function StaffPage() {
                         variant="outline"
                         onClick={() => void handleToggleStaffActive(detailStaff)}
                       >
-                        {detailStaff.isActive ? 'Nonaktifkan' : 'Aktifkan'}
+                        {detailStaff.isActive
+                          ? tx('Deactivate', 'Nonaktifkan')
+                          : tx('Activate', 'Aktifkan')}
                       </Button>
                       <Button
                         size="sm"
@@ -903,7 +975,7 @@ export function StaffPage() {
                         className="text-destructive hover:bg-destructive/10 hover:text-destructive"
                         onClick={() => void handleDeleteStaff(detailStaff)}
                       >
-                        Hapus Karyawan
+                        {tx('Delete Employee', 'Hapus Karyawan')}
                       </Button>
                     </div>
                   </div>
@@ -912,7 +984,7 @@ export function StaffPage() {
                 <TabsContent value="edit" className="mt-4">
                   <form onSubmit={handleSaveStaffEdit} className="space-y-4">
                     <div className="space-y-1.5">
-                      <Label>Nama Lengkap</Label>
+                      <Label>{tx('Full Name', 'Nama Lengkap')}</Label>
                       <Input
                         value={editStaffForm.name}
                         onChange={(e) =>
@@ -922,7 +994,7 @@ export function StaffPage() {
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1.5">
-                        <Label>WhatsApp / HP</Label>
+                        <Label>{tx('WhatsApp / Phone', 'WhatsApp / HP')}</Label>
                         <Input
                           value={editStaffForm.phone}
                           onChange={(e) =>
@@ -931,7 +1003,7 @@ export function StaffPage() {
                         />
                       </div>
                       <div className="space-y-1.5">
-                        <Label>Jabatan</Label>
+                        <Label>{tx('Role', 'Jabatan')}</Label>
                         <Select
                           value={editStaffForm.role}
                           onValueChange={(v) =>
@@ -942,21 +1014,21 @@ export function StaffPage() {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="courier">Kurir Antar-Jemput</SelectItem>
-                            <SelectItem value="technician">Teknisi / QC Gear</SelectItem>
-                            <SelectItem value="admin_ops">Admin Operasional</SelectItem>
+                            <SelectItem value="courier">{staffRoleLabels.courier}</SelectItem>
+                            <SelectItem value="technician">{staffRoleLabels.technician}</SelectItem>
+                            <SelectItem value="admin_ops">{staffRoleLabels.admin_ops}</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
                     </div>
                     <div className="space-y-1.5">
-                      <Label>Kendaraan / Plat Nomor</Label>
+                      <Label>{tx('Vehicle / Plate Number', 'Kendaraan / Plat Nomor')}</Label>
                       <Input
                         value={editStaffForm.vehicleInfo}
                         onChange={(e) =>
                           setEditStaffForm((prev) => ({ ...prev, vehicleInfo: e.target.value }))
                         }
-                        placeholder="Opsional"
+                        placeholder={tx('Optional', 'Opsional')}
                       />
                     </div>
                     <div className="flex justify-end gap-2 pt-2">
@@ -965,10 +1037,12 @@ export function StaffPage() {
                         variant="outline"
                         onClick={() => setStaffModalTab('detail')}
                       >
-                        Batal
+                        {tx('Cancel', 'Batal')}
                       </Button>
                       <Button type="submit" disabled={savingStaffEdit}>
-                        {savingStaffEdit ? 'Menyimpan...' : 'Simpan Perubahan'}
+                        {savingStaffEdit
+                          ? tx('Saving...', 'Menyimpan...')
+                          : tx('Save Changes', 'Simpan Perubahan')}
                       </Button>
                     </div>
                   </form>
@@ -1016,26 +1090,28 @@ export function StaffPage() {
                 <TabsList
                   className={`grid w-full ${canEditAdminAccount(detailAdmin) ? 'grid-cols-2' : 'grid-cols-1'}`}
                 >
-                  <TabsTrigger value="detail">Detail</TabsTrigger>
+                  <TabsTrigger value="detail">{tx('Details', 'Detail')}</TabsTrigger>
                   {canEditAdminAccount(detailAdmin) ? (
-                    <TabsTrigger value="edit">Edit Profil</TabsTrigger>
+                    <TabsTrigger value="edit">{tx('Edit Profile', 'Edit Profil')}</TabsTrigger>
                   ) : null}
                 </TabsList>
 
                 <TabsContent value="detail" className="mt-4 space-y-5">
                   <dl className="divide-y divide-border text-sm">
                     <div className="flex items-center justify-between py-2.5">
-                      <dt className="text-muted-foreground">Cabang</dt>
+                      <dt className="text-muted-foreground">{tx('Branch', 'Cabang')}</dt>
                       <dd className="font-medium text-foreground">
                         {detailAdmin.role === 'superadmin'
-                          ? 'Semua Cabang (Global)'
+                          ? tx('All Branches (Global)', 'Semua Cabang (Global)')
                           : allTenants.find((t) => t.id === detailAdmin.tenantId)?.name ??
                             activeTenant?.name ??
                             '—'}
                       </dd>
                     </div>
                     <div className="flex items-center justify-between py-2.5">
-                      <dt className="text-muted-foreground">WhatsApp / HP</dt>
+                      <dt className="text-muted-foreground">
+                        {tx('WhatsApp / Phone', 'WhatsApp / HP')}
+                      </dt>
                       <dd className="tabular-nums font-medium text-foreground">
                         {detailAdmin.phone || '—'}
                       </dd>
@@ -1058,7 +1134,10 @@ export function StaffPage() {
                     <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-4">
                       <WhatsAppButton
                         phone={detailAdmin.phone}
-                        message={`Halo ${detailAdmin.displayName}, koordinasi CameraRent.`}
+                        message={tx(
+                          `Hello ${detailAdmin.displayName}, CameraRent coordination.`,
+                          `Halo ${detailAdmin.displayName}, koordinasi CameraRent.`
+                        )}
                         className={
                           isSuperAdmin && detailAdmin.role === 'admin' ? undefined : 'w-full'
                         }
@@ -1070,7 +1149,7 @@ export function StaffPage() {
                           className="ml-auto text-destructive hover:bg-destructive/10 hover:text-destructive"
                           onClick={() => void handleRevokeBranchAdmin(detailAdmin)}
                         >
-                          Cabut Akses Admin
+                          {tx('Revoke Admin Access', 'Cabut Akses Admin')}
                         </Button>
                       ) : null}
                     </div>
@@ -1081,7 +1160,7 @@ export function StaffPage() {
                   <TabsContent value="edit" className="mt-4">
                     <form onSubmit={handleSaveAdminEdit} className="space-y-4">
                       <div className="space-y-1.5">
-                        <Label htmlFor="admin-edit-name">Nama Lengkap</Label>
+                        <Label htmlFor="admin-edit-name">{tx('Full Name', 'Nama Lengkap')}</Label>
                         <Input
                           id="admin-edit-name"
                           value={adminEditForm.displayName}
@@ -1096,7 +1175,9 @@ export function StaffPage() {
 
                       <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1.5">
-                          <Label htmlFor="admin-edit-phone">WhatsApp / HP</Label>
+                          <Label htmlFor="admin-edit-phone">
+                            {tx('WhatsApp / Phone', 'WhatsApp / HP')}
+                          </Label>
                           <Input
                             id="admin-edit-phone"
                             value={adminEditForm.phone}
@@ -1107,7 +1188,9 @@ export function StaffPage() {
                           />
                         </div>
                         <div className="space-y-1.5">
-                          <Label htmlFor="admin-edit-nik">NIK (16 Digit)</Label>
+                          <Label htmlFor="admin-edit-nik">
+                            {tx('National ID / NIK (16 Digits)', 'NIK (16 Digit)')}
+                          </Label>
                           <Input
                             id="admin-edit-nik"
                             className="font-mono text-xs"
@@ -1127,7 +1210,7 @@ export function StaffPage() {
                       {isSuperAdmin ? (
                         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                           <div className="space-y-1.5">
-                            <Label>Role Akses</Label>
+                            <Label>{tx('Access Role', 'Role Akses')}</Label>
                             <Select
                               value={adminEditForm.role}
                               disabled={detailAdmin.uid === userProfile?.uid}
@@ -1148,7 +1231,7 @@ export function StaffPage() {
 
                           {adminEditForm.role === 'admin' ? (
                             <div className="space-y-1.5">
-                              <Label>Cabang Ditugaskan</Label>
+                              <Label>{tx('Assigned Branch', 'Cabang Ditugaskan')}</Label>
                               <Select
                                 value={adminEditForm.tenantId}
                                 onValueChange={(v) =>
@@ -1156,7 +1239,7 @@ export function StaffPage() {
                                 }
                               >
                                 <SelectTrigger>
-                                  <SelectValue placeholder="Pilih cabang..." />
+                                  <SelectValue placeholder={tx('Select branch...', 'Pilih cabang...')} />
                                 </SelectTrigger>
                                 <SelectContent>
                                   {allTenants.map((t) => (
@@ -1177,10 +1260,12 @@ export function StaffPage() {
                           variant="outline"
                           onClick={() => setAdminModalTab('detail')}
                         >
-                          Batal
+                          {tx('Cancel', 'Batal')}
                         </Button>
                         <Button type="submit" disabled={savingAdminEdit}>
-                          {savingAdminEdit ? 'Menyimpan...' : 'Simpan Perubahan'}
+                          {savingAdminEdit
+                            ? tx('Saving...', 'Menyimpan...')
+                            : tx('Save Changes', 'Simpan Perubahan')}
                         </Button>
                       </div>
                     </form>

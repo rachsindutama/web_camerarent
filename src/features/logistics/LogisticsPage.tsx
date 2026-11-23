@@ -24,6 +24,7 @@ import { db } from '@/lib/firebase';
 import { buildGoogleMapsDirectionUrl } from '@/lib/geo';
 import { formatDateTime } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
+import { useI18n } from '@/hooks/useI18n';
 import { calculateOverdueFine } from '@/hooks/useOverdueCalc';
 import { useTenant } from '@/hooks/useTenant';
 import { CurrencyText } from '@/components/shared/CurrencyText';
@@ -49,20 +50,6 @@ import type {
   UserProfile,
 } from '@/types/schema';
 
-const COURIER_STEPS: { key: CourierStatus; label: string }[] = [
-  { key: 'pending_dispatch', label: 'Pending Dispatch' },
-  { key: 'out_for_delivery', label: 'Out for Delivery' },
-  { key: 'delivered', label: 'Delivered to Set' },
-  { key: 'pickup_scheduled', label: 'Pickup Scheduled' },
-  { key: 'returned', label: 'Returned to House' },
-];
-
-const STAFF_ROLE_LABELS: Record<StaffRole, string> = {
-  courier: 'Kurir',
-  technician: 'Teknisi',
-  admin_ops: 'Ops',
-};
-
 interface SelectableCourierOption {
   id: string;
   name: string;
@@ -71,7 +58,22 @@ interface SelectableCourierOption {
 }
 
 export function LogisticsPage() {
+  const { tx } = useI18n();
   const queryClient = useQueryClient();
+
+  const courierSteps: { key: CourierStatus; label: string }[] = [
+    { key: 'pending_dispatch', label: tx('Pending Dispatch', 'Menunggu Kirim') },
+    { key: 'out_for_delivery', label: tx('Out for Delivery', 'Sedang Dikirim') },
+    { key: 'delivered', label: tx('Delivered to Set', 'Tiba di Lokasi') },
+    { key: 'pickup_scheduled', label: tx('Pickup Scheduled', 'Jadwal Jemput') },
+    { key: 'returned', label: tx('Returned to House', 'Kembali ke Cabang') },
+  ];
+
+  const staffRoleLabels: Record<StaffRole, string> = {
+    courier: tx('Courier', 'Kurir'),
+    technician: tx('Technician', 'Teknisi'),
+    admin_ops: tx('Ops', 'Ops'),
+  };
   const { userProfile } = useAuth();
   const { activeTenantId, activeTenant, isAllTenants, tenantById } = useTenant();
 
@@ -139,8 +141,8 @@ export function LogisticsPage() {
       name: s.vehicleInfo ? `${s.name} (${s.vehicleInfo})` : s.name,
       phone: s.phone,
       label: s.vehicleInfo
-        ? `${s.name} · ${STAFF_ROLE_LABELS[s.role]} · ${s.vehicleInfo}`
-        : `${s.name} · ${STAFF_ROLE_LABELS[s.role]}`,
+        ? `${s.name} · ${staffRoleLabels[s.role]} · ${s.vehicleInfo}`
+        : `${s.name} · ${staffRoleLabels[s.role]}`,
     }));
 
     const linkedStaffUids = new Set(scopedStaff.map((s) => s.userId).filter(Boolean));
@@ -160,8 +162,11 @@ export function LogisticsPage() {
     return (
       <EmptyState
         icon={Truck}
-        title="No active rental branch selected"
-        description="Select a tenant branch to track Antar-Jemput dispatches."
+        title={tx('No active rental branch selected', 'Belum ada cabang aktif')}
+        description={tx(
+          'Select a tenant branch to track delivery dispatches.',
+          'Pilih cabang rental untuk memantau pengiriman antar-jemput.'
+        )}
       />
     );
   }
@@ -169,7 +174,12 @@ export function LogisticsPage() {
   const handleAssignCourier = async (booking: Booking) => {
     if (!db) return;
     if (booking.bookingStatus === 'completed') {
-      toast.info('Booking sudah selesai (Completed). Kurir tidak dapat diubah.');
+      toast.info(
+        tx(
+          'Booking is already completed. Courier cannot be changed.',
+          'Booking sudah selesai (Completed). Kurir tidak dapat diubah.'
+        )
+      );
       return;
     }
 
@@ -177,7 +187,12 @@ export function LogisticsPage() {
     const bookingCouriers = getCourierOptionsForTenant(booking.tenantId);
     const chosen = bookingCouriers.find((c) => c.id === chosenId);
     if (!chosen) {
-      toast.error('Pilih karyawan / kurir cabang dari daftar terlebih dahulu.');
+      toast.error(
+        tx(
+          'Select a branch staff / courier from the list first.',
+          'Pilih karyawan / kurir cabang dari daftar terlebih dahulu.'
+        )
+      );
       return;
     }
 
@@ -190,17 +205,27 @@ export function LogisticsPage() {
       });
       await queryClient.invalidateQueries({ queryKey: ['logistics'] });
       await queryClient.invalidateQueries({ queryKey: ['bookings'] });
-      toast.success(`Kurir ${chosen.name} ditugaskan ke ${booking.invoiceNumber}.`);
+      toast.success(
+        tx(
+          `Courier ${chosen.name} assigned to ${booking.invoiceNumber}.`,
+          `Kurir ${chosen.name} ditugaskan ke ${booking.invoiceNumber}.`
+        )
+      );
     } catch (error) {
       console.error('Assign courier error:', error);
-      toast.error('Gagal menugaskan kurir.');
+      toast.error(tx('Failed to assign courier.', 'Gagal menugaskan kurir.'));
     }
   };
 
   const handleAdvanceStatus = async (booking: Booking, nextStatus: CourierStatus) => {
     if (!db) return;
     if (booking.bookingStatus === 'completed') {
-      toast.info('Booking ini sudah selesai (Completed). Checkpoint logistik terkunci.');
+      toast.info(
+        tx(
+          'This booking is completed. Logistics checkpoints are locked.',
+          'Booking ini sudah selesai (Completed). Checkpoint logistik terkunci.'
+        )
+      );
       return;
     }
 
@@ -238,7 +263,10 @@ export function LogisticsPage() {
             });
           }
           toast.warning(
-            `Unit kembali terlambat +${overdue.billableLateHours} jam. Denda Rp ${overdue.estimatedFine.toLocaleString('id-ID')} otomatis dicatat ke Cash Flow.`
+            tx(
+              `Unit returned +${overdue.billableLateHours}h late. Overdue fine Rp ${overdue.estimatedFine.toLocaleString('id-ID')} auto-posted to Cash Flow.`,
+              `Unit kembali terlambat +${overdue.billableLateHours} jam. Denda Rp ${overdue.estimatedFine.toLocaleString('id-ID')} otomatis dicatat ke Cash Flow.`
+            )
           );
         }
       }
@@ -253,10 +281,15 @@ export function LogisticsPage() {
       await queryClient.invalidateQueries({ queryKey: ['bookings'] });
       await queryClient.invalidateQueries({ queryKey: ['inspections'] });
       await queryClient.invalidateQueries({ queryKey: ['transactions'] });
-      toast.success(`Dispatch status updated to ${nextStatus.replace(/_/g, ' ')}.`);
+      toast.success(
+        tx(
+          `Dispatch status updated to ${nextStatus.replace(/_/g, ' ')}.`,
+          `Status pengiriman diperbarui ke ${nextStatus.replace(/_/g, ' ')}.`
+        )
+      );
     } catch (error) {
       console.error('Advance courier status error:', error);
-      toast.error('Failed to update courier checkpoint.');
+      toast.error(tx('Failed to update courier checkpoint.', 'Gagal memperbarui checkpoint kurir.'));
     }
   };
 
@@ -264,22 +297,23 @@ export function LogisticsPage() {
     <div className="space-y-5">
       <div className="border-b border-zinc-200 pb-4">
         <h2 className="text-base font-semibold tracking-tight text-zinc-950">
-          Antar-Jemput Courier Dispatch
+          {tx('Delivery & Pickup Dispatch', 'Dispatch Kurir Antar-Jemput')}
         </h2>
         <p className="mt-0.5 text-xs text-zinc-500">
-          Branch:{' '}
+          {tx('Branch:', 'Cabang:')}{' '}
           <span className="font-medium text-zinc-800">
-            {isAllTenants ? 'Semua Cabang' : activeTenant?.name}
+            {isAllTenants ? tx('All Branches', 'Semua Cabang') : activeTenant?.name}
           </span>
           {activeTenant ? (
             <>
               {' '}
-              · Rate: <CurrencyText amount={activeTenant.deliveryRatePerKm} suffix="/km" />
+              · {tx('Rate:', 'Tarif:')}{' '}
+              <CurrencyText amount={activeTenant.deliveryRatePerKm} suffix="/km" />
             </>
           ) : null}{' '}
-          · Tugaskan kurir dari menu{' '}
+          · {tx('Assign couriers from', 'Tugaskan kurir dari menu')}{' '}
           <Link to="/admin/staff" className="font-medium text-primary hover:underline">
-            Staff &amp; Karyawan
+            {tx('Staff & Employees', 'Staff & Karyawan')}
           </Link>
           .
         </p>
@@ -287,20 +321,23 @@ export function LogisticsPage() {
 
       {isLoading ? (
         <div className="rounded-md border border-zinc-200 bg-white p-8 text-center font-mono text-xs text-zinc-400">
-          LOADING DISPATCH QUEUE...
+          {tx('LOADING DISPATCH QUEUE...', 'MEMUAT ANTRIAN DISPATCH...')}
         </div>
       ) : deliveries.length === 0 ? (
         <EmptyState
           icon={Truck}
-          title="No Antar-Jemput deliveries queued"
-          description="Bookings placed with Antar-Jemput delivery mode will appear here for courier assignment."
+          title={tx('No deliveries queued', 'Belum ada pengiriman antar-jemput')}
+          description={tx(
+            'Bookings placed with Delivery & Pickup mode will appear here for courier assignment.',
+            'Booking dengan mode pengiriman Antar-Jemput akan tampil di sini untuk penugasan kurir.'
+          )}
         />
       ) : (
         <div className="space-y-4">
           {deliveries.map((booking) => {
             const currentStatus = booking.courierStatus ?? 'pending_dispatch';
-            const currentIdx = COURIER_STEPS.findIndex((s) => s.key === currentStatus);
-            const nextStep = COURIER_STEPS[currentIdx + 1];
+            const currentIdx = courierSteps.findIndex((s) => s.key === currentStatus);
+            const nextStep = courierSteps[currentIdx + 1];
             const isCompleted = booking.bookingStatus === 'completed';
             const activeSelectedId =
               selectedCourierByBooking[booking.id] ?? booking.courierId ?? '';
@@ -323,7 +360,7 @@ export function LogisticsPage() {
                         <MembershipBadge tier="premium" />
                       ) : null}
                       <span className="font-mono text-[11px] text-zinc-500">
-                        Fee: <CurrencyText amount={booking.deliveryFee} />
+                        {tx('Fee:', 'Ongkir:')} <CurrencyText amount={booking.deliveryFee} />
                       </span>
                     </div>
                     <span className="font-mono text-[11px] text-zinc-500">
@@ -336,7 +373,7 @@ export function LogisticsPage() {
                     <div className="space-y-1 md:col-span-5">
                       <p className="flex items-center gap-1 font-mono text-[10px] uppercase text-zinc-400">
                         <MapPin className="h-3 w-3" strokeWidth={1.5} />
-                        Destination Address
+                        {tx('Destination Address', 'Alamat Tujuan')}
                       </p>
                       <p className="text-zinc-800">{booking.deliveryAddress ?? '—'}</p>
                       {booking.deliveryCoordinates ? (
@@ -352,7 +389,7 @@ export function LogisticsPage() {
                             className="inline-flex items-center gap-1 text-[10px] font-medium text-primary hover:underline"
                           >
                             <Navigation className="h-2.5 w-2.5" strokeWidth={1.5} />
-                            Lihat Pin Peta
+                            {tx('View Map Pin', 'Lihat Pin Peta')}
                           </button>
                           <a
                             href={buildGoogleMapsDirectionUrl(
@@ -377,14 +414,17 @@ export function LogisticsPage() {
 
                     <div className="space-y-1.5 md:col-span-4">
                       <p className="font-mono text-[10px] uppercase text-zinc-400">
-                        Assigned Courier (Karyawan Cabang)
+                        {tx('Assigned Courier (Branch Staff)', 'Kurir Ditugaskan (Karyawan Cabang)')}
                       </p>
 
                       {courierOptions.length === 0 ? (
                         <div className="rounded border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] text-amber-900">
-                          Belum ada karyawan cabang aktif. Tambahkan di menu{' '}
+                          {tx(
+                            'No active branch staff yet. Add staff in ',
+                            'Belum ada karyawan cabang aktif. Tambahkan di menu '
+                          )}
                           <Link to="/admin/staff" className="font-semibold underline">
-                            Staff &amp; Karyawan
+                            {tx('Staff & Employees', 'Staff & Karyawan')}
                           </Link>
                           .
                         </div>
@@ -404,8 +444,8 @@ export function LogisticsPage() {
                               <SelectValue
                                 placeholder={
                                   booking.courierName
-                                    ? `${booking.courierName} (tersimpan)`
-                                    : 'Pilih karyawan cabang...'
+                                    ? `${booking.courierName} (${tx('saved', 'tersimpan')})`
+                                    : tx('Select branch staff...', 'Pilih karyawan cabang...')
                                 }
                               />
                             </SelectTrigger>
@@ -424,14 +464,15 @@ export function LogisticsPage() {
                             onClick={() => void handleAssignCourier(booking)}
                           >
                             <UserCheck className="h-3.5 w-3.5" strokeWidth={1.5} />
-                            Assign
+                            {tx('Assign', 'Tugaskan')}
                           </Button>
                         </div>
                       )}
 
                       {booking.courierName ? (
                         <p className="font-mono text-[10px] text-zinc-500">
-                          Terpilih: <span className="text-zinc-900">{booking.courierName}</span>
+                          {tx('Assigned:', 'Terpilih:')}{' '}
+                          <span className="text-zinc-900">{booking.courierName}</span>
                           {booking.courierPhone ? ` · ${booking.courierPhone}` : ''}
                         </p>
                       ) : null}
@@ -449,11 +490,11 @@ export function LogisticsPage() {
                       ) : (
                         <div className="text-right">
                           <span className="block font-mono text-[11px] font-medium text-emerald-700">
-                            DISPATCH CYCLE COMPLETE
+                            {tx('DISPATCH CYCLE COMPLETE', 'SIKLUS DISPATCH SELESAI')}
                           </span>
                           {booking.returnedAt || booking.courierTimestamps?.returned ? (
                             <span className="font-mono text-[10px] text-zinc-500">
-                              Dikembalikan:{' '}
+                              {tx('Returned:', 'Dikembalikan:')}{' '}
                               {formatDateTime(
                                 booking.returnedAt ?? booking.courierTimestamps?.returned
                               )}
@@ -466,7 +507,7 @@ export function LogisticsPage() {
 
                   {/* Horizontal Checkpoint Stepper */}
                   <div className="grid grid-cols-2 gap-1.5 pt-1 sm:grid-cols-5">
-                    {COURIER_STEPS.map((step, idx) => {
+                    {courierSteps.map((step, idx) => {
                       const done = idx <= currentIdx;
                       const stepTs = booking.courierTimestamps?.[step.key];
                       return (
@@ -490,7 +531,7 @@ export function LogisticsPage() {
                               done ? 'text-zinc-300' : 'text-zinc-400'
                             }`}
                           >
-                            {stepTs ? formatDateTime(stepTs) : done ? 'Selesai' : '—'}
+                            {stepTs ? formatDateTime(stepTs) : done ? tx('Done', 'Selesai') : '—'}
                           </span>
                         </button>
                       );

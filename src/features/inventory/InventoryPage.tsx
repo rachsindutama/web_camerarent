@@ -16,6 +16,7 @@ import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { Camera, ChevronRight, Loader2, Plus, Search, Trash2, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { db, storage } from '@/lib/firebase';
+import { useI18n } from '@/hooks/useI18n';
 import { useTenant } from '@/hooks/useTenant';
 import { CurrencyText } from '@/components/shared/CurrencyText';
 import { EmptyState } from '@/components/shared/EmptyState';
@@ -62,6 +63,7 @@ const CATEGORIES: Equipment['category'][] = [
 
 export function InventoryPage() {
   const queryClient = useQueryClient();
+  const { tx } = useI18n();
   const { activeTenantId, activeTenant, isAllTenants, allTenants, tenantById } = useTenant();
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
@@ -126,8 +128,11 @@ export function InventoryPage() {
     return (
       <EmptyState
         icon={Camera}
-        title="Belum ada cabang aktif"
-        description="Pilih atau buat cabang di Platform Governance → Tenants terlebih dahulu."
+        title={tx('No active branch selected', 'Belum ada cabang aktif')}
+        description={tx(
+          'Select or create a branch in Platform Governance → Tenants first.',
+          'Pilih atau buat cabang di Tata Kelola Platform → Cabang terlebih dahulu.'
+        )}
       />
     );
   }
@@ -187,21 +192,25 @@ export function InventoryPage() {
   const handleUploadThumbnail = async (file: File | undefined) => {
     if (!file) return;
     if (!storage) {
-      toast.error('Firebase Storage belum terkonfigurasi.');
+      toast.error(tx('Firebase Storage is not configured.', 'Firebase Storage belum terkonfigurasi.'));
       return;
     }
     if (!file.type.startsWith('image/')) {
-      toast.error('File harus berupa gambar (JPG, PNG, WebP).');
+      toast.error(
+        tx('File must be an image (JPG, PNG, WebP).', 'File harus berupa gambar (JPG, PNG, WebP).')
+      );
       return;
     }
     if (file.size >= 5 * 1024 * 1024) {
-      toast.error('Ukuran foto maksimal 5 MB.');
+      toast.error(tx('Maximum photo size is 5 MB.', 'Ukuran foto maksimal 5 MB.'));
       return;
     }
     const targetTenantId =
       eqForm.tenantId || selectedEquipment?.tenantId || activeTenantId || allTenants[0]?.id;
     if (!targetTenantId) {
-      toast.error('Pilih cabang terlebih dahulu sebelum mengunggah foto.');
+      toast.error(
+        tx('Select a branch before uploading a photo.', 'Pilih cabang terlebih dahulu sebelum mengunggah foto.')
+      );
       return;
     }
 
@@ -212,10 +221,20 @@ export function InventoryPage() {
       await uploadBytes(storageRef, file, { contentType: file.type });
       const downloadUrl = await getDownloadURL(storageRef);
       setEqForm((prev) => ({ ...prev, imageUrl: downloadUrl }));
-      toast.success('Foto thumbnail berhasil diunggah. Klik Simpan untuk menerapkan.');
+      toast.success(
+        tx(
+          'Thumbnail uploaded. Click Save to apply.',
+          'Foto thumbnail berhasil diunggah. Klik Simpan untuk menerapkan.'
+        )
+      );
     } catch (error) {
       console.error('Thumbnail upload error:', error);
-      toast.error('Gagal mengunggah foto ke Firebase Storage.');
+      toast.error(
+        tx(
+          'Failed to upload photo to Firebase Storage.',
+          'Gagal mengunggah foto ke Firebase Storage.'
+        )
+      );
     } finally {
       setUploadingImage(false);
     }
@@ -225,11 +244,11 @@ export function InventoryPage() {
     e.preventDefault();
     const targetTenantId = eqForm.tenantId || activeTenantId;
     if (!db || !targetTenantId) {
-      toast.error('Pilih cabang terlebih dahulu.');
+      toast.error(tx('Select a branch first.', 'Pilih cabang terlebih dahulu.'));
       return;
     }
     if (!eqForm.name.trim() || !eqForm.brand.trim()) {
-      toast.error('Nama model dan brand wajib diisi.');
+      toast.error(tx('Model name and brand are required.', 'Nama model dan brand wajib diisi.'));
       return;
     }
 
@@ -248,11 +267,16 @@ export function InventoryPage() {
       });
       await queryClient.invalidateQueries({ queryKey: ['equipment'] });
       await queryClient.invalidateQueries({ queryKey: ['public', 'equipment'] });
-      toast.success(`${eqForm.name.trim()} ditambahkan ke katalog.`);
+      toast.success(
+        tx(
+          `${eqForm.name.trim()} added to catalog.`,
+          `${eqForm.name.trim()} ditambahkan ke katalog.`
+        )
+      );
       setCreateDialogOpen(false);
     } catch (error) {
       console.error('Create equipment error:', error);
-      toast.error('Gagal menambahkan model alat.');
+      toast.error(tx('Failed to add equipment model.', 'Gagal menambahkan model alat.'));
     }
   };
 
@@ -260,7 +284,7 @@ export function InventoryPage() {
     e.preventDefault();
     if (!db || !selectedEquipment) return;
     if (!eqForm.name.trim() || !eqForm.brand.trim()) {
-      toast.error('Nama model dan brand wajib diisi.');
+      toast.error(tx('Model name and brand are required.', 'Nama model dan brand wajib diisi.'));
       return;
     }
 
@@ -281,11 +305,11 @@ export function InventoryPage() {
       });
       await queryClient.invalidateQueries({ queryKey: ['equipment'] });
       await queryClient.invalidateQueries({ queryKey: ['public', 'equipment'] });
-      toast.success(`Data ${eqForm.name.trim()} diperbarui.`);
+      toast.success(tx(`${eqForm.name.trim()} updated.`, `Data ${eqForm.name.trim()} diperbarui.`));
       setDetailTab('units');
     } catch (error) {
       console.error('Update equipment error:', error);
-      toast.error('Gagal memperbarui model alat.');
+      toast.error(tx('Failed to update equipment model.', 'Gagal memperbarui model alat.'));
     }
   };
 
@@ -294,7 +318,10 @@ export function InventoryPage() {
     const rentedUnits = selectedUnits.filter((u) => u.status === 'rented');
     if (rentedUnits.length > 0) {
       toast.error(
-        `Tidak bisa menghapus model ini — masih ada ${rentedUnits.length} unit berstatus Rented.`
+        tx(
+          `Cannot delete this model — ${rentedUnits.length} unit(s) are currently Rented.`,
+          `Tidak bisa menghapus model ini — masih ada ${rentedUnits.length} unit berstatus Rented.`
+        )
       );
       return;
     }
@@ -313,13 +340,16 @@ export function InventoryPage() {
       await queryClient.invalidateQueries({ queryKey: ['equipment_units'] });
       await queryClient.invalidateQueries({ queryKey: ['public', 'equipment'] });
       toast.success(
-        `Model ${selectedEquipment.name} beserta ${selectedUnits.length} unit fisiknya dihapus.`
+        tx(
+          `Model ${selectedEquipment.name} and ${selectedUnits.length} physical unit(s) deleted.`,
+          `Model ${selectedEquipment.name} beserta ${selectedUnits.length} unit fisiknya dihapus.`
+        )
       );
       setSelectedEquipmentId(null);
       setConfirmDeleteModel(false);
     } catch (error) {
       console.error('Delete equipment error:', error);
-      toast.error('Gagal menghapus model alat.');
+      toast.error(tx('Failed to delete equipment model.', 'Gagal menghapus model alat.'));
     } finally {
       setDeletingModel(false);
     }
@@ -329,7 +359,7 @@ export function InventoryPage() {
     e.preventDefault();
     if (!db || !selectedEquipment) return;
     if (!unitForm.serialNumber.trim()) {
-      toast.error('Serial number wajib diisi.');
+      toast.error(tx('Serial number is required.', 'Serial number wajib diisi.'));
       return;
     }
 
@@ -363,10 +393,15 @@ export function InventoryPage() {
 
       await queryClient.invalidateQueries({ queryKey: ['equipment_units'] });
       await queryClient.invalidateQueries({ queryKey: ['equipment'] });
-      toast.success(`Unit fisik ${unitForm.serialNumber.toUpperCase()} didaftarkan.`);
+      toast.success(
+        tx(
+          `Physical unit ${unitForm.serialNumber.toUpperCase()} registered.`,
+          `Unit fisik ${unitForm.serialNumber.toUpperCase()} didaftarkan.`
+        )
+      );
     } catch (error) {
       console.error('Add unit error:', error);
-      toast.error('Gagal mendaftarkan unit fisik.');
+      toast.error(tx('Failed to register physical unit.', 'Gagal mendaftarkan unit fisik.'));
     }
   };
 
@@ -378,10 +413,12 @@ export function InventoryPage() {
         lastCheckedAt: Timestamp.now(),
       });
       await queryClient.invalidateQueries({ queryKey: ['equipment_units'] });
-      toast.success(`${unit.serialNumber} diubah ke ${status}.`);
+      toast.success(
+        tx(`${unit.serialNumber} changed to ${status}.`, `${unit.serialNumber} diubah ke ${status}.`)
+      );
     } catch (error) {
       console.error('Unit status update error:', error);
-      toast.error('Gagal memperbarui status unit.');
+      toast.error(tx('Failed to update unit status.', 'Gagal memperbarui status unit.'));
     }
   };
 
@@ -397,10 +434,10 @@ export function InventoryPage() {
       });
       await queryClient.invalidateQueries({ queryKey: ['equipment_units'] });
       await queryClient.invalidateQueries({ queryKey: ['equipment'] });
-      toast.success(`Unit ${unit.serialNumber} dihapus.`);
+      toast.success(tx(`Unit ${unit.serialNumber} deleted.`, `Unit ${unit.serialNumber} dihapus.`));
     } catch (error) {
       console.error('Delete unit error:', error);
-      toast.error('Gagal menghapus unit.');
+      toast.error(tx('Failed to delete unit.', 'Gagal menghapus unit.'));
     }
   };
 
@@ -419,13 +456,13 @@ export function InventoryPage() {
     <div className="space-y-4">
       {isAllTenants && !isEdit ? (
         <div className="space-y-1.5">
-          <Label>Cabang</Label>
+          <Label>{tx('Branch', 'Cabang')}</Label>
           <Select
             value={eqForm.tenantId}
             onValueChange={(v) => setEqForm({ ...eqForm, tenantId: v })}
           >
             <SelectTrigger>
-              <SelectValue placeholder="Pilih cabang..." />
+              <SelectValue placeholder={tx('Select branch...', 'Pilih cabang...')} />
             </SelectTrigger>
             <SelectContent>
               {allTenants.map((t) => (
@@ -440,7 +477,7 @@ export function InventoryPage() {
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
-          <Label>Nama Model</Label>
+          <Label>{tx('Model Name', 'Nama Model')}</Label>
           <Input
             placeholder="Sony Alpha a7 IV Body"
             value={eqForm.name}
@@ -448,7 +485,7 @@ export function InventoryPage() {
           />
         </div>
         <div className="space-y-1.5">
-          <Label>Brand</Label>
+          <Label>{tx('Brand', 'Brand')}</Label>
           <Input
             placeholder="Sony"
             value={eqForm.brand}
@@ -459,7 +496,7 @@ export function InventoryPage() {
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="space-y-1.5">
-          <Label>Kategori</Label>
+          <Label>{tx('Category', 'Kategori')}</Label>
           <Select
             value={eqForm.category}
             onValueChange={(v) => setEqForm({ ...eqForm, category: v as Equipment['category'] })}
@@ -477,7 +514,7 @@ export function InventoryPage() {
           </Select>
         </div>
         <div className="space-y-1.5">
-          <Label>Tarif / Hari (IDR)</Label>
+          <Label>{tx('Daily Rate (IDR)', 'Tarif / Hari (IDR)')}</Label>
           <Input
             type="number"
             className="tabular-nums"
@@ -486,7 +523,7 @@ export function InventoryPage() {
           />
         </div>
         <div className="space-y-1.5">
-          <Label>Deposit (IDR)</Label>
+          <Label>{tx('Deposit (IDR)', 'Deposit (IDR)')}</Label>
           <Input
             type="number"
             className="tabular-nums"
@@ -497,7 +534,7 @@ export function InventoryPage() {
       </div>
 
       <div className="space-y-1.5">
-        <Label>Spesifikasi Teknis (Key: Value per baris)</Label>
+        <Label>{tx('Technical Specs (Key: Value per line)', 'Spesifikasi Teknis (Key: Value per baris)')}</Label>
         <textarea
           rows={3}
           className="flex w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
@@ -507,20 +544,20 @@ export function InventoryPage() {
       </div>
 
       <div className="space-y-2">
-        <Label>Foto Thumbnail Alat</Label>
+        <Label>{tx('Equipment Thumbnail Photo', 'Foto Thumbnail Alat')}</Label>
         <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center">
           <div className="relative flex h-20 w-28 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted/40">
             {eqForm.imageUrl.trim() ? (
               <button
                 type="button"
                 onClick={() => {
-                  setPreviewTitle(eqForm.name.trim() || 'Preview Thumbnail');
+                  setPreviewTitle(eqForm.name.trim() || tx('Thumbnail Preview', 'Preview Thumbnail'));
                   setPreviewImages([
-                    { url: eqForm.imageUrl.trim(), label: eqForm.name.trim() || 'Thumbnail Alat' },
+                    { url: eqForm.imageUrl.trim(), label: eqForm.name.trim() || tx('Equipment Thumbnail', 'Thumbnail Alat') },
                   ]);
                 }}
                 className="block h-full w-full"
-                title="Klik untuk memperbesar"
+                title={tx('Click to zoom', 'Klik untuk memperbesar')}
               >
                 <img
                   src={eqForm.imageUrl.trim()}
@@ -541,7 +578,7 @@ export function InventoryPage() {
                 ) : (
                   <Upload className="h-3.5 w-3.5" strokeWidth={1.5} />
                 )}
-                <span>{uploadingImage ? 'Mengunggah...' : 'Upload Foto'}</span>
+                <span>{uploadingImage ? tx('Uploading...', 'Mengunggah...') : tx('Upload Photo', 'Upload Foto')}</span>
                 <input
                   type="file"
                   accept="image/*"
@@ -563,12 +600,12 @@ export function InventoryPage() {
                   onClick={() => setEqForm((prev) => ({ ...prev, imageUrl: '' }))}
                 >
                   <X className="h-3.5 w-3.5" strokeWidth={1.5} />
-                  Hapus Foto
+                  {tx('Remove Photo', 'Hapus Foto')}
                 </Button>
               ) : null}
             </div>
             <Input
-              placeholder="Atau tempel URL gambar langsung (https://...)"
+              placeholder={tx('Or paste direct image URL (https://...)', 'Atau tempel URL gambar langsung (https://...)')}
               value={eqForm.imageUrl}
               onChange={(e) => setEqForm({ ...eqForm, imageUrl: e.target.value })}
               className="h-8 bg-background text-xs"
@@ -584,19 +621,23 @@ export function InventoryPage() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="space-y-1">
           <h2 className="text-xl font-semibold tracking-tight text-foreground">
-            Inventory &amp; Serial Units
+            {tx('Inventory & Serial Units', 'Inventaris & Unit Serial')}
           </h2>
           <p className="text-sm text-muted-foreground">
-            Cabang{' '}
+            {tx('Branch', 'Cabang')}{' '}
             <span className="font-medium text-foreground">
-              {isAllTenants ? 'Semua Cabang' : activeTenant?.name}
+              {isAllTenants ? tx('All Branches', 'Semua Cabang') : activeTenant?.name}
             </span>{' '}
-            — klik item untuk mengelola unit serial number, edit model, atau hapus item.
+            —{' '}
+            {tx(
+              'click an item to manage serial units, edit model details, or delete.',
+              'klik item untuk mengelola unit serial number, edit model, atau hapus item.'
+            )}
           </p>
         </div>
         <Button size="sm" onClick={openCreateEquipment}>
           <Plus className="h-3.5 w-3.5" strokeWidth={1.5} />
-          Tambah Model Alat
+          {tx('Add Equipment Model', 'Tambah Model Alat')}
         </Button>
       </div>
 
@@ -608,7 +649,7 @@ export function InventoryPage() {
               strokeWidth={1.5}
             />
             <Input
-              placeholder="Cari Sony A7 IV, RF 24-70mm..."
+              placeholder={tx('Search Sony A7 IV, RF 24-70mm...', 'Cari Sony A7 IV, RF 24-70mm...')}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="pl-9"
@@ -619,7 +660,7 @@ export function InventoryPage() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Semua Kategori</SelectItem>
+              <SelectItem value="all">{tx('All Categories', 'Semua Kategori')}</SelectItem>
               {CATEGORIES.map((cat) => (
                 <SelectItem key={cat} value={cat} className="capitalize">
                   {cat}
@@ -630,22 +671,28 @@ export function InventoryPage() {
         </div>
 
         <span className="text-xs text-muted-foreground">
-          {equipmentList.length} model · {allUnits.length} unit fisik SN
+          {tx(
+            `${equipmentList.length} models · ${allUnits.length} physical SN units`,
+            `${equipmentList.length} model · ${allUnits.length} unit fisik SN`
+          )}
         </span>
       </div>
 
       {loadingEq ? (
         <div className="rounded-lg border bg-card p-10 text-center text-sm text-muted-foreground">
-          Memuat inventaris alat...
+          {tx('Loading equipment inventory...', 'Memuat inventaris alat...')}
         </div>
       ) : filtered.length === 0 ? (
         <EmptyState
           icon={Camera}
-          title="Belum ada model alat"
-          description="Tambahkan kamera, lensa, lighting, atau stabilizer beserta serial number fisiknya."
+          title={tx('No equipment models yet', 'Belum ada model alat')}
+          description={tx(
+            'Add cameras, lenses, lighting, or stabilizers along with their physical serial numbers.',
+            'Tambahkan kamera, lensa, lighting, atau stabilizer beserta serial number fisiknya.'
+          )}
           action={
             <Button size="sm" onClick={openCreateEquipment}>
-              Tambah Model Alat
+              {tx('Add Equipment Model', 'Tambah Model Alat')}
             </Button>
           }
         />
@@ -653,11 +700,11 @@ export function InventoryPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Model Alat</TableHead>
-              <TableHead>Kategori</TableHead>
-              <TableHead>Tarif / Hari</TableHead>
-              <TableHead>Deposit</TableHead>
-              <TableHead>Unit Fisik (SN)</TableHead>
+              <TableHead>{tx('Equipment Model', 'Model Alat')}</TableHead>
+              <TableHead>{tx('Category', 'Kategori')}</TableHead>
+              <TableHead>{tx('Daily Rate', 'Tarif / Hari')}</TableHead>
+              <TableHead>{tx('Deposit', 'Deposit')}</TableHead>
+              <TableHead>{tx('Physical Units (SN)', 'Unit Fisik (SN)')}</TableHead>
               <TableHead className="w-10" />
             </TableRow>
           </TableHeader>
@@ -712,7 +759,7 @@ export function InventoryPage() {
                     </span>
                   </TableCell>
                   <TableCell className="font-medium text-foreground">
-                    <CurrencyText amount={eq.dailyRate} suffix="/hari" />
+                    <CurrencyText amount={eq.dailyRate} suffix={tx('/day', '/hari')} />
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     <CurrencyText amount={eq.depositAmount} />
@@ -720,7 +767,7 @@ export function InventoryPage() {
                   <TableCell>
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span className="tabular-nums text-xs font-medium text-foreground">
-                        {availCount}/{units.length} ready
+                        {availCount}/{units.length} {tx('ready', 'siap')}
                       </span>
                       {maintCount > 0 ? (
                         <StatusBadge status="maintenance" label={`${maintCount} maint`} />
@@ -744,19 +791,19 @@ export function InventoryPage() {
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Tambah Model Alat</DialogTitle>
+            <DialogTitle>{tx('Add Equipment Model', 'Tambah Model Alat')}</DialogTitle>
             <DialogDescription>
-              Tambahkan model katalog dan tarif sewa untuk{' '}
-              {tenantById[eqForm.tenantId]?.name ?? activeTenant?.name ?? 'cabang terpilih'}.
+              {tx('Add a catalog model and rental pricing for', 'Tambahkan model katalog dan tarif sewa untuk')}{' '}
+              {tenantById[eqForm.tenantId]?.name ?? activeTenant?.name ?? tx('selected branch', 'cabang terpilih')}.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleCreateEquipment} className="space-y-4">
             {renderEquipmentFormFields(false)}
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setCreateDialogOpen(false)}>
-                Batal
+                {tx('Cancel', 'Batal')}
               </Button>
-              <Button type="submit">Simpan Model</Button>
+              <Button type="submit">{tx('Save Model', 'Simpan Model')}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -794,7 +841,7 @@ export function InventoryPage() {
                             );
                           }}
                           className="block h-full w-full"
-                          title="Klik untuk memperbesar foto"
+                          title={tx('Click to zoom photo', 'Klik untuk memperbesar foto')}
                         >
                           <img
                             src={selectedEquipment.images[0]}
@@ -816,13 +863,13 @@ export function InventoryPage() {
                         <span className="capitalize">{selectedEquipment.category}</span> ·{' '}
                         {tenantById[selectedEquipment.tenantId]?.name ??
                           activeTenant?.name ??
-                          'Cabang'}
+                          tx('Branch', 'Cabang')}
                       </DialogDescription>
                     </div>
                   </div>
                   <div className="shrink-0 text-right text-xs">
                     <div className="font-semibold text-foreground">
-                      <CurrencyText amount={selectedEquipment.dailyRate} suffix="/hari" />
+                      <CurrencyText amount={selectedEquipment.dailyRate} suffix={tx('/day', '/hari')} />
                     </div>
                     <div className="text-muted-foreground">
                       Deposit <CurrencyText amount={selectedEquipment.depositAmount} />
@@ -840,9 +887,11 @@ export function InventoryPage() {
               >
                 <TabsList className="grid w-full grid-cols-2">
                   <TabsTrigger value="units">
-                    Unit Fisik / SN ({selectedUnits.length})
+                    {tx('Physical Units / SN', 'Unit Fisik / SN')} ({selectedUnits.length})
                   </TabsTrigger>
-                  <TabsTrigger value="edit">Edit &amp; Hapus Model</TabsTrigger>
+                  <TabsTrigger value="edit">
+                    {tx('Edit & Delete Model', 'Edit & Hapus Model')}
+                  </TabsTrigger>
                 </TabsList>
 
                 {/* Tab 1: Physical Serial Units */}
@@ -861,7 +910,7 @@ export function InventoryPage() {
                       />
                     </div>
                     <div className="space-y-1 sm:col-span-3">
-                      <Label className="text-xs">Kondisi</Label>
+                      <Label className="text-xs">{tx('Condition', 'Kondisi')}</Label>
                       <Select
                         value={unitForm.condition}
                         onValueChange={(v) =>
@@ -880,7 +929,9 @@ export function InventoryPage() {
                       </Select>
                     </div>
                     <div className="space-y-1 sm:col-span-5">
-                      <Label className="text-xs">Kelengkapan (pisah koma)</Label>
+                      <Label className="text-xs">
+                        {tx('Included Accessories (comma-separated)', 'Kelengkapan (pisah koma)')}
+                      </Label>
                       <Input
                         placeholder="2x Battery, Dual Charger, 64GB SD"
                         className="h-8 text-xs"
@@ -893,25 +944,27 @@ export function InventoryPage() {
                     <div className="flex justify-end sm:col-span-12">
                       <Button type="submit" size="sm">
                         <Plus className="h-3.5 w-3.5" strokeWidth={1.5} />
-                        Tambah Unit SN
+                        {tx('Add SN Unit', 'Tambah Unit SN')}
                       </Button>
                     </div>
                   </form>
 
                   {selectedUnits.length === 0 ? (
                     <p className="py-6 text-center text-xs text-muted-foreground">
-                      Belum ada unit fisik terdaftar. Tambahkan minimal 1 serial number agar model
-                      ini bisa dibooking.
+                      {tx(
+                        'No physical units registered yet. Add at least 1 serial number so this model can be booked.',
+                        'Belum ada unit fisik terdaftar. Tambahkan minimal 1 serial number agar model ini bisa dibooking.'
+                      )}
                     </p>
                   ) : (
                     <Table>
                       <TableHeader>
                         <TableRow>
                           <TableHead>Serial Number</TableHead>
-                          <TableHead>Kondisi</TableHead>
-                          <TableHead>Kelengkapan</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead className="w-12 text-right">Hapus</TableHead>
+                          <TableHead>{tx('Condition', 'Kondisi')}</TableHead>
+                          <TableHead>{tx('Accessories', 'Kelengkapan')}</TableHead>
+                          <TableHead>{tx('Status', 'Status')}</TableHead>
+                          <TableHead className="w-12 text-right">{tx('Delete', 'Hapus')}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -937,9 +990,9 @@ export function InventoryPage() {
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  <SelectItem value="available">Available</SelectItem>
-                                  <SelectItem value="rented">Rented</SelectItem>
-                                  <SelectItem value="maintenance">Maintenance</SelectItem>
+                                  <SelectItem value="available">{tx('Available', 'Tersedia')}</SelectItem>
+                                  <SelectItem value="rented">{tx('Rented', 'Disewa')}</SelectItem>
+                                  <SelectItem value="maintenance">{tx('Maintenance', 'Perawatan')}</SelectItem>
                                 </SelectContent>
                               </Select>
                             </TableCell>
@@ -948,7 +1001,7 @@ export function InventoryPage() {
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => void handleDeleteUnit(unit)}
-                                title="Hapus unit fisik"
+                                title={tx('Delete physical unit', 'Hapus unit fisik')}
                               >
                                 <Trash2
                                   className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive"
@@ -978,7 +1031,7 @@ export function InventoryPage() {
                           onClick={() => setConfirmDeleteModel(true)}
                         >
                           <Trash2 className="h-3.5 w-3.5" strokeWidth={1.5} />
-                          Hapus Model Alat
+                          {tx('Delete Equipment Model', 'Hapus Model Alat')}
                         </Button>
                       ) : (
                         <div className="flex items-center gap-2">
@@ -990,8 +1043,11 @@ export function InventoryPage() {
                             onClick={() => void handleDeleteEquipment()}
                           >
                             {deletingModel
-                              ? 'Menghapus...'
-                              : `Konfirmasi Hapus (${selectedUnits.length} SN)`}
+                              ? tx('Deleting...', 'Menghapus...')
+                              : tx(
+                                  `Confirm Delete (${selectedUnits.length} SN)`,
+                                  `Konfirmasi Hapus (${selectedUnits.length} SN)`
+                                )}
                           </Button>
                           <Button
                             type="button"
@@ -999,7 +1055,7 @@ export function InventoryPage() {
                             size="sm"
                             onClick={() => setConfirmDeleteModel(false)}
                           >
-                            Batal
+                            {tx('Cancel', 'Batal')}
                           </Button>
                         </div>
                       )}
@@ -1011,10 +1067,10 @@ export function InventoryPage() {
                           size="sm"
                           onClick={() => setDetailTab('units')}
                         >
-                          Batal
+                          {tx('Cancel', 'Batal')}
                         </Button>
                         <Button type="submit" size="sm">
-                          Simpan Perubahan
+                          {tx('Save Changes', 'Simpan Perubahan')}
                         </Button>
                       </div>
                     </div>

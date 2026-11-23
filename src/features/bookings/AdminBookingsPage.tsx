@@ -23,6 +23,7 @@ import { syncAvailabilitySlotStatus } from '@/lib/availability';
 import { formatDateTime } from '@/lib/utils';
 import { generateInvoicePdf } from '@/lib/invoicePdf';
 import { useAuth } from '@/hooks/useAuth';
+import { useI18n } from '@/hooks/useI18n';
 import { useTenant } from '@/hooks/useTenant';
 import { BookingDetailModal } from '@/features/bookings/BookingDetailModal';
 import { CurrencyText } from '@/components/shared/CurrencyText';
@@ -46,6 +47,7 @@ import type { Booking, BookingStatus, UserProfile } from '@/types/schema';
 export function AdminBookingsPage() {
   const queryClient = useQueryClient();
   const { userProfile } = useAuth();
+  const { tx } = useI18n();
   const { activeTenantId, activeTenant, isAllTenants, tenantById } = useTenant();
   const [statusFilter, setStatusFilter] = useState<'all' | BookingStatus>('all');
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -85,8 +87,11 @@ export function AdminBookingsPage() {
     return (
       <EmptyState
         icon={CalendarClock}
-        title="No active rental branch selected"
-        description="Select a tenant branch to manage incoming reservations."
+        title={tx('No active rental branch selected', 'Belum ada cabang rental dipilih')}
+        description={tx(
+          'Select a tenant branch to manage incoming reservations.',
+          'Pilih cabang untuk mengelola pemesanan masuk.'
+        )}
       />
     );
   }
@@ -179,57 +184,69 @@ export function AdminBookingsPage() {
     <div className="space-y-5">
       <div className="border-b border-zinc-200 pb-4">
         <h2 className="text-base font-semibold tracking-tight text-zinc-950">
-          Booking Queue &amp; Payment Verification
+          {tx('Booking Queue & Payment Verification', 'Antrean Booking & Verifikasi Pembayaran')}
         </h2>
         <p className="mt-0.5 text-xs text-zinc-500">
-          Branch:{' '}
+          {tx('Branch:', 'Cabang:')}{' '}
           <span className="font-medium text-zinc-800">
-            {isAllTenants ? 'Semua Cabang' : activeTenant?.name}
+            {isAllTenants ? tx('All Branches', 'Semua Cabang') : activeTenant?.name}
           </span>{' '}
-          · Approving payment posts separate Revenue and Security Deposit Liability entries to the
-          immutable ledger.
+          ·{' '}
+          {tx(
+            'Approving payment posts separate Revenue and Security Deposit Liability entries to the immutable ledger.',
+            'Menyetujui pembayaran mencatat entri Pendapatan dan Liabilitas Deposit secara terpisah di buku kas.'
+          )}
         </p>
       </div>
 
       <Tabs value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
-        <TabsList className="flex-wrap h-auto">
-          <TabsTrigger value="all">All ({bookings.length})</TabsTrigger>
+        <TabsList className="h-auto flex-wrap">
+          <TabsTrigger value="all">
+            {tx('All', 'Semua')} ({bookings.length})
+          </TabsTrigger>
           <TabsTrigger value="pending_payment">
-            Pending Payment ({bookings.filter((b) => b.bookingStatus === 'pending_payment').length})
+            {tx('Pending Payment', 'Menunggu Bayar')} (
+            {bookings.filter((b) => b.bookingStatus === 'pending_payment').length})
           </TabsTrigger>
           <TabsTrigger value="confirmed">
-            Confirmed ({bookings.filter((b) => b.bookingStatus === 'confirmed').length})
+            {tx('Confirmed', 'Dikonfirmasi')} (
+            {bookings.filter((b) => b.bookingStatus === 'confirmed').length})
           </TabsTrigger>
           <TabsTrigger value="active_rent">
-            Active Rent ({bookings.filter((b) => b.bookingStatus === 'active_rent').length})
+            {tx('Active Rent', 'Sedang Disewa')} (
+            {bookings.filter((b) => b.bookingStatus === 'active_rent').length})
           </TabsTrigger>
           <TabsTrigger value="overdue">
-            Overdue ({bookings.filter((b) => b.bookingStatus === 'overdue').length})
+            {tx('Overdue', 'Terlambat')} (
+            {bookings.filter((b) => b.bookingStatus === 'overdue').length})
           </TabsTrigger>
-          <TabsTrigger value="completed">Completed</TabsTrigger>
+          <TabsTrigger value="completed">{tx('Completed', 'Selesai')}</TabsTrigger>
         </TabsList>
       </Tabs>
 
       {isLoading ? (
         <div className="rounded-md border border-zinc-200 bg-white p-8 text-center font-mono text-xs text-zinc-400">
-          LOADING BOOKING QUEUE...
+          {tx('LOADING BOOKING QUEUE...', 'MEMUAT ANTREAN BOOKING...')}
         </div>
       ) : filtered.length === 0 ? (
         <EmptyState
           icon={CalendarClock}
-          title="No bookings in this status"
-          description="Incoming renter reservations for this branch will appear here."
+          title={tx('No bookings in this status', 'Tidak ada booking di status ini')}
+          description={tx(
+            'Incoming renter reservations for this branch will appear here.',
+            'Pesanan penyewa untuk cabang ini akan muncul di sini.'
+          )}
         />
       ) : (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Invoice &amp; Window</TableHead>
-              <TableHead>Allocated Units (SN)</TableHead>
-              <TableHead>Logistics</TableHead>
-              <TableHead>Amount / Deposit</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+              <TableHead>{tx('Invoice & Window', 'Invoice & Jadwal')}</TableHead>
+              <TableHead>{tx('Allocated Units (SN)', 'Unit Teralokasi (SN)')}</TableHead>
+              <TableHead>{tx('Logistics', 'Logistik')}</TableHead>
+              <TableHead>{tx('Amount / Deposit', 'Total / Deposit')}</TableHead>
+              <TableHead>{tx('Status', 'Status')}</TableHead>
+              <TableHead className="text-right">{tx('Actions', 'Aksi')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -254,7 +271,7 @@ export function AdminBookingsPage() {
                   </p>
                   {b.returnedAt ? (
                     <p className="mt-0.5 font-mono text-[10px] font-medium text-emerald-700">
-                      Dikembalikan: {formatDateTime(b.returnedAt)}
+                      {tx('Returned:', 'Dikembalikan:')} {formatDateTime(b.returnedAt)}
                     </p>
                   ) : null}
                 </TableCell>
@@ -272,7 +289,9 @@ export function AdminBookingsPage() {
                 </TableCell>
                 <TableCell className="text-[11px]">
                   <span className="font-mono uppercase text-zinc-700">
-                    {b.logisticsType === 'delivery' ? 'Antar-Jemput' : 'Self-Pickup'}
+                    {b.logisticsType === 'delivery'
+                      ? tx('Delivery & Pickup', 'Antar-Jemput')
+                      : tx('Self-Pickup', 'Ambil Sendiri')}
                   </span>
                   {b.deliveryAddress ? (
                     <p className="max-w-[160px] truncate text-zinc-500">{b.deliveryAddress}</p>
@@ -292,13 +311,13 @@ export function AdminBookingsPage() {
                         e.stopPropagation();
                         setReceiptPreview({
                           url: b.paymentProofUrl!,
-                          label: `Transfer Receipt — ${b.invoiceNumber}`,
+                          label: `${tx('Transfer Receipt', 'Bukti Transfer')} — ${b.invoiceNumber}`,
                         });
                       }}
                       className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-primary hover:underline"
                     >
                       <Eye className="h-2.5 w-2.5" strokeWidth={1.5} />
-                      Preview Receipt
+                      {tx('Preview Receipt', 'Lihat Bukti')}
                     </button>
                   ) : null}
                 </TableCell>
@@ -318,7 +337,7 @@ export function AdminBookingsPage() {
                       onClick={() => setDetailBookingId(b.id)}
                     >
                       <Eye className="h-3.5 w-3.5" strokeWidth={1.5} />
-                      Details
+                      {tx('Details', 'Detail')}
                     </Button>
                     {(b.bookingStatus === 'pending_payment' ||
                       b.bookingStatus === 'waiting_verification') && (
@@ -329,14 +348,14 @@ export function AdminBookingsPage() {
                           onClick={() => void handleApprovePayment(b)}
                         >
                           <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={1.5} />
-                          Verify &amp; Confirm
+                          {tx('Verify & Confirm', 'Verifikasi & Konfirmasi')}
                         </Button>
                         <Button
                           size="sm"
                           variant="ghost"
                           disabled={busyId === b.id}
                           onClick={() => void handleCancelBooking(b)}
-                          title="Cancel booking"
+                          title={tx('Cancel booking', 'Batalkan booking')}
                         >
                           <XCircle className="h-3.5 w-3.5 text-red-600" strokeWidth={1.5} />
                         </Button>
@@ -348,11 +367,11 @@ export function AdminBookingsPage() {
                       onClick={() =>
                         generateInvoicePdf({
                           booking: b,
-                          tenant: activeTenant,
+                          tenant: tenantById[b.tenantId] ?? activeTenant,
                           renter: rentersById[b.userId] ?? null,
                         })
                       }
-                      title="Download A4 PDF Invoice"
+                      title={tx('Download A4 PDF Invoice', 'Unduh Invoice PDF A4')}
                     >
                       <FileDown className="h-3.5 w-3.5" strokeWidth={1.5} />
                     </Button>
@@ -368,7 +387,7 @@ export function AdminBookingsPage() {
         open={Boolean(receiptPreview)}
         onOpenChange={(open) => !open && setReceiptPreview(null)}
         images={receiptPreview ? [receiptPreview] : []}
-        title="Payment Proof Verification"
+        title={tx('Payment Proof Verification', 'Verifikasi Bukti Pembayaran')}
       />
 
       {(() => {

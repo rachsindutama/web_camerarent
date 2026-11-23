@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { useI18n } from '@/hooks/useI18n';
 
 export interface PreviewImageItem {
   url: string;
@@ -34,8 +35,10 @@ export function ImagePreviewModal({
   initialIndex = 0,
   open,
   onOpenChange,
-  title = 'Document Preview',
+  title,
 }: ImagePreviewModalProps) {
+  const { tx } = useI18n();
+  const resolvedTitle = title ?? tx('Document Preview', 'Pratinjau Dokumen');
   const [index, setIndex] = useState(initialIndex);
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
@@ -85,7 +88,7 @@ export function ImagePreviewModal({
         <DialogHeader className="pr-8">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <DialogTitle className="text-sm">{title}</DialogTitle>
+              <DialogTitle className="text-sm">{resolvedTitle}</DialogTitle>
               <DialogDescription className="font-mono text-[11px]">
                 {current?.label ?? '—'}
                 {images.length > 1 ? ` · ${index + 1} / ${images.length}` : ''}
@@ -99,7 +102,7 @@ export function ImagePreviewModal({
                 size="icon"
                 className="h-7 w-7"
                 onClick={() => setZoom((z) => Math.max(0.5, Number((z - 0.25).toFixed(2))))}
-                title="Zoom Out"
+                title={tx('Zoom Out', 'Perkecil')}
               >
                 <ZoomOut className="h-3.5 w-3.5" strokeWidth={1.5} />
               </Button>
@@ -112,7 +115,7 @@ export function ImagePreviewModal({
                 size="icon"
                 className="h-7 w-7"
                 onClick={() => setZoom((z) => Math.min(3, Number((z + 0.25).toFixed(2))))}
-                title="Zoom In"
+                title={tx('Zoom In', 'Perbesar')}
               >
                 <ZoomIn className="h-3.5 w-3.5" strokeWidth={1.5} />
               </Button>
@@ -122,7 +125,7 @@ export function ImagePreviewModal({
                 size="icon"
                 className="h-7 w-7"
                 onClick={() => setRotation((r) => (r + 90) % 360)}
-                title="Rotate 90°"
+                title={tx('Rotate 90°', 'Putar 90°')}
               >
                 <RotateCw className="h-3.5 w-3.5" strokeWidth={1.5} />
               </Button>
@@ -135,7 +138,7 @@ export function ImagePreviewModal({
                   setZoom(1);
                   setRotation(0);
                 }}
-                title="Reset View"
+                title={tx('Reset View', 'Reset Tampilan')}
               >
                 <RotateCcw className="h-3.5 w-3.5" strokeWidth={1.5} />
               </Button>
@@ -163,7 +166,7 @@ export function ImagePreviewModal({
                 size="icon"
                 onClick={handlePrev}
                 className="absolute left-3 top-1/2 h-8 w-8 -translate-y-1/2 bg-white/90 hover:bg-white"
-                title="Previous document"
+                title={tx('Previous document', 'Dokumen sebelumnya')}
               >
                 <ChevronLeft className="h-4 w-4" strokeWidth={1.5} />
               </Button>
@@ -173,7 +176,7 @@ export function ImagePreviewModal({
                 size="icon"
                 onClick={handleNext}
                 className="absolute right-3 top-1/2 h-8 w-8 -translate-y-1/2 bg-white/90 hover:bg-white"
-                title="Next document"
+                title={tx('Next document', 'Dokumen berikutnya')}
               >
                 <ChevronRight className="h-4 w-4" strokeWidth={1.5} />
               </Button>

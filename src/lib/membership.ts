@@ -1,3 +1,4 @@
+import { txStatic } from '@/lib/i18n';
 import type { MembershipTier } from '@/types/schema';
 
 export interface MembershipBenefitConfig {
@@ -48,22 +49,22 @@ export interface PlatformSettings {
 export const DEFAULT_SITE_SEO: SiteSeoConfig = {
   siteName: 'CameraRent',
   siteTitle: 'CameraRent — Production Gear & Camera Rental Operations',
-  catalogHeading: 'Katalog Kamera & Gear Produksi',
+  catalogHeading: 'Camera & Production Gear Catalog',
   catalogSubtitle:
-    'Jelajahi kamera, lensa, lighting, dan paket produksi yang tersedia di cabang resmi.',
+    'Browse cinema cameras, lenses, lighting, and production kits available at official branches.',
   footerText: `Copyright © ${new Date().getFullYear()} PT Pratamavisual Media Kreatif`,
   logoUrl: '',
   faviconUrl: '/favicon.svg',
   metaDescription:
-    'Sewa kamera cinema, lensa profesional, lighting, dan paket produksi secara real-time dengan stok serial number terverifikasi di CameraRent.',
-  metaKeywords: 'sewa kamera, rental kamera, sewa lensa, rental lighting, gear produksi, CameraRent',
+    'Rent cinema cameras, professional lenses, lighting, and production kits with real-time serial-number availability at CameraRent.',
+  metaKeywords: 'camera rental, cinema lens rental, lighting rental, production gear, CameraRent',
   canonicalUrl: 'https://project-camerarent.web.app',
   robots: 'index,follow',
   themeColor: '#18181b',
   ogImageUrl: '',
   twitterCard: 'summary_large_image',
   twitterHandle: '',
-  locale: 'id_ID',
+  locale: 'en_US',
 };
 
 export const DEFAULT_MEMBERSHIP_BENEFITS: Record<MembershipTier, MembershipBenefitConfig> = {
@@ -240,28 +241,38 @@ export function getMembershipBenefits(
 export function formatTierSummaryParts(config: MembershipBenefitConfig): string[] {
   const parts: string[] = [];
   parts.push(
-    config.rentalDiscountPercent > 0 ? `Diskon ${config.rentalDiscountPercent}%` : 'Tarif standar'
+    config.rentalDiscountPercent > 0
+      ? txStatic(`${config.rentalDiscountPercent}% discount`, `Diskon ${config.rentalDiscountPercent}%`)
+      : txStatic('Standard rate', 'Tarif standar')
   );
   parts.push(
     config.depositDiscountPercent > 0
-      ? `Deposit -${config.depositDiscountPercent}%`
-      : 'Deposit 100%'
+      ? txStatic(`Deposit -${config.depositDiscountPercent}%`, `Deposit -${config.depositDiscountPercent}%`)
+      : txStatic('100% deposit', 'Deposit 100%')
   );
   parts.push(
     config.extraOverdueGraceMinutes > 0
-      ? `Grace +${config.extraOverdueGraceMinutes} menit`
-      : 'Grace standar cabang'
+      ? txStatic(
+          `Grace +${config.extraOverdueGraceMinutes} mins`,
+          `Grace +${config.extraOverdueGraceMinutes} menit`
+        )
+      : txStatic('Standard branch grace', 'Grace standar cabang')
   );
   parts.push(
-    config.freeDeliveryKm > 0 ? `Gratis ongkir ${config.freeDeliveryKm} km` : 'Ongkir penuh'
+    config.freeDeliveryKm > 0
+      ? txStatic(`Free delivery ${config.freeDeliveryKm} km`, `Gratis ongkir ${config.freeDeliveryKm} km`)
+      : txStatic('Standard delivery', 'Ongkir penuh')
   );
   parts.push(
     config.maxUnitsPerBooking === null
-      ? 'Unlimited unit'
-      : `Maks. ${config.maxUnitsPerBooking} unit/booking`
+      ? txStatic('Unlimited units', 'Unlimited unit')
+      : txStatic(
+          `Max ${config.maxUnitsPerBooking} units/booking`,
+          `Maks. ${config.maxUnitsPerBooking} unit/booking`
+        )
   );
   if (config.prioritySupport) {
-    parts.push('Priority');
+    parts.push(txStatic('Priority', 'Prioritas'));
   }
   return parts;
 }

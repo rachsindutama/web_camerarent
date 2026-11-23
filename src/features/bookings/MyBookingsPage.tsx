@@ -23,6 +23,7 @@ import { db, storage } from '@/lib/firebase';
 import { formatDateTime } from '@/lib/utils';
 import { generateInvoicePdf } from '@/lib/invoicePdf';
 import { useAuth } from '@/hooks/useAuth';
+import { useI18n } from '@/hooks/useI18n';
 import { calculateOverdueFine } from '@/hooks/useOverdueCalc';
 import { useTenant } from '@/hooks/useTenant';
 import { BookingDetailModal } from '@/features/bookings/BookingDetailModal';
@@ -49,6 +50,7 @@ import type { Booking } from '@/types/schema';
 export function MyBookingsPage() {
   const queryClient = useQueryClient();
   const { userProfile } = useAuth();
+  const { tx } = useI18n();
   const { allTenants } = useTenant();
   const [proofTarget, setProofTarget] = useState<Booking | null>(null);
   const [detailBookingId, setDetailBookingId] = useState<string | null>(null);
@@ -129,23 +131,28 @@ export function MyBookingsPage() {
     <div className="space-y-5">
       <div className="border-b border-zinc-200 pb-4">
         <h2 className="text-base font-semibold tracking-tight text-zinc-950">
-          My Bookings &amp; Invoices
+          {tx('My Bookings & Invoices', 'Pesanan & Invoice Saya')}
         </h2>
         <p className="mt-0.5 text-xs text-zinc-500">
-          Track serial-number allocations, submit transfer receipts, confirm pre-rental gear
-          handovers, and download printable A4 invoices.
+          {tx(
+            'Track serial-number allocations, submit transfer receipts, confirm pre-rental gear handovers, and download printable A4 invoices.',
+            'Pantau alokasi nomor seri, unggah bukti transfer, konfirmasi serah terima alat, dan unduh invoice PDF A4.'
+          )}
         </p>
       </div>
 
       {isLoading ? (
         <div className="rounded-md border border-zinc-200 bg-white p-8 text-center font-mono text-xs text-zinc-400">
-          LOADING BOOKINGS...
+          {tx('LOADING BOOKINGS...', 'MEMUAT PESANAN...')}
         </div>
       ) : bookings.length === 0 ? (
         <EmptyState
           icon={CalendarClock}
-          title="No reservations placed yet"
-          description="Browse the Equipment Catalog, choose your shooting dates, and lock serialized units."
+          title={tx('No reservations placed yet', 'Belum ada pesanan dibuat')}
+          description={tx(
+            'Browse the Equipment Catalog, choose your shooting dates, and lock serialized units.',
+            'Jelajahi Katalog Gear, pilih tanggal syuting Anda, dan kunci unit fisik.'
+          )}
         />
       ) : (
         <div className="space-y-4">
@@ -179,7 +186,10 @@ export function MyBookingsPage() {
                         <MembershipBadge tier="premium" />
                       ) : null}
                       {booking.paymentStatus === 'waiting_verification' ? (
-                        <StatusBadge status="waiting_verification" label="Receipt Pending Review" />
+                        <StatusBadge
+                          status="waiting_verification"
+                          label={tx('Receipt Pending Review', 'Bukti Menunggu Verifikasi')}
+                        />
                       ) : null}
                     </div>
                     <div
@@ -196,7 +206,7 @@ export function MyBookingsPage() {
                           }}
                         >
                           <Upload className="h-3.5 w-3.5" strokeWidth={1.5} />
-                          Upload Payment Proof
+                          {tx('Upload Payment Proof', 'Unggah Bukti Bayar')}
                         </Button>
                       ) : null}
 
@@ -207,7 +217,7 @@ export function MyBookingsPage() {
                           onClick={() => void handleConfirmGearCondition(booking)}
                         >
                           <ClipboardCheck className="h-3.5 w-3.5" strokeWidth={1.5} />
-                          Confirm Gear Condition
+                          {tx('Confirm Gear Condition', 'Konfirmasi Kondisi Alat')}
                         </Button>
                       ) : null}
 
@@ -217,7 +227,7 @@ export function MyBookingsPage() {
                         onClick={() => setDetailBookingId(booking.id)}
                       >
                         <Eye className="h-3.5 w-3.5" strokeWidth={1.5} />
-                        Details
+                        {tx('Details', 'Detail')}
                       </Button>
 
                       <Button
@@ -228,7 +238,7 @@ export function MyBookingsPage() {
                         }
                       >
                         <FileDown className="h-3.5 w-3.5" strokeWidth={1.5} />
-                        A4 Invoice PDF
+                        {tx('A4 Invoice PDF', 'Invoice PDF A4')}
                       </Button>
                     </div>
                   </div>
@@ -237,42 +247,52 @@ export function MyBookingsPage() {
                 <CardContent className="space-y-3 pt-4 text-xs">
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                     <div>
-                      <p className="font-mono text-[10px] uppercase text-zinc-400">Rental Branch</p>
+                      <p className="font-mono text-[10px] uppercase text-zinc-400">
+                        {tx('Rental Branch', 'Cabang Rental')}
+                      </p>
                       <p className="mt-0.5 font-medium text-zinc-900">
                         {tenant?.name ?? booking.tenantId}
                       </p>
                       <p className="text-[11px] text-zinc-500">
                         {booking.logisticsType === 'delivery'
-                          ? `Antar-Jemput (${booking.courierStatus ?? 'pending_dispatch'})`
-                          : 'Self-Pickup at Branch'}
+                          ? `${tx('Delivery & Pickup', 'Antar-Jemput')} (${booking.courierStatus ?? 'pending_dispatch'})`
+                          : tx('Self-Pickup at Branch', 'Ambil Sendiri di Cabang')}
                       </p>
                     </div>
                     <div>
-                      <p className="font-mono text-[10px] uppercase text-zinc-400">Rental Window</p>
+                      <p className="font-mono text-[10px] uppercase text-zinc-400">
+                        {tx('Rental Window', 'Jadwal Sewa')}
+                      </p>
                       <p className="mt-0.5 font-mono text-[11px] text-zinc-900">
                         {formatDateTime(booking.startDate)}
                       </p>
                       <p className="font-mono text-[11px] text-zinc-500">
-                        to {formatDateTime(booking.endDate)}
+                        {tx('to', 's/d')} {formatDateTime(booking.endDate)}
                       </p>
                       {booking.returnedAt ? (
                         <p className="mt-0.5 font-mono text-[10px] font-medium text-emerald-700">
-                          Dikembalikan: {formatDateTime(booking.returnedAt)}
+                          {tx('Returned:', 'Dikembalikan:')} {formatDateTime(booking.returnedAt)}
                         </p>
                       ) : overdue.isOverdue ? (
                         <p className="mt-0.5 font-mono text-[10px] font-semibold text-red-700">
-                          OVERDUE +{overdue.billableLateHours}h · Est. Denda{' '}
+                          {tx(
+                            `OVERDUE +${overdue.billableLateHours}h · Est. Fine`,
+                            `TERLAMBAT +${overdue.billableLateHours}j · Est. Denda`
+                          )}{' '}
                           <CurrencyText amount={overdue.estimatedFine} />
                         </p>
                       ) : null}
                     </div>
                     <div className="sm:text-right">
-                      <p className="font-mono text-[10px] uppercase text-zinc-400">Total Payable</p>
+                      <p className="font-mono text-[10px] uppercase text-zinc-400">
+                        {tx('Total Payable', 'Total Tagihan')}
+                      </p>
                       <p className="mt-0.5 text-sm font-semibold text-zinc-950">
                         <CurrencyText amount={booking.totalAmount} />
                       </p>
                       <p className="text-[11px] text-zinc-500">
-                        Includes <CurrencyText amount={booking.deposit} /> refundable deposit
+                        {tx('Includes', 'Termasuk')} <CurrencyText amount={booking.deposit} />{' '}
+                        {tx('refundable deposit', 'deposit jaminan')}
                       </p>
                     </div>
                   </div>
@@ -281,7 +301,7 @@ export function MyBookingsPage() {
 
                   <div className="space-y-1.5">
                     <p className="font-mono text-[10px] uppercase text-zinc-400">
-                      Allocated Physical Units ({booking.items.length})
+                      {tx('Allocated Physical Units', 'Unit Fisik Teralokasi')} ({booking.items.length})
                     </p>
                     <div className="flex flex-wrap gap-2">
                       {booking.items.map((item) => (
@@ -298,7 +318,8 @@ export function MyBookingsPage() {
 
                   {booking.paymentStatus === 'unpaid' && tenant?.bankDetails ? (
                     <div className="rounded-md border border-zinc-200 bg-zinc-50 p-2.5 font-mono text-[11px] text-zinc-700">
-                      Transfer to <span className="font-semibold">{tenant.bankDetails.bankName}</span>{' '}
+                      {tx('Transfer to', 'Transfer ke')}{' '}
+                      <span className="font-semibold">{tenant.bankDetails.bankName}</span>{' '}
                       {tenant.bankDetails.accountNumber} ({tenant.bankDetails.accountHolder})
                     </div>
                   ) : null}
@@ -307,16 +328,17 @@ export function MyBookingsPage() {
                     <div className="rounded-md border border-zinc-200 bg-zinc-50/70 p-2.5">
                       <div className="flex items-center justify-between">
                         <span className="font-mono text-[10px] font-semibold uppercase text-zinc-500">
-                          Pre-Rental Handover Checklist
+                          {tx('Pre-Rental Handover Checklist', 'Checklist Serah Terima Pra-Sewa')}
                         </span>
                         {booking.preRentalChecklist.confirmedByUserAt ? (
                           <span className="inline-flex items-center gap-1 font-mono text-[10px] text-emerald-700">
                             <CheckCircle2 className="h-3 w-3" strokeWidth={1.5} />
-                            Confirmed {formatDateTime(booking.preRentalChecklist.confirmedByUserAt)}
+                            {tx('Confirmed', 'Dikonfirmasi')}{' '}
+                            {formatDateTime(booking.preRentalChecklist.confirmedByUserAt)}
                           </span>
                         ) : (
                           <span className="font-mono text-[10px] text-amber-700">
-                            Awaiting your confirmation
+                            {tx('Awaiting your confirmation', 'Menunggu konfirmasi Anda')}
                           </span>
                         )}
                       </div>
@@ -333,14 +355,19 @@ export function MyBookingsPage() {
       <Dialog open={Boolean(proofTarget)} onOpenChange={(o) => !o && setProofTarget(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Upload Transfer Receipt — {proofTarget?.invoiceNumber}</DialogTitle>
+            <DialogTitle>
+              {tx('Upload Transfer Receipt', 'Unggah Bukti Transfer')} — {proofTarget?.invoiceNumber}
+            </DialogTitle>
             <DialogDescription>
-              Submit bank transfer confirmation for branch admin payment verification.
+              {tx(
+                'Submit bank transfer confirmation for branch admin payment verification.',
+                'Kirim bukti transfer bank untuk verifikasi pembayaran oleh admin cabang.'
+              )}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
-              <Label>Receipt Image File (Firebase Storage)</Label>
+              <Label>{tx('Receipt Image File (Firebase Storage)', 'File Gambar Bukti (Firebase Storage)')}</Label>
               <Input
                 type="file"
                 accept="image/*"
@@ -348,7 +375,7 @@ export function MyBookingsPage() {
               />
             </div>
             <div className="space-y-1">
-              <Label>Or Receipt URL (if Storage is not enabled yet)</Label>
+              <Label>{tx('Or Receipt URL', 'Atau URL Bukti Transfer')}</Label>
               <Input
                 placeholder="https://..."
                 value={proofUrlInput}
@@ -358,10 +385,12 @@ export function MyBookingsPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setProofTarget(null)}>
-              Cancel
+              {tx('Cancel', 'Batal')}
             </Button>
             <Button disabled={uploading} onClick={() => void handleUploadProof()}>
-              {uploading ? 'Submitting...' : 'Submit Payment Proof'}
+              {uploading
+                ? tx('Submitting...', 'Mengirim...')
+                : tx('Submit Payment Proof', 'Kirim Bukti Pembayaran')}
             </Button>
           </DialogFooter>
         </DialogContent>

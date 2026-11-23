@@ -40,6 +40,7 @@ import { toast } from 'sonner';
 import { db, storage } from '@/lib/firebase';
 import { formatDateTime } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
+import { useI18n } from '@/hooks/useI18n';
 import { useTenant } from '@/hooks/useTenant';
 import { CurrencyText } from '@/components/shared/CurrencyText';
 import { ImagePreviewModal } from '@/components/shared/ImagePreviewModal';
@@ -82,9 +83,9 @@ interface ChatPageProps {
   mode: 'admin' | 'user';
 }
 
-function formatDayLabel(date: Date): string {
-  if (isToday(date)) return 'Today';
-  if (isYesterday(date)) return 'Yesterday';
+function formatDayLabel(date: Date, tx: (en: string, id: string) => string): string {
+  if (isToday(date)) return tx('Today', 'Hari Ini');
+  if (isYesterday(date)) return tx('Yesterday', 'Kemarin');
   return format(date, 'dd MMM yyyy');
 }
 
@@ -94,6 +95,7 @@ function formatTimeShort(ts?: Timestamp): string {
 }
 
 export function ChatPage({ mode }: ChatPageProps) {
+  const { tx } = useI18n();
   const { userProfile } = useAuth();
   const {
     activeTenant: scopedTenant,
@@ -332,8 +334,11 @@ export function ChatPage({ mode }: ChatPageProps) {
     return (
       <EmptyState
         icon={MessageSquare}
-        title="No active rental branch selected"
-        description="Select a rental house in the topbar to open real-time messaging."
+        title={tx('No active rental branch selected', 'Belum ada cabang aktif')}
+        description={tx(
+          'Select a rental branch in the topbar to open real-time messaging.',
+          'Pilih cabang rental di bagian atas untuk membuka chat real-time.'
+        )}
       />
     );
   }
@@ -348,7 +353,7 @@ export function ChatPage({ mode }: ChatPageProps) {
         msg.text?.slice(0, 120) ||
         (msg.referenceBookingId
           ? `Booking ${bookingsById[msg.referenceBookingId]?.invoiceNumber ?? msg.referenceBookingId}`
-          : 'Image attachment'),
+          : tx('Image attachment', 'Lampiran gambar')),
     });
     inputRef.current?.focus();
   };
@@ -365,27 +370,27 @@ export function ChatPage({ mode }: ChatPageProps) {
     if (!msg.text) return;
     try {
       await navigator.clipboard.writeText(msg.text);
-      toast.success('Pesan disalin ke clipboard.');
+      toast.success(tx('Message copied to clipboard.', 'Pesan disalin ke clipboard.'));
     } catch {
-      toast.error('Gagal menyalin teks.');
+      toast.error(tx('Failed to copy text.', 'Gagal menyalin teks.'));
     }
   };
 
-  // WhatsApp: "Hapus untuk Saya" (Delete for Me)
+  // Delete for Me
   const handleDeleteForMe = async (msg: ChatMessage) => {
     if (!db || !resolvedChatId) return;
     try {
       await updateDoc(doc(db, 'chats', resolvedChatId, 'messages', msg.id), {
         deletedFor: arrayUnion(userProfile.uid),
       });
-      toast.success('Pesan dihapus untuk Anda.');
+      toast.success(tx('Message deleted for you.', 'Pesan dihapus untuk Anda.'));
     } catch (error) {
       console.error('Delete for me error:', error);
-      toast.error('Gagal menghapus pesan.');
+      toast.error(tx('Failed to delete message.', 'Gagal menghapus pesan.'));
     }
   };
 
-  // WhatsApp: "Batal Kirim" (Delete for Everyone / Unsend)
+  // Delete for Everyone / Unsend
   const handleUnsendForEveryone = async () => {
     if (!db || !resolvedChatId || !unsendTarget) return;
     try {
@@ -402,22 +407,22 @@ export function ChatPage({ mode }: ChatPageProps) {
         await setDoc(
           doc(db, 'chats', resolvedChatId),
           {
-            lastMessage: 'Pesan ini telah dibatalkan pengirimannya',
+            lastMessage: tx('This message was unsent', 'Pesan ini telah dibatalkan pengirimannya'),
             updatedAt: Timestamp.now(),
           },
           { merge: true }
         );
       }
 
-      toast.success('Pesan dibatalkan untuk semua orang.');
+      toast.success(tx('Message unsent for everyone.', 'Pesan dibatalkan untuk semua orang.'));
       setUnsendTarget(null);
     } catch (error) {
       console.error('Unsend error:', error);
-      toast.error('Gagal membatalkan kirim pesan.');
+      toast.error(tx('Failed to unsend message.', 'Gagal membatalkan kirim pesan.'));
     }
   };
 
-  // WhatsApp: "Bersihkan Chat untuk Saya" (Clear Chat for Me)
+  // Clear Chat for Me
   const handleClearChatForMe = async () => {
     if (!db || !resolvedChatId) return;
     try {
@@ -430,11 +435,13 @@ export function ChatPage({ mode }: ChatPageProps) {
         },
         { merge: true }
       );
-      toast.success('Riwayat chat dibersihkan untuk tampilan Anda.');
+      toast.success(
+        tx('Chat history cleared for your view.', 'Riwayat chat dibersihkan untuk tampilan Anda.')
+      );
       setClearChatConfirmOpen(false);
     } catch (error) {
       console.error('Clear chat error:', error);
-      toast.error('Gagal membersihkan chat.');
+      toast.error(tx('Failed to clear chat.', 'Gagal membersihkan chat.'));
     }
   };
 
@@ -446,7 +453,7 @@ export function ChatPage({ mode }: ChatPageProps) {
     if (editingMsg) {
       const trimmed = text.trim();
       if (!trimmed) {
-        toast.error('Teks pesan tidak boleh kosong.');
+        toast.error(tx('Message text cannot be empty.', 'Teks pesan tidak boleh kosong.'));
         return;
       }
       setSending(true);
@@ -464,10 +471,10 @@ export function ChatPage({ mode }: ChatPageProps) {
         }
         setEditingMsg(null);
         setText('');
-        toast.success('Pesan diperbarui.');
+        toast.success(tx('Message updated.', 'Pesan diperbarui.'));
       } catch (error) {
         console.error('Edit message error:', error);
-        toast.error('Gagal mengedit pesan.');
+        toast.error(tx('Failed to edit message.', 'Gagal mengedit pesan.'));
       } finally {
         setSending(false);
       }
@@ -500,7 +507,7 @@ export function ChatPage({ mode }: ChatPageProps) {
         text.trim() ||
         (refBookingId !== 'none'
           ? `Booking ${bookingsById[refBookingId]?.invoiceNumber ?? refBookingId}`
-          : 'Lampiran gambar');
+          : tx('Image attachment', 'Lampiran gambar'));
 
       const resolvedThreadTenantId =
         mode === 'user'
@@ -542,7 +549,7 @@ export function ChatPage({ mode }: ChatPageProps) {
       setReplyingTo(null);
     } catch (error) {
       console.error('Send message error:', error);
-      toast.error('Gagal mengirim pesan.');
+      toast.error(tx('Failed to send message.', 'Gagal mengirim pesan.'));
     } finally {
       setSending(false);
     }
@@ -552,7 +559,7 @@ export function ChatPage({ mode }: ChatPageProps) {
     mode === 'admin'
       ? (() => {
           const t = threads.find((th) => th.id === resolvedChatId);
-          if (!t) return 'Pilih percakapan';
+          if (!t) return tx('Select a conversation', 'Pilih percakapan');
           return memberMap[t.userId]?.displayName ?? `USER // ${t.userId.slice(0, 10)}`;
         })()
       : activeTenant?.name ?? 'CameraRent';
@@ -570,12 +577,14 @@ export function ChatPage({ mode }: ChatPageProps) {
       <div className="border-b border-zinc-200 pb-3">
         <h2 className="text-base font-semibold tracking-tight text-zinc-950">
           {mode === 'admin'
-            ? `Client Support Threads${isAdminAllTenants ? ' — Semua Cabang' : activeTenant ? ` — ${activeTenant.name}` : ''}`
-            : `Direct Chat — ${activeTenant?.name ?? 'CameraRent'}`}
+            ? `${tx('Client Support Threads', 'Chat Dukungan Klien')}${isAdminAllTenants ? ` — ${tx('All Branches', 'Semua Cabang')}` : activeTenant ? ` — ${activeTenant.name}` : ''}`
+            : `${tx('Direct Chat', 'Chat Langsung')} — ${activeTenant?.name ?? 'CameraRent'}`}
         </h2>
         <p className="mt-0.5 text-xs text-zinc-500">
-          Real-time messaging dengan Reply, Edit, Read Receipts, Hapus untuk Saya, dan Batal Kirim
-          untuk Semua.
+          {tx(
+            'Real-time messaging with Reply, Edit, Read Receipts, Delete for Me, and Unsend for Everyone.',
+            'Pesan real-time dengan Balas, Edit, Centang Dibaca, Hapus untuk Saya, dan Batal Kirim untuk Semua.'
+          )}
         </p>
       </div>
 
@@ -585,7 +594,7 @@ export function ChatPage({ mode }: ChatPageProps) {
           <div className="flex flex-col border-b border-zinc-200 bg-zinc-50/60 lg:col-span-4 lg:border-b-0 lg:border-r">
             <div className="space-y-2 border-b border-zinc-200 p-3">
               <div className="flex items-center justify-between font-mono text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-                <span>Active Threads</span>
+                <span>{tx('Active Threads', 'Percakapan Aktif')}</span>
                 <span>{filteredThreads.length}</span>
               </div>
               <div className="relative">
@@ -594,7 +603,7 @@ export function ChatPage({ mode }: ChatPageProps) {
                   strokeWidth={1.5}
                 />
                 <Input
-                  placeholder="Cari penyewa atau pesan..."
+                  placeholder={tx('Search renter or message...', 'Cari penyewa atau pesan...')}
                   value={threadSearch}
                   onChange={(e) => setThreadSearch(e.target.value)}
                   className="h-7 bg-white pl-8 text-xs"
@@ -605,8 +614,11 @@ export function ChatPage({ mode }: ChatPageProps) {
             <div className="flex-1 divide-y divide-zinc-100 overflow-y-auto">
               {filteredThreads.length === 0 ? (
                 <p className="p-4 text-xs text-zinc-400">
-                  Belum ada percakapan untuk{' '}
-                  {isAdminAllTenants ? 'semua cabang' : activeTenant?.name ?? 'cabang ini'}.
+                  {tx('No conversations yet for', 'Belum ada percakapan untuk')}{' '}
+                  {isAdminAllTenants
+                    ? tx('all branches', 'semua cabang')
+                    : activeTenant?.name ?? tx('this branch', 'cabang ini')}
+                  .
                 </p>
               ) : (
                 filteredThreads.map((thread) => {
@@ -680,7 +692,7 @@ export function ChatPage({ mode }: ChatPageProps) {
                   setShowMsgSearch((v) => !v);
                   if (showMsgSearch) setMsgSearch('');
                 }}
-                title="Cari pesan dalam percakapan"
+                title={tx('Search messages in conversation', 'Cari pesan dalam percakapan')}
               >
                 <Search className="h-3.5 w-3.5 text-zinc-500" strokeWidth={1.5} />
               </Button>
@@ -703,7 +715,7 @@ export function ChatPage({ mode }: ChatPageProps) {
                     className="cursor-pointer text-red-700 focus:bg-red-50 focus:text-red-800"
                   >
                     <Eraser className="h-3.5 w-3.5" strokeWidth={1.5} />
-                    <span>Bersihkan Chat (Hapus untuk Saya)</span>
+                    <span>{tx('Clear Chat (Delete for Me)', 'Bersihkan Chat (Hapus untuk Saya)')}</span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -716,7 +728,10 @@ export function ChatPage({ mode }: ChatPageProps) {
               <Search className="h-3.5 w-3.5 text-zinc-400" strokeWidth={1.5} />
               <Input
                 autoFocus
-                placeholder="Cari kata kunci atau nomor invoice (INV/...)..."
+                placeholder={tx(
+                  'Search keywords or invoice number (INV/...)...',
+                  'Cari kata kunci atau nomor invoice (INV/...)...'
+                )}
                 value={msgSearch}
                 onChange={(e) => setMsgSearch(e.target.value)}
                 className="h-7 bg-white text-xs"
@@ -740,13 +755,19 @@ export function ChatPage({ mode }: ChatPageProps) {
           <div className="flex-1 space-y-2.5 overflow-y-auto bg-zinc-50/40 p-4">
             {!resolvedChatId ? (
               <p className="py-12 text-center text-xs text-zinc-400">
-                Pilih percakapan di sebelah kiri untuk membuka chat.
+                {tx(
+                  'Select a conversation on the left to open chat.',
+                  'Pilih percakapan di sebelah kiri untuk membuka chat.'
+                )}
               </p>
             ) : visibleMessages.length === 0 ? (
               <p className="py-12 text-center text-xs text-zinc-400">
                 {msgSearch
-                  ? 'Tidak ada pesan yang cocok dengan pencarian.'
-                  : 'Belum ada pesan. Mulai percakapan atau lampirkan kartu booking di bawah.'}
+                  ? tx('No messages match your search.', 'Tidak ada pesan yang cocok dengan pencarian.')
+                  : tx(
+                      'No messages yet. Start a conversation or attach a booking card below.',
+                      'Belum ada pesan. Mulai percakapan atau lampirkan kartu booking di bawah.'
+                    )}
               </p>
             ) : (
               visibleMessages.map((msg, index) => {
@@ -770,7 +791,7 @@ export function ChatPage({ mode }: ChatPageProps) {
                     {showDateDivider ? (
                       <div className="flex justify-center py-1">
                         <span className="rounded border border-zinc-200 bg-white px-2.5 py-0.5 font-mono text-[10px] text-zinc-500">
-                          {formatDayLabel(curDate)}
+                          {formatDayLabel(curDate, tx)}
                         </span>
                       </div>
                     ) : null}
@@ -790,7 +811,7 @@ export function ChatPage({ mode }: ChatPageProps) {
                               size="icon"
                               className="h-6 w-6 text-zinc-400 hover:text-zinc-900"
                               onClick={() => handleStartReply(msg)}
-                              title="Balas pesan"
+                              title={tx('Reply to message', 'Balas pesan')}
                             >
                               <Reply className="h-3 w-3" strokeWidth={1.5} />
                             </Button>
@@ -803,7 +824,7 @@ export function ChatPage({ mode }: ChatPageProps) {
                                 variant="ghost"
                                 size="icon"
                                 className="h-6 w-6 text-zinc-400 hover:text-zinc-900"
-                                title="Opsi pesan"
+                                title={tx('Message options', 'Opsi pesan')}
                               >
                                 <MoreVertical className="h-3 w-3" strokeWidth={1.5} />
                               </Button>
@@ -816,7 +837,7 @@ export function ChatPage({ mode }: ChatPageProps) {
                                     className="cursor-pointer"
                                   >
                                     <Reply className="h-3.5 w-3.5 text-zinc-500" strokeWidth={1.5} />
-                                    <span>Balas</span>
+                                    <span>{tx('Reply', 'Balas')}</span>
                                   </DropdownMenuItem>
                                   {msg.text ? (
                                     <DropdownMenuItem
@@ -824,7 +845,7 @@ export function ChatPage({ mode }: ChatPageProps) {
                                       className="cursor-pointer"
                                     >
                                       <Copy className="h-3.5 w-3.5 text-zinc-500" strokeWidth={1.5} />
-                                      <span>Salin teks</span>
+                                      <span>{tx('Copy text', 'Salin teks')}</span>
                                     </DropdownMenuItem>
                                   ) : null}
                                   {msg.text ? (
@@ -833,7 +854,7 @@ export function ChatPage({ mode }: ChatPageProps) {
                                       className="cursor-pointer"
                                     >
                                       <Pencil className="h-3.5 w-3.5 text-zinc-500" strokeWidth={1.5} />
-                                      <span>Edit pesan</span>
+                                      <span>{tx('Edit message', 'Edit pesan')}</span>
                                     </DropdownMenuItem>
                                   ) : null}
                                   <DropdownMenuSeparator />
@@ -842,7 +863,7 @@ export function ChatPage({ mode }: ChatPageProps) {
                                     className="cursor-pointer text-red-700 focus:bg-red-50 focus:text-red-800"
                                   >
                                     <Undo2 className="h-3.5 w-3.5" strokeWidth={1.5} />
-                                    <span>Batal Kirim (Untuk Semua)</span>
+                                    <span>{tx('Unsend (For Everyone)', 'Batal Kirim (Untuk Semua)')}</span>
                                   </DropdownMenuItem>
                                 </>
                               ) : null}
@@ -851,7 +872,7 @@ export function ChatPage({ mode }: ChatPageProps) {
                                 className="cursor-pointer text-zinc-700"
                               >
                                 <Trash2 className="h-3.5 w-3.5 text-zinc-500" strokeWidth={1.5} />
-                                <span>Hapus untuk Saya</span>
+                                <span>{tx('Delete for Me', 'Hapus untuk Saya')}</span>
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
@@ -873,8 +894,8 @@ export function ChatPage({ mode }: ChatPageProps) {
                             <Ban className="h-3 w-3 shrink-0" strokeWidth={1.5} />
                             <span>
                               {isSelf
-                                ? 'Anda membatalkan pengiriman pesan ini'
-                                : 'Pesan ini telah dibatalkan pengirimannya'}
+                                ? tx('You unsent this message', 'Anda membatalkan pengiriman pesan ini')
+                                : tx('This message was unsent', 'Pesan ini telah dibatalkan pengirimannya')}
                             </span>
                           </div>
                         ) : (
@@ -889,7 +910,9 @@ export function ChatPage({ mode }: ChatPageProps) {
                                 }`}
                               >
                                 <p className="font-mono text-[9px] uppercase opacity-75">
-                                  {msg.replyTo.senderRole === 'admin' ? 'Admin' : 'Renter'}
+                                  {msg.replyTo.senderRole === 'admin'
+                                    ? 'Admin'
+                                    : tx('Renter', 'Penyewa')}
                                 </p>
                                 <p className="line-clamp-2">{msg.replyTo.textPreview}</p>
                               </div>
@@ -911,7 +934,9 @@ export function ChatPage({ mode }: ChatPageProps) {
                                   <StatusBadge status={refBooking.bookingStatus} />
                                 </div>
                                 <div className="mt-1 flex items-center justify-between opacity-80">
-                                  <span>{refBooking.items.length} unit(s)</span>
+                                  <span>
+                                    {refBooking.items.length} {tx('unit(s)', 'unit')}
+                                  </span>
                                   <CurrencyText amount={refBooking.totalAmount} />
                                 </div>
                               </div>
@@ -924,7 +949,7 @@ export function ChatPage({ mode }: ChatPageProps) {
                                 onClick={() =>
                                   setChatImagePreview({
                                     url: msg.imageUrl!,
-                                    label: `Attachment · ${formatDateTime(msg.createdAt)}`,
+                                    label: `${tx('Attachment', 'Lampiran')} · ${formatDateTime(msg.createdAt)}`,
                                   })
                                 }
                                 className="block overflow-hidden rounded border border-zinc-300/60"
@@ -957,7 +982,7 @@ export function ChatPage({ mode }: ChatPageProps) {
                           }`}
                         >
                           {msg.editedAt && !msg.deletedForEveryone ? (
-                            <span className="italic">edited</span>
+                            <span className="italic">{tx('edited', 'diedit')}</span>
                           ) : null}
                           <span title={formatDateTime(msg.createdAt)}>
                             {formatTimeShort(msg.createdAt)}
@@ -967,13 +992,13 @@ export function ChatPage({ mode }: ChatPageProps) {
                               <CheckCheck
                                 className="h-3 w-3 text-blue-400"
                                 strokeWidth={1.75}
-                                aria-label="Dibaca"
+                                aria-label={tx('Read', 'Dibaca')}
                               />
                             ) : (
                               <Check
                                 className="h-3 w-3 text-zinc-400"
                                 strokeWidth={1.75}
-                                aria-label="Terkirim"
+                                aria-label={tx('Sent', 'Terkirim')}
                               />
                             )
                           ) : null}
@@ -990,7 +1015,7 @@ export function ChatPage({ mode }: ChatPageProps) {
                               size="icon"
                               className="h-6 w-6 text-zinc-400 hover:text-zinc-900"
                               onClick={() => handleStartReply(msg)}
-                              title="Balas pesan"
+                              title={tx('Reply to message', 'Balas pesan')}
                             >
                               <Reply className="h-3 w-3" strokeWidth={1.5} />
                             </Button>
@@ -1003,7 +1028,7 @@ export function ChatPage({ mode }: ChatPageProps) {
                                 variant="ghost"
                                 size="icon"
                                 className="h-6 w-6 text-zinc-400 hover:text-zinc-900"
-                                title="Opsi pesan"
+                                title={tx('Message options', 'Opsi pesan')}
                               >
                                 <MoreVertical className="h-3 w-3" strokeWidth={1.5} />
                               </Button>
@@ -1016,7 +1041,7 @@ export function ChatPage({ mode }: ChatPageProps) {
                                     className="cursor-pointer"
                                   >
                                     <Reply className="h-3.5 w-3.5 text-zinc-500" strokeWidth={1.5} />
-                                    <span>Balas</span>
+                                    <span>{tx('Reply', 'Balas')}</span>
                                   </DropdownMenuItem>
                                   {msg.text ? (
                                     <DropdownMenuItem
@@ -1024,7 +1049,7 @@ export function ChatPage({ mode }: ChatPageProps) {
                                       className="cursor-pointer"
                                     >
                                       <Copy className="h-3.5 w-3.5 text-zinc-500" strokeWidth={1.5} />
-                                      <span>Salin teks</span>
+                                      <span>{tx('Copy text', 'Salin teks')}</span>
                                     </DropdownMenuItem>
                                   ) : null}
                                   <DropdownMenuSeparator />
@@ -1035,7 +1060,7 @@ export function ChatPage({ mode }: ChatPageProps) {
                                 className="cursor-pointer text-zinc-700"
                               >
                                 <Trash2 className="h-3.5 w-3.5 text-zinc-500" strokeWidth={1.5} />
-                                <span>Hapus untuk Saya</span>
+                                <span>{tx('Delete for Me', 'Hapus untuk Saya')}</span>
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
@@ -1059,7 +1084,8 @@ export function ChatPage({ mode }: ChatPageProps) {
               <div className="flex items-center justify-between gap-2 rounded border border-zinc-200 border-l-2 border-l-primary bg-zinc-50 px-2.5 py-1.5 text-xs">
                 <div className="min-w-0">
                   <p className="font-mono text-[10px] uppercase text-primary">
-                    Membalas {replyingTo.senderRole === 'admin' ? 'Admin' : 'Renter'}
+                    {tx('Replying to', 'Membalas')}{' '}
+                    {replyingTo.senderRole === 'admin' ? 'Admin' : tx('Renter', 'Penyewa')}
                   </p>
                   <p className="truncate text-[11px] text-zinc-600">{replyingTo.textPreview}</p>
                 </div>
@@ -1080,7 +1106,9 @@ export function ChatPage({ mode }: ChatPageProps) {
               <div className="flex items-center justify-between gap-2 rounded border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs">
                 <div className="flex items-center gap-1.5 text-amber-900">
                   <Pencil className="h-3.5 w-3.5" strokeWidth={1.5} />
-                  <span className="font-medium">Mengedit pesan terkirim</span>
+                  <span className="font-medium">
+                    {tx('Editing sent message', 'Mengedit pesan terkirim')}
+                  </span>
                 </div>
                 <Button
                   type="button"
@@ -1103,7 +1131,9 @@ export function ChatPage({ mode }: ChatPageProps) {
                 <label className="flex cursor-pointer items-center gap-2 rounded border border-dashed border-zinc-300 bg-white px-2.5 py-1.5 text-xs text-zinc-600 hover:bg-zinc-50">
                   <Upload className="h-3.5 w-3.5 text-zinc-400" strokeWidth={1.5} />
                   <span className="truncate">
-                    {imageFile ? imageFile.name : 'Upload gambar dari perangkat'}
+                    {imageFile
+                      ? imageFile.name
+                      : tx('Upload image from device', 'Upload gambar dari perangkat')}
                   </span>
                   <input
                     type="file"
@@ -1113,7 +1143,10 @@ export function ChatPage({ mode }: ChatPageProps) {
                   />
                 </label>
                 <Input
-                  placeholder="Atau tempel URL gambar (https://...)"
+                  placeholder={tx(
+                    'Or paste image URL (https://...)',
+                    'Atau tempel URL gambar (https://...)'
+                  )}
                   value={imageUrl}
                   onChange={(e) => setImageUrl(e.target.value)}
                   className="bg-white"
@@ -1131,7 +1164,7 @@ export function ChatPage({ mode }: ChatPageProps) {
                     size="icon"
                     className="h-8 w-8 shrink-0 bg-white"
                     onClick={() => setShowImagePanel((v) => !v)}
-                    title="Lampirkan gambar"
+                    title={tx('Attach image', 'Lampirkan gambar')}
                   >
                     <ImagePlus className="h-3.5 w-3.5" strokeWidth={1.5} />
                   </Button>
@@ -1139,10 +1172,10 @@ export function ChatPage({ mode }: ChatPageProps) {
                   <Select value={refBookingId} onValueChange={setRefBookingId}>
                     <SelectTrigger className="h-8 w-40 shrink-0 bg-white">
                       <FileText className="mr-1 h-3 w-3 text-zinc-400" strokeWidth={1.5} />
-                      <SelectValue placeholder="Kartu booking..." />
+                      <SelectValue placeholder={tx('Booking card...', 'Kartu booking...')} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">Tanpa booking</SelectItem>
+                      <SelectItem value="none">{tx('No booking', 'Tanpa booking')}</SelectItem>
                       {bookings.map((b) => (
                         <SelectItem key={b.id} value={b.id}>
                           {b.invoiceNumber}
@@ -1158,8 +1191,11 @@ export function ChatPage({ mode }: ChatPageProps) {
                 rows={1}
                 placeholder={
                   editingMsg
-                    ? 'Edit teks pesan...'
-                    : 'Ketik pesan... (Enter kirim, Shift+Enter baris baru)'
+                    ? tx('Edit message text...', 'Edit teks pesan...')
+                    : tx(
+                        'Type a message... (Enter to send, Shift+Enter for new line)',
+                        'Ketik pesan... (Enter kirim, Shift+Enter baris baru)'
+                      )
                 }
                 value={text}
                 onChange={(e) => setText(e.target.value)}
@@ -1177,12 +1213,12 @@ export function ChatPage({ mode }: ChatPageProps) {
                 {editingMsg ? (
                   <>
                     <Check className="h-3.5 w-3.5" strokeWidth={1.5} />
-                    Simpan
+                    {tx('Save', 'Simpan')}
                   </>
                 ) : (
                   <>
                     <Send className="h-3.5 w-3.5" strokeWidth={1.5} />
-                    Kirim
+                    {tx('Send', 'Kirim')}
                   </>
                 )}
               </Button>
@@ -1191,19 +1227,21 @@ export function ChatPage({ mode }: ChatPageProps) {
         </div>
       </div>
 
-      {/* Confirm Unsend (Batal Kirim) Dialog */}
+      {/* Confirm Unsend Dialog */}
       <Dialog open={Boolean(unsendTarget)} onOpenChange={(o) => !o && setUnsendTarget(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Batal Kirim Pesan?</DialogTitle>
+            <DialogTitle>{tx('Unsend Message?', 'Batal Kirim Pesan?')}</DialogTitle>
             <DialogDescription>
-              Pesan akan ditarik untuk semua orang dalam percakapan ini dan diganti dengan
-              pemberitahuan pembatalan.
+              {tx(
+                'This message will be retracted for everyone in this conversation and replaced with an unsent notice.',
+                'Pesan akan ditarik untuk semua orang dalam percakapan ini dan diganti dengan pemberitahuan pembatalan.'
+              )}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" size="sm" onClick={() => setUnsendTarget(null)}>
-              Batal
+              {tx('Cancel', 'Batal')}
             </Button>
             <Button
               variant="destructive"
@@ -1211,7 +1249,7 @@ export function ChatPage({ mode }: ChatPageProps) {
               onClick={() => void handleUnsendForEveryone()}
             >
               <Undo2 className="h-3.5 w-3.5" strokeWidth={1.5} />
-              Batal Kirim untuk Semua
+              {tx('Unsend for Everyone', 'Batal Kirim untuk Semua')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1221,22 +1259,24 @@ export function ChatPage({ mode }: ChatPageProps) {
       <Dialog open={clearChatConfirmOpen} onOpenChange={setClearChatConfirmOpen}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Bersihkan Chat untuk Saya?</DialogTitle>
+            <DialogTitle>{tx('Clear Chat for Me?', 'Bersihkan Chat untuk Saya?')}</DialogTitle>
             <DialogDescription>
-              Semua pesan sebelum saat ini akan disembunyikan hanya dari tampilan Anda. Lawan bicara
-              tetap dapat melihat riwayat percakapan.
+              {tx(
+                'All messages prior to now will be hidden only from your view. The other participant can still see the conversation history.',
+                'Semua pesan sebelum saat ini akan disembunyikan hanya dari tampilan Anda. Lawan bicara tetap dapat melihat riwayat percakapan.'
+              )}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" size="sm" onClick={() => setClearChatConfirmOpen(false)}>
-              Batal
+              {tx('Cancel', 'Batal')}
             </Button>
             <Button
               variant="destructive"
               size="sm"
               onClick={() => void handleClearChatForMe()}
             >
-              Bersihkan untuk Saya
+              {tx('Clear for Me', 'Bersihkan untuk Saya')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1246,7 +1286,7 @@ export function ChatPage({ mode }: ChatPageProps) {
         open={Boolean(chatImagePreview)}
         onOpenChange={(open) => !open && setChatImagePreview(null)}
         images={chatImagePreview ? [chatImagePreview] : []}
-        title="Chat Attachment Preview"
+        title={tx('Chat Attachment Preview', 'Pratinjau Lampiran Chat')}
       />
     </div>
   );

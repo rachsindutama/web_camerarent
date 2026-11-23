@@ -1,8 +1,10 @@
 import { Link, useLocation } from 'react-router-dom';
 import { LogOut, FileCheck2, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { useI18n } from '@/hooks/useI18n';
 import { getInitials } from '@/lib/utils';
 import { TenantSwitcher } from '@/components/layout/TenantSwitcher';
+import { LanguageToggle } from '@/components/shared/LanguageToggle';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { MembershipBadge } from '@/components/shared/MembershipBadge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -15,31 +17,35 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
-const ROUTE_TITLES: Record<string, string> = {
-  '/superadmin/tenants': 'Tenants & Global GMV',
-  '/superadmin/blacklist': 'Member',
-  '/superadmin/gmv': 'Tenants & Global GMV',
-  '/superadmin/settings': 'Platform Settings',
-  '/admin/inventory': 'Inventory & Serial Numbers',
-  '/admin/bundles': 'Production Kit Bundles',
-  '/admin/bookings': 'Booking Dispatch & Queue',
-  '/admin/logistics': 'Antar-Jemput Courier Tracker',
-  '/admin/inspections': 'Pre & Post-Rental Inspections',
-  '/admin/finance': 'Cash Flow Ledger',
-  '/admin/staff': 'Staff & Karyawan Cabang',
-  '/admin/members': 'Member',
-  '/admin/chat': 'Client Support Threads',
-  '/catalog': 'Equipment Catalog',
-  '/bookings': 'My Rentals & Invoices',
-  '/kyc': 'Identity & KYC Verification',
-  '/chat': 'Rental House Chat',
+const ROUTE_TITLES: Record<string, [string, string]> = {
+  '/superadmin/tenants': ['Tenants & Global GMV', 'Cabang & GMV Global'],
+  '/superadmin/blacklist': ['Members', 'Member'],
+  '/superadmin/gmv': ['Tenants & Global GMV', 'Cabang & GMV Global'],
+  '/superadmin/settings': ['Platform Settings', 'Pengaturan Platform'],
+  '/admin/inventory': ['Inventory & Serial Numbers', 'Inventaris & Nomor Seri'],
+  '/admin/bundles': ['Production Kit Bundles', 'Paket Kit Produksi'],
+  '/admin/bookings': ['Booking Dispatch & Queue', 'Antrean & Pengelolaan Booking'],
+  '/admin/logistics': ['Delivery & Pickup Tracker', 'Pelacak Kurir Antar-Jemput'],
+  '/admin/inspections': ['Pre & Post-Rental Inspections', 'Inspeksi Sebelum & Sesudah Sewa'],
+  '/admin/finance': ['Cash Flow Ledger', 'Buku Kas & Keuangan'],
+  '/admin/staff': ['Branch Staff & Operations', 'Staff & Karyawan Cabang'],
+  '/admin/members': ['Members & KYC', 'Member & KYC'],
+  '/admin/chat': ['Client Support Threads', 'Chat Dukungan Klien'],
+  '/catalog': ['Equipment Catalog', 'Katalog Gear'],
+  '/bookings': ['My Rentals & Invoices', 'Pesanan & Invoice Saya'],
+  '/kyc': ['Identity & KYC Verification', 'Verifikasi Identitas & KYC'],
+  '/chat': ['Rental House Chat', 'Chat Bantuan Cabang'],
 };
 
 export function Topbar() {
   const location = useLocation();
   const { userProfile, signOut } = useAuth();
+  const { tx } = useI18n();
 
-  const pageTitle = ROUTE_TITLES[location.pathname] ?? 'Operations Console';
+  const titlePair = ROUTE_TITLES[location.pathname];
+  const pageTitle = titlePair
+    ? tx(titlePair[0], titlePair[1])
+    : tx('Operations Console', 'Konsol Operasional');
 
   return (
     <header className="flex h-12 shrink-0 items-center justify-between border-b border-zinc-200 bg-white px-5">
@@ -49,11 +55,13 @@ export function Topbar() {
         <TenantSwitcher />
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2.5">
+        <LanguageToggle />
+
         {userProfile && userProfile.role === 'user' ? (
           <>
             <MembershipBadge tier={userProfile.membershipTier} />
-            <Link to="/kyc" className="hover:opacity-80 transition-opacity">
+            <Link to="/kyc" className="transition-opacity hover:opacity-80">
               <StatusBadge status={userProfile.kycStatus} />
             </Link>
           </>
@@ -81,7 +89,7 @@ export function Topbar() {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuLabel className="flex items-center justify-between">
-              <span>Account</span>
+              <span>{tx('Account', 'Akun')}</span>
               <span className="font-mono text-[10px] font-medium uppercase text-zinc-600">
                 {userProfile?.role}
               </span>
@@ -91,7 +99,7 @@ export function Topbar() {
               <DropdownMenuItem asChild>
                 <Link to="/kyc" className="cursor-pointer">
                   <FileCheck2 className="h-3.5 w-3.5 text-zinc-500" strokeWidth={1.5} />
-                  <span>KYC Verification</span>
+                  <span>{tx('KYC Verification', 'Verifikasi KYC')}</span>
                 </Link>
               </DropdownMenuItem>
             ) : null}
@@ -99,7 +107,7 @@ export function Topbar() {
               <DropdownMenuItem asChild>
                 <Link to="/superadmin/tenants" className="cursor-pointer">
                   <ShieldCheck className="h-3.5 w-3.5 text-zinc-500" strokeWidth={1.5} />
-                  <span>Governance Console</span>
+                  <span>{tx('Governance Console', 'Konsol Tata Kelola')}</span>
                 </Link>
               </DropdownMenuItem>
             ) : null}
@@ -109,7 +117,7 @@ export function Topbar() {
               className="cursor-pointer text-red-700 focus:bg-red-50 focus:text-red-800"
             >
               <LogOut className="h-3.5 w-3.5" strokeWidth={1.5} />
-              <span>Sign out</span>
+              <span>{tx('Sign out', 'Keluar')}</span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -117,4 +125,3 @@ export function Topbar() {
     </header>
   );
 }
-

@@ -80,7 +80,7 @@ export function generateInvoicePdf({ booking, tenant, renter }: GenerateInvoiceP
     56
   );
   doc.text(
-    `Logistics      : ${booking.logisticsType === 'delivery' ? 'Antar-Jemput Delivery' : 'Self-Pickup'}`,
+    `Logistics      : ${booking.logisticsType === 'delivery' ? 'Delivery & Pickup' : 'Self-Pickup'}`,
     110,
     61
   );
@@ -141,7 +141,7 @@ export function generateInvoicePdf({ booking, tenant, renter }: GenerateInvoiceP
     ]);
   }
   summaryRows.push(
-    ['Antar-Jemput Delivery Fee', formatIDR(booking.deliveryFee)],
+    ['Delivery & Pickup Fee', formatIDR(booking.deliveryFee)],
     [
       booking.membershipTier === 'premium'
         ? 'Refundable Security Deposit (50% Premium Rate)'
