@@ -71,8 +71,14 @@ export function generateInvoicePdf({ booking, tenant, renter }: GenerateInvoiceP
 
   doc.setTextColor(9, 9, 11);
   doc.text(`Pickup / Start : ${formatDateTime(booking.startDate)}`, 110, 46);
-  doc.text(`Return / End   : ${formatDateTime(booking.endDate)}`, 110, 51);
-  doc.text(`Billing Cycle  : ${rentalDays} day(s)`, 110, 56);
+  doc.text(`Due Return     : ${formatDateTime(booking.endDate)}`, 110, 51);
+  doc.text(
+    booking.returnedAt
+      ? `Actual Return  : ${formatDateTime(booking.returnedAt)}`
+      : `Billing Cycle  : ${rentalDays} day(s)`,
+    110,
+    56
+  );
   doc.text(
     `Logistics      : ${booking.logisticsType === 'delivery' ? 'Antar-Jemput Delivery' : 'Self-Pickup'}`,
     110,

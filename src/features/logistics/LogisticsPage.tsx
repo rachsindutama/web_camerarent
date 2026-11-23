@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { collection, doc, getDocs, query, updateDoc, where } from 'firebase/firestore';
+import { collection, doc, getDocs, query, Timestamp, updateDoc, where } from 'firebase/firestore';
 import { ArrowRight, ExternalLink, MapPin, Navigation, Truck, UserCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { db } from '@/lib/firebase';
@@ -84,8 +84,14 @@ export function LogisticsPage() {
   const handleAdvanceStatus = async (booking: Booking, nextStatus: CourierStatus) => {
     if (!db) return;
     try {
-      await updateDoc(doc(db, 'bookings', booking.id), { courierStatus: nextStatus });
+      await updateDoc(doc(db, 'bookings', booking.id), {
+        courierStatus: nextStatus,
+        ...(nextStatus === 'returned' && !booking.returnedAt
+          ? { returnedAt: Timestamp.now() }
+          : {}),
+      });
       await queryClient.invalidateQueries({ queryKey: ['logistics', activeTenantId] });
+      await queryClient.invalidateQueries({ queryKey: ['bookings'] });
       toast.success(`Dispatch status updated to ${nextStatus.replace(/_/g, ' ')}.`);
     } catch (error) {
       console.error('Advance courier status error:', error);

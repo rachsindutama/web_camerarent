@@ -241,6 +241,11 @@ export function AdminBookingsPage() {
                   <p className="font-mono text-[10px] text-zinc-500">
                     {formatDateTime(b.startDate)} → {formatDateTime(b.endDate)}
                   </p>
+                  {b.returnedAt ? (
+                    <p className="mt-0.5 font-mono text-[10px] font-medium text-emerald-700">
+                      Dikembalikan: {formatDateTime(b.returnedAt)}
+                    </p>
+                  ) : null}
                 </TableCell>
                 <TableCell>
                   <div className="flex flex-col gap-1">

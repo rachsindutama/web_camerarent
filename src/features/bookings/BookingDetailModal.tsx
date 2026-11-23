@@ -214,7 +214,7 @@ export function BookingDetailModal({
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-zinc-400">RETURN</span>
+                      <span className="text-zinc-400">DUE RETURN</span>
                       <span className="font-medium text-zinc-950">
                         {formatDateTime(booking.endDate)}
                       </span>
@@ -223,7 +223,30 @@ export function BookingDetailModal({
                       <span className="text-zinc-400">BUFFER END</span>
                       <span className="text-zinc-500">{formatDateTime(booking.bufferEndDate)}</span>
                     </div>
+                    {booking.dispatchedAt ? (
+                      <div className="flex items-center justify-between gap-2 border-t border-zinc-200 pt-1.5">
+                        <span className="text-zinc-400">DISERAHKAN</span>
+                        <span className="text-zinc-700">
+                          {formatDateTime(booking.dispatchedAt)}
+                        </span>
+                      </div>
+                    ) : null}
+                    {booking.returnedAt || booking.bookingStatus === 'completed' ? (
+                      <div className="flex items-center justify-between gap-2 border-t border-emerald-200 bg-emerald-50/70 -mx-2.5 -mb-2.5 mt-1.5 rounded-b px-2.5 py-1.5 text-emerald-800">
+                        <span className="font-semibold">DIKEMBALIKAN</span>
+                        <span className="font-semibold">
+                          {booking.returnedAt
+                            ? formatDateTime(booking.returnedAt)
+                            : 'Tercatat Selesai'}
+                        </span>
+                      </div>
+                    ) : null}
                   </div>
+                  {booking.returnNotes ? (
+                    <p className="rounded border border-emerald-200 bg-emerald-50/40 px-2.5 py-1.5 text-[11px] text-emerald-900">
+                      {booking.returnNotes}
+                    </p>
+                  ) : null}
                 </div>
 
                 {renter ? (

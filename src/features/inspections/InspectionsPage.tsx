@@ -130,7 +130,9 @@ export function InspectionsPage() {
           notes: handoverNotes.trim(),
           confirmedByUserAt: handoverTarget.preRentalChecklist?.confirmedByUserAt ?? null,
         },
-        ...(dispatchActiveRent ? { bookingStatus: 'active_rent' } : {}),
+        ...(dispatchActiveRent
+          ? { bookingStatus: 'active_rent', dispatchedAt: Timestamp.now() }
+          : {}),
       });
 
       if (dispatchActiveRent) {
@@ -198,6 +200,8 @@ export function InspectionsPage() {
       await updateDoc(doc(db, 'bookings', booking.id), {
         bookingStatus: 'completed',
         paymentStatus: 'refunded',
+        returnedAt: Timestamp.now(),
+        returnNotes: 'Clean return verified — unit kembali dalam kondisi baik & deposit direfund.',
       });
       await syncAvailabilitySlotStatus(booking.id, 'completed');
 
@@ -279,6 +283,8 @@ export function InspectionsPage() {
       await updateDoc(doc(db, 'bookings', damageTarget.id), {
         damageFine: repairCost,
         bookingStatus: 'completed',
+        returnedAt: Timestamp.now(),
+        returnNotes: `Dikembalikan dengan laporan kerusakan (${damageSeverity}) — biaya perbaikan Rp ${repairCost.toLocaleString('id-ID')}.`,
         totalAmount:
           damageTarget.subtotal +
           damageTarget.deliveryFee +

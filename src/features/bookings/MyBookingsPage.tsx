@@ -253,6 +253,11 @@ export function MyBookingsPage() {
                       <p className="font-mono text-[11px] text-zinc-500">
                         to {formatDateTime(booking.endDate)}
                       </p>
+                      {booking.returnedAt ? (
+                        <p className="mt-0.5 font-mono text-[10px] font-medium text-emerald-700">
+                          Dikembalikan: {formatDateTime(booking.returnedAt)}
+                        </p>
+                      ) : null}
                     </div>
                     <div className="sm:text-right">
                       <p className="font-mono text-[10px] uppercase text-zinc-400">Total Payable</p>

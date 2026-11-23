@@ -120,6 +120,9 @@ export interface Booking {
     notes: string;
     confirmedByUserAt: Timestamp | null;
   };
+  dispatchedAt?: Timestamp;            // Actual timestamp when gear handed over (active_rent)
+  returnedAt?: Timestamp;              // Actual timestamp when gear returned & checked in
+  returnNotes?: string;                // Summary of post-rental return inspection
   subtotal: number;
   discountAmount?: number;             // Membership tier rental discount (IDR)
   membershipTier?: MembershipTier;     // Snapshot of renter tier at checkout
