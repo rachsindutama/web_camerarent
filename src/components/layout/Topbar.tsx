@@ -31,6 +31,7 @@ const ROUTE_TITLES: Record<string, [string, string]> = {
   '/admin/staff': ['Branch Staff & Operations', 'Staff & Karyawan Cabang'],
   '/admin/members': ['Members & KYC', 'Member & KYC'],
   '/admin/chat': ['Client Support Threads', 'Chat Dukungan Klien'],
+  '/': ['Equipment Catalog', 'Katalog Gear'],
   '/catalog': ['Equipment Catalog', 'Katalog Gear'],
   '/bookings': ['My Rentals & Invoices', 'Pesanan & Invoice Saya'],
   '/kyc': ['Identity & KYC Verification', 'Verifikasi Identitas & KYC'],

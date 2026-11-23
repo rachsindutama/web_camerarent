@@ -14,7 +14,7 @@ export function getDefaultRouteForRole(role: UserRole): string {
       return '/admin/inventory';
     case 'user':
     default:
-      return '/catalog';
+      return '/';
   }
 }
 

@@ -50,7 +50,7 @@ const NAV_GROUPS: NavGroup[] = [
     headingId: 'Operasional Rental',
     roles: ['superadmin', 'admin'],
     items: [
-      { labelEn: 'Gear Catalog', labelId: 'Katalog Gear', to: '/catalog', icon: LayoutGrid },
+      { labelEn: 'Gear Catalog', labelId: 'Katalog Gear', to: '/', icon: LayoutGrid },
       { labelEn: 'Inventory & SN', labelId: 'Inventaris & SN', to: '/admin/inventory', icon: Camera },
       { labelEn: 'Kit Bundles', labelId: 'Paket Kit', to: '/admin/bundles', icon: Package },
       { labelEn: 'Bookings', labelId: 'Booking', to: '/admin/bookings', icon: CalendarClock },
@@ -67,7 +67,7 @@ const NAV_GROUPS: NavGroup[] = [
     headingId: 'Portal Penyewa',
     roles: ['user'],
     items: [
-      { labelEn: 'Gear Catalog', labelId: 'Katalog Gear', to: '/catalog', icon: Camera },
+      { labelEn: 'Gear Catalog', labelId: 'Katalog Gear', to: '/', icon: Camera },
       { labelEn: 'My Bookings', labelId: 'Pesanan Saya', to: '/bookings', icon: CalendarClock },
       { labelEn: 'KYC Verification', labelId: 'Verifikasi KYC', to: '/kyc', icon: FileCheck2 },
       { labelEn: 'Support Chat', labelId: 'Chat Bantuan', to: '/chat', icon: MessageSquare },
@@ -100,6 +100,7 @@ export function Sidebar() {
                 <NavLink
                   key={item.to}
                   to={item.to}
+                  end={item.to === '/'}
                   className={({ isActive }) =>
                     cn(
                       'flex items-center gap-2.5 rounded-md px-2 py-1.5 text-xs transition-colors',

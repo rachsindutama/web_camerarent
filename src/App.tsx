@@ -34,7 +34,7 @@ function LoginRedirect() {
   const location = useLocation();
   const params = new URLSearchParams(location.search);
   params.set('auth', 'login');
-  return <Navigate to={`/catalog?${params.toString()}`} replace />;
+  return <Navigate to={`/?${params.toString()}`} replace />;
 }
 
 function RootRedirect() {
@@ -43,7 +43,7 @@ function RootRedirect() {
   if (firebaseUser && (!userProfile || needsRegistration)) {
     return <Navigate to="/register" replace />;
   }
-  if (!firebaseUser || !userProfile) return <Navigate to="/catalog" replace />;
+  if (!firebaseUser || !userProfile) return <Navigate to="/" replace />;
   return <Navigate to={getDefaultRouteForRole(userProfile.role)} replace />;
 }
 
@@ -52,8 +52,9 @@ export function App() {
     <BrowserRouter>
       <SettingsBootstrap />
       <Routes>
-        {/* Unified Gear Catalog — works seamlessly for Guests, Renters, Admin & Superadmin */}
-        <Route path="/catalog" element={<UnifiedCatalogShell />} />
+        {/* Unified Gear Catalog at root "/" — works seamlessly for Guests, Renters, Admin & Superadmin */}
+        <Route path="/" element={<UnifiedCatalogShell />} />
+        <Route path="/catalog" element={<Navigate to="/" replace />} />
 
         {/* Guest-only routes */}
         <Route element={<GuestOnlyGuard />}>
@@ -103,7 +104,6 @@ export function App() {
         </Route>
 
         {/* Fallback */}
-        <Route path="/" element={<RootRedirect />} />
         <Route path="*" element={<RootRedirect />} />
       </Routes>
     </BrowserRouter>
