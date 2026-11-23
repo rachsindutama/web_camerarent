@@ -181,10 +181,6 @@ export function LoginPage() {
     toast.success('Menampilkan katalog cabang terdekat dari lokasi Anda.');
   };
 
-  const isNearestActive = Boolean(
-    visitorLocation && nearestTenant && effectiveTenantId === nearestTenant.id
-  );
-
   const { data: equipmentList = [], isLoading: loadingEqQuery } = useQuery<Equipment[]>({
     queryKey: ['public', 'equipment', effectiveTenantId],
     enabled: isFirebaseConfigured && Boolean(db) && Boolean(effectiveTenantId),
@@ -300,11 +296,6 @@ export function LoginPage() {
                     })}
                   </SelectContent>
                 </Select>
-                {isNearestActive ? (
-                  <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-secondary-foreground">
-                    Terdekat
-                  </span>
-                ) : null}
                 <Button
                   type="button"
                   variant="ghost"

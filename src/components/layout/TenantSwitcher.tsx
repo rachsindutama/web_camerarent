@@ -77,11 +77,6 @@ export function TenantSwitcher() {
                 ? `Semua Cabang (${tenants.length})`
                 : activeTenant?.name ?? (tenants.length === 0 ? 'No active tenant' : 'Select tenant')}
           </span>
-          {activeIsNearest && activeTenant && distancesById[activeTenant.id] !== undefined ? (
-            <span className="hidden rounded bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-secondary-foreground sm:inline">
-              Terdekat
-            </span>
-          ) : null}
           <ChevronsUpDown className="h-3 w-3 text-zinc-400" strokeWidth={1.5} />
         </Button>
       </DropdownMenuTrigger>
@@ -113,7 +108,6 @@ export function TenantSwitcher() {
           listToRender.map((tenant) => {
             const isSelected = !isAllTenants && tenant.id === activeTenant?.id;
             const distKm = distancesById[tenant.id];
-            const isNearest = !isSuperAdmin && nearestTenantId === tenant.id;
             return (
               <DropdownMenuItem
                 key={tenant.id}
@@ -121,14 +115,7 @@ export function TenantSwitcher() {
                 className="flex items-center justify-between gap-2"
               >
                 <div className="min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <p className="truncate font-medium text-zinc-900">{tenant.name}</p>
-                    {isNearest ? (
-                      <span className="shrink-0 rounded bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-secondary-foreground">
-                        Terdekat
-                      </span>
-                    ) : null}
-                  </div>
+                  <p className="truncate font-medium text-zinc-900">{tenant.name}</p>
                   <p className="truncate font-mono text-[10px] text-zinc-400">
                     {distKm !== undefined
                       ? `~${formatBranchDistanceKm(distKm)} dari lokasi Anda`
