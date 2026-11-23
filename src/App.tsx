@@ -84,8 +84,8 @@ export function App() {
               <Route path="/admin/chat" element={<ChatPage mode="admin" />} />
             </Route>
 
-            {/* Renter portal routes */}
-            <Route element={<RoleGuard allowedRoles={['user', 'admin', 'superadmin']} />}>
+            {/* Renter portal routes (strictly role === 'user') */}
+            <Route element={<RoleGuard allowedRoles={['user']} />}>
               <Route path="/catalog" element={<CatalogPage />} />
               <Route path="/bookings" element={<MyBookingsPage />} />
               <Route path="/kyc" element={<KycOnboardingPage />} />

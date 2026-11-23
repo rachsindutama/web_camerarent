@@ -87,12 +87,14 @@ export function Topbar() {
               </span>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem asChild>
-              <Link to="/kyc" className="cursor-pointer">
-                <FileCheck2 className="h-3.5 w-3.5 text-zinc-500" strokeWidth={1.5} />
-                <span>KYC Verification</span>
-              </Link>
-            </DropdownMenuItem>
+            {userProfile?.role === 'user' ? (
+              <DropdownMenuItem asChild>
+                <Link to="/kyc" className="cursor-pointer">
+                  <FileCheck2 className="h-3.5 w-3.5 text-zinc-500" strokeWidth={1.5} />
+                  <span>KYC Verification</span>
+                </Link>
+              </DropdownMenuItem>
+            ) : null}
             {userProfile?.role === 'superadmin' ? (
               <DropdownMenuItem asChild>
                 <Link to="/superadmin/tenants" className="cursor-pointer">

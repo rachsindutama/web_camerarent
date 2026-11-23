@@ -57,7 +57,7 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     heading: 'Renter Portal',
-    roles: ['user', 'admin', 'superadmin'],
+    roles: ['user'],
     items: [
       { label: 'Gear Catalog', to: '/catalog', icon: Camera },
       { label: 'My Bookings', to: '/bookings', icon: CalendarClock },
