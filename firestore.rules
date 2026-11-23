@@ -97,7 +97,9 @@ service cloud.firestore {
         isTenantAdmin(resource.data.tenantId) ||
         isSuperAdmin()
       );
-      allow create: if isEligibleRenter() && request.resource.data.userId == request.auth.uid;
+      allow create: if (isEligibleRenter() && request.resource.data.userId == request.auth.uid)
+                    || isSuperAdmin()
+                    || isTenantAdmin(request.resource.data.tenantId);
       allow update: if isSuperAdmin() || isTenantAdmin(resource.data.tenantId) || (
         // User can only upload payment proof or confirm preRentalChecklist
         resource.data.userId == request.auth.uid &&

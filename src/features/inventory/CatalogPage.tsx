@@ -6,6 +6,10 @@ import {
   AlertTriangle,
   CalendarClock,
   Camera,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsUpDown,
   Crosshair,
   Lock,
   MapPin,
@@ -16,6 +20,7 @@ import {
   ShoppingBag,
   Trash2,
   Truck,
+  UserCheck,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { db } from '@/lib/firebase';
@@ -25,12 +30,7 @@ import {
   generateInvoiceNumber,
 } from '@/lib/availability';
 import { estimateRoadDistanceKm, reverseGeocode } from '@/lib/geo';
-import {
-  calculateTierPricing,
-  formatTierSummaryParts,
-  getMembershipBenefits,
-  resolveTenantMembershipTiers,
-} from '@/lib/membership';
+import { calculateTierPricing, formatTierSummaryParts, getMembershipBenefits } from '@/lib/membership';
 import { useAuth } from '@/hooks/useAuth';
 import { usePlatformSettings } from '@/hooks/usePlatformSettings';
 import { useTenant } from '@/hooks/useTenant';
@@ -45,23 +45,45 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import type { BookingItem, Bundle, Equipment } from '@/types/schema';
+import type { BookingItem, Bundle, Equipment, UserProfile } from '@/types/schema';
 
 export function CatalogPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { userProfile } = useAuth();
   const { settings } = usePlatformSettings();
-  const { activeTenant: scopedTenant, defaultTenant } = useTenant();
+  const {
+    activeTenant: scopedTenant,
+    defaultTenant,
+    isAllTenants,
+    tenants,
+    setSelectedTenantId,
+  } = useTenant();
   const activeTenant = scopedTenant ?? defaultTenant;
   const activeTenantId = activeTenant?.id ?? null;
+  const isOperator = userProfile?.role === 'superadmin' || userProfile?.role === 'admin';
+
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<string>('all');
   const [submitting, setSubmitting] = useState(false);
   const [mapPickerOpen, setMapPickerOpen] = useState(false);
   const [locatingShareloc, setLocatingShareloc] = useState(false);
+
+  // Assisted / Walk-in Booking: Admin & Superadmin pick target Member
+  const [selectedRenterUid, setSelectedRenterUid] = useState('');
+  const [renterPickerOpen, setRenterPickerOpen] = useState(false);
+  const [renterSearch, setRenterSearch] = useState('');
+  const [renterPage, setRenterPage] = useState(1);
+  const RENTER_PAGE_SIZE = 5;
 
   const {
     startDateIso,
@@ -116,6 +138,59 @@ export function CatalogPage() {
     },
   });
 
+  const { data: memberList = [] } = useQuery<UserProfile[]>({
+    queryKey: ['catalog-members'],
+    enabled: Boolean(db && isOperator),
+    queryFn: async () => {
+      if (!db) return [];
+      const snap = await getDocs(collection(db, 'users'));
+      return snap.docs
+        .map((d) => {
+          const data = d.data();
+          return {
+            uid: d.id,
+            email: data.email ?? '',
+            displayName: data.displayName ?? 'Member',
+            role: data.role ?? 'user',
+            membershipTier: data.membershipTier === 'premium' ? 'premium' : 'basic',
+            tenantId: data.tenantId ?? null,
+            phone: data.phone ?? '',
+            nik: data.nik,
+            kycStatus: data.kycStatus ?? 'unverified',
+            isBlacklisted: Boolean(data.isBlacklisted),
+            blacklistReason: data.blacklistReason,
+            createdAt: (data.createdAt as Timestamp) ?? Timestamp.now(),
+          } as UserProfile;
+        })
+        .filter((u) => u.role === 'user')
+        .sort((a, b) => a.displayName.localeCompare(b.displayName));
+    },
+  });
+
+  const selectedRenter = useMemo(
+    () => memberList.find((m) => m.uid === selectedRenterUid) ?? null,
+    [memberList, selectedRenterUid]
+  );
+
+  const filteredMembers = useMemo(() => {
+    const q = renterSearch.trim().toLowerCase();
+    if (!q) return memberList;
+    return memberList.filter(
+      (m) =>
+        m.displayName.toLowerCase().includes(q) ||
+        m.email.toLowerCase().includes(q) ||
+        (m.nik ?? '').includes(q) ||
+        (m.phone ?? '').includes(q)
+    );
+  }, [memberList, renterSearch]);
+
+  const totalRenterPages = Math.max(1, Math.ceil(filteredMembers.length / RENTER_PAGE_SIZE));
+  const safeRenterPage = Math.min(renterPage, totalRenterPages);
+  const paginatedMembers = filteredMembers.slice(
+    (safeRenterPage - 1) * RENTER_PAGE_SIZE,
+    safeRenterPage * RENTER_PAGE_SIZE
+  );
+
   const startDate = useMemo(() => (startDateIso ? new Date(startDateIso) : null), [startDateIso]);
   const endDate = useMemo(() => (endDateIso ? new Date(endDateIso) : null), [endDateIso]);
   const isValidRange =
@@ -145,9 +220,9 @@ export function CatalogPage() {
     );
   }
 
-  const memberTier = userProfile?.membershipTier ?? 'basic';
-  const branchTiers = resolveTenantMembershipTiers(activeTenant, settings.tiers);
-  const tierBenefits = getMembershipBenefits(memberTier, branchTiers);
+  const effectiveRenter = isOperator ? selectedRenter : userProfile;
+  const memberTier = effectiveRenter?.membershipTier ?? 'basic';
+  const tierBenefits = getMembershipBenefits(memberTier, settings.tiers);
   const totalDraftUnits =
     items.reduce((sum, i) => sum + i.quantity, 0) +
     cartBundles.reduce((sum, b) => sum + b.equipmentIds.length, 0);
@@ -174,7 +249,7 @@ export function CatalogPage() {
     isDelivery: logisticsType === 'delivery' && Boolean(deliveryCoordinates),
     distanceKm: lockedDistanceKm,
     deliveryRatePerKm: activeTenant.deliveryRatePerKm,
-    customTiers: branchTiers,
+    customTiers: settings.tiers,
   });
 
   const subtotal = pricing.netSubtotal;
@@ -182,7 +257,9 @@ export function CatalogPage() {
   const deliveryFee = pricing.deliveryFee;
   const totalAmount = pricing.totalAmount;
 
-  const isKycVerified = userProfile?.kycStatus === 'verified' && !userProfile?.isBlacklisted;
+  const isKycVerified = isOperator
+    ? Boolean(selectedRenter && !selectedRenter.isBlacklisted)
+    : userProfile?.kycStatus === 'verified' && !userProfile?.isBlacklisted;
   const cartHasItems = items.length > 0 || cartBundles.length > 0;
 
   const handleQuickShareloc = () => {
@@ -219,7 +296,16 @@ export function CatalogPage() {
       toast.error('Select a valid start and return date range.');
       return;
     }
-    if (!isKycVerified) {
+    if (isOperator) {
+      if (!selectedRenter) {
+        toast.error('Pilih penyewa (member) terlebih dahulu di kolom Booking Draft.');
+        return;
+      }
+      if (selectedRenter.isBlacklisted) {
+        toast.error('Member ini masuk Global Blacklist dan tidak dapat melakukan booking.');
+        return;
+      }
+    } else if (!isKycVerified) {
       toast.error('Verified KYC is required before booking checkout.');
       return;
     }
@@ -297,7 +383,7 @@ export function CatalogPage() {
           return {
             invoiceNumber: generateInvoiceNumber(),
             tenantId: activeTenant.id,
-            userId: userProfile.uid,
+            userId: isOperator && selectedRenter ? selectedRenter.uid : userProfile.uid,
             items: bookingItems,
             startDate: Timestamp.fromDate(startDate),
             endDate: Timestamp.fromDate(endDate),
@@ -329,8 +415,18 @@ export function CatalogPage() {
       clearCart();
       await queryClient.invalidateQueries({ queryKey: ['availability'] });
       await queryClient.invalidateQueries({ queryKey: ['bookings'] });
-      toast.success('Booking locked with serial numbers allocated. Upload transfer proof to confirm.');
-      navigate('/bookings');
+      if (isOperator && selectedRenter) {
+        toast.success(
+          `Booking berhasil dibuat atas nama ${selectedRenter.displayName}. Lanjutkan verifikasi di menu Bookings.`
+        );
+        setSelectedRenterUid('');
+        navigate('/admin/bookings');
+      } else {
+        toast.success(
+          'Booking locked with serial numbers allocated. Upload transfer proof to confirm.'
+        );
+        navigate('/bookings');
+      }
     } catch (error) {
       console.error('Checkout error:', error);
       toast.error((error as Error).message || 'Unable to allocate equipment for selected dates.');
@@ -658,6 +754,178 @@ export function CatalogPage() {
           </CardHeader>
 
           <CardContent className="space-y-4 pt-4">
+            {/* Admin / Superadmin Assisted Booking: Branch & Renter Picker */}
+            {isOperator ? (
+              <div className="space-y-3 rounded-md border bg-muted/30 p-3">
+                {isAllTenants && tenants.length > 1 ? (
+                  <div className="space-y-1">
+                    <Label className="text-xs">Cabang Katalog</Label>
+                    <Select
+                      value={activeTenant.id}
+                      onValueChange={(tid) => {
+                        setSelectedTenantId(tid);
+                        clearCart();
+                      }}
+                    >
+                      <SelectTrigger className="h-8 bg-background text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {tenants.map((t) => (
+                          <SelectItem key={t.id} value={t.id}>
+                            {t.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : null}
+
+                <div className="space-y-1.5">
+                  <Label className="flex items-center gap-1.5 text-xs">
+                    <UserCheck className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.5} />
+                    Bantu Booking untuk Penyewa (Member)
+                  </Label>
+                  <button
+                    type="button"
+                    onClick={() => setRenterPickerOpen((prev) => !prev)}
+                    className="flex h-9 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-3 text-left text-xs shadow-sm transition-colors hover:bg-muted/40"
+                  >
+                    <span
+                      className={
+                        selectedRenter
+                          ? 'truncate font-medium text-foreground'
+                          : 'truncate text-muted-foreground'
+                      }
+                    >
+                      {selectedRenter
+                        ? `${selectedRenter.displayName} (${selectedRenter.email})`
+                        : 'Pilih member penyewa...'}
+                    </span>
+                    <ChevronsUpDown
+                      className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                      strokeWidth={1.5}
+                    />
+                  </button>
+
+                  {renterPickerOpen ? (
+                    <div className="space-y-2 rounded-md border bg-popover p-2 shadow-md">
+                      <div className="relative">
+                        <Search
+                          className="pointer-events-none absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground"
+                          strokeWidth={1.5}
+                        />
+                        <Input
+                          placeholder="Cari nama, email, atau NIK..."
+                          value={renterSearch}
+                          onChange={(e) => {
+                            setRenterSearch(e.target.value);
+                            setRenterPage(1);
+                          }}
+                          className="h-8 pl-8 text-xs"
+                        />
+                      </div>
+
+                      {paginatedMembers.length === 0 ? (
+                        <p className="py-3 text-center text-xs text-muted-foreground">
+                          Tidak ada member ditemukan.
+                        </p>
+                      ) : (
+                        <div className="divide-y divide-border rounded-md border">
+                          {paginatedMembers.map((m) => {
+                            const isSelected = m.uid === selectedRenterUid;
+                            return (
+                              <button
+                                key={m.uid}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedRenterUid(m.uid);
+                                  setRenterPickerOpen(false);
+                                }}
+                                className={`flex w-full items-center justify-between gap-2 px-2.5 py-2 text-left text-xs transition-colors hover:bg-muted/60 ${
+                                  isSelected ? 'bg-muted/50' : ''
+                                }`}
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate font-medium text-foreground">
+                                    {m.displayName}
+                                  </p>
+                                  <p className="truncate text-[11px] text-muted-foreground">
+                                    {m.email}
+                                    {m.nik ? ` · ${m.nik}` : ''}
+                                  </p>
+                                </div>
+                                <div className="flex shrink-0 items-center gap-1">
+                                  <MembershipBadge tier={m.membershipTier} />
+                                  {isSelected ? (
+                                    <Check className="h-3.5 w-3.5 text-foreground" strokeWidth={2} />
+                                  ) : null}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                        <span className="tabular-nums">
+                          {filteredMembers.length === 0
+                            ? '0 member'
+                            : `${(safeRenterPage - 1) * RENTER_PAGE_SIZE + 1}–${Math.min(
+                                safeRenterPage * RENTER_PAGE_SIZE,
+                                filteredMembers.length
+                              )} dari ${filteredMembers.length}`}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <span className="mr-1 tabular-nums">
+                            {safeRenterPage}/{totalRenterPages}
+                          </span>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-6 px-1.5"
+                            disabled={safeRenterPage <= 1}
+                            onClick={() => setRenterPage((p) => Math.max(1, p - 1))}
+                          >
+                            <ChevronLeft className="h-3 w-3" strokeWidth={1.5} />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-6 px-1.5"
+                            disabled={safeRenterPage >= totalRenterPages}
+                            onClick={() => setRenterPage((p) => Math.min(totalRenterPages, p + 1))}
+                          >
+                            <ChevronRight className="h-3 w-3" strokeWidth={1.5} />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {selectedRenter ? (
+                    <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                      <MembershipBadge tier={selectedRenter.membershipTier} />
+                      <StatusBadge status={selectedRenter.kycStatus} />
+                      {selectedRenter.isBlacklisted ? <StatusBadge status="blacklisted" /> : null}
+                    </div>
+                  ) : null}
+
+                  {selectedRenter?.isBlacklisted ? (
+                    <p className="text-xs font-medium text-destructive">
+                      Member diblokir (Global Blacklist) — tidak dapat dibooking.
+                    </p>
+                  ) : selectedRenter && selectedRenter.kycStatus !== 'verified' ? (
+                    <p className="text-[11px] text-amber-700">
+                      KYC member belum verified — pastikan KTP fisik dicek saat serah terima.
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+
             {memberTier === 'premium' ? (
               <div className="rounded-md border border-zinc-200 bg-zinc-50 p-2.5 text-[11px] text-zinc-700">
                 <p className="font-mono text-[10px] font-semibold uppercase text-zinc-900">
@@ -688,7 +956,7 @@ export function CatalogPage() {
                 </p>
               </div>
             ) : null}
-            {!isKycVerified ? (
+            {!isOperator && !isKycVerified ? (
               <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
                 <div className="flex items-center gap-1.5 font-semibold">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} />
@@ -936,7 +1204,13 @@ export function CatalogPage() {
               }
               onClick={() => void handleCheckout()}
             >
-              {submitting ? 'Allocating Serial Units...' : 'Confirm & Lock Booking'}
+              {submitting
+                ? 'Mengalokasikan Unit SN...'
+                : isOperator
+                  ? selectedRenter
+                    ? `Buat Booking — ${selectedRenter.displayName}`
+                    : 'Pilih Penyewa Terlebih Dahulu'
+                  : 'Confirm & Lock Booking'}
             </Button>
           </CardContent>
         </Card>
