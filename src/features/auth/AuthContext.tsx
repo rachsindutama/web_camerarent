@@ -15,6 +15,7 @@ import {
 } from 'firebase/firestore';
 import { toast } from 'sonner';
 import { auth, db, googleProvider, isFirebaseConfigured } from '@/lib/firebase';
+import { useTenantStore } from '@/store/useTenantStore';
 import type { UserProfile } from '@/types/schema';
 
 export interface RegistrationPayload {
@@ -352,6 +353,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setNeedsRegistration(false);
       setAuthError(null);
       setUnregisteredEmail(null);
+      useTenantStore.getState().resetSelection();
       toast.success('Signed out.');
     } catch (error) {
       console.error('Sign-out error:', error);

@@ -43,7 +43,9 @@ export function useTenant() {
   });
 
   const isSuperAdmin = userProfile?.role === 'superadmin';
+  const isGuest = !userProfile;
   const isRenter = userProfile?.role === 'user';
+  const autoDetectNearest = isGuest || isRenter;
 
   const tenants = useMemo(
     () => (isSuperAdmin ? allTenants : allTenants.filter((t) => t.status === 'active')),
@@ -55,13 +57,14 @@ export function useTenant() {
   const {
     visitorLocation,
     detecting: detectingNearest,
+    locationReady,
     nearestTenant,
     distancesById,
     sortedTenants,
     detectNow: detectNearestBranch,
   } = useNearestBranch({
     tenants,
-    enabled: isRenter && tenants.length > 0,
+    enabled: autoDetectNearest && tenants.length > 0,
   });
 
   // Superadmin defaults to All Branches unless explicitly switched to a specific tenant
@@ -71,8 +74,18 @@ export function useTenant() {
       selectedTenantId === ALL_TENANTS_SCOPE ||
       !tenants.some((t) => t.id === selectedTenantId));
 
-  const fallbackTenantId =
-    isRenter && nearestTenant ? nearestTenant.id : tenants[0]?.id ?? null;
+  const waitingForInitialGeo =
+    autoDetectNearest &&
+    !isManualSelection &&
+    !selectedTenantId &&
+    !locationReady &&
+    !visitorLocation;
+
+  const fallbackTenantId = waitingForInitialGeo
+    ? null
+    : autoDetectNearest && nearestTenant
+      ? nearestTenant.id
+      : tenants[0]?.id ?? null;
 
   const activeTenantId = isLockedToTenant
     ? userProfile.tenantId
@@ -104,33 +117,37 @@ export function useTenant() {
 
     if (tenants.length === 0) return;
 
-    // Renter: auto-select nearest branch until they manually switch branches
-    if (isRenter && visitorLocation && nearestTenant && !isManualSelection) {
-      if (selectedTenantId !== nearestTenant.id) {
-        setSelectedTenantId(nearestTenant.id, false);
+    // Guest & Renter: wait briefly for initial geo before picking nearest branch
+    if (autoDetectNearest && !isManualSelection) {
+      if (visitorLocation && nearestTenant) {
+        if (selectedTenantId !== nearestTenant.id) {
+          setSelectedTenantId(nearestTenant.id, false);
+        }
+        return;
       }
-      return;
+      if (!locationReady) return;
     }
 
     if (!selectedTenantId || !tenants.some((t) => t.id === selectedTenantId)) {
-      const targetId = isRenter && nearestTenant ? nearestTenant.id : tenants[0].id;
+      const targetId = autoDetectNearest && nearestTenant ? nearestTenant.id : tenants[0].id;
       setSelectedTenantId(targetId, false);
     }
   }, [
     isLockedToTenant,
     isSuperAdmin,
-    isRenter,
+    autoDetectNearest,
     userProfile?.tenantId,
     selectedTenantId,
     isManualSelection,
     visitorLocation,
+    locationReady,
     nearestTenant,
     tenants,
     setSelectedTenantId,
   ]);
 
   const activeTenant = activeTenantId ? tenants.find((t) => t.id === activeTenantId) ?? null : null;
-  const defaultTenant = activeTenant ?? nearestTenant ?? tenants[0] ?? null;
+  const defaultTenant = waitingForInitialGeo ? null : activeTenant ?? nearestTenant ?? tenants[0] ?? null;
 
   const tenantById = useMemo(() => {
     const map: Record<string, Tenant> = {};
@@ -151,11 +168,12 @@ export function useTenant() {
     nearestTenantId: visitorLocation ? nearestTenant?.id ?? null : null,
     distancesById,
     detectingNearest,
+    locationReady,
     detectNearestBranch,
     isAllTenants,
     isSuperAdmin,
     isLockedToTenant,
-    isLoading,
+    isLoading: isLoading || waitingForInitialGeo,
     setSelectedTenantId,
   };
 }

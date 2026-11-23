@@ -1,12 +1,12 @@
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { AppShell } from '@/components/layout/AppShell';
+import { UnifiedCatalogShell } from '@/components/layout/UnifiedCatalogShell';
 import {
   GuestOnlyGuard,
   RequireAuth,
   RoleGuard,
   getDefaultRouteForRole,
 } from '@/components/layout/RoleGuard';
-import { LoginPage } from '@/features/auth/LoginPage';
 import { RegisterPage } from '@/features/auth/RegisterPage';
 import { KycOnboardingPage } from '@/features/auth/KycOnboardingPage';
 import { BlacklistNoticePage } from '@/features/auth/BlacklistNoticePage';
@@ -14,7 +14,6 @@ import { TenantsPage } from '@/features/superadmin/TenantsPage';
 import { SettingsPage } from '@/features/superadmin/SettingsPage';
 import { InventoryPage } from '@/features/inventory/InventoryPage';
 import { BundlesPage } from '@/features/inventory/BundlesPage';
-import { CatalogPage } from '@/features/inventory/CatalogPage';
 import { MyBookingsPage } from '@/features/bookings/MyBookingsPage';
 import { AdminBookingsPage } from '@/features/bookings/AdminBookingsPage';
 import { LogisticsPage } from '@/features/logistics/LogisticsPage';
@@ -31,13 +30,20 @@ function SettingsBootstrap() {
   return null;
 }
 
+function LoginRedirect() {
+  const location = useLocation();
+  const params = new URLSearchParams(location.search);
+  params.set('auth', 'login');
+  return <Navigate to={`/catalog?${params.toString()}`} replace />;
+}
+
 function RootRedirect() {
   const { userProfile, firebaseUser, needsRegistration, loading } = useAuth();
   if (loading) return null;
   if (firebaseUser && (!userProfile || needsRegistration)) {
     return <Navigate to="/register" replace />;
   }
-  if (!firebaseUser || !userProfile) return <Navigate to="/login" replace />;
+  if (!firebaseUser || !userProfile) return <Navigate to="/catalog" replace />;
   return <Navigate to={getDefaultRouteForRole(userProfile.role)} replace />;
 }
 
@@ -46,9 +52,12 @@ export function App() {
     <BrowserRouter>
       <SettingsBootstrap />
       <Routes>
+        {/* Unified Gear Catalog — works seamlessly for Guests, Renters, Admin & Superadmin */}
+        <Route path="/catalog" element={<UnifiedCatalogShell />} />
+
         {/* Guest-only routes */}
         <Route element={<GuestOnlyGuard />}>
-          <Route path="/login" element={<LoginPage />} />
+          <Route path="/login" element={<LoginRedirect />} />
           <Route path="/register" element={<RegisterPage />} />
         </Route>
 
@@ -82,11 +91,6 @@ export function App() {
               <Route path="/admin/staff" element={<StaffPage />} />
               <Route path="/admin/members" element={<MembersPage />} />
               <Route path="/admin/chat" element={<ChatPage mode="admin" />} />
-            </Route>
-
-            {/* Shared Gear Catalog (Renters book, Admin/Superadmin preview live catalog) */}
-            <Route element={<RoleGuard allowedRoles={['user', 'admin', 'superadmin']} />}>
-              <Route path="/catalog" element={<CatalogPage />} />
             </Route>
 
             {/* Renter portal routes (strictly role === 'user') */}

@@ -80,7 +80,7 @@ service cloud.firestore {
       allow delete: if isSuperAdmin() || isTenantAdmin(resource.data.tenantId);
     }
     match /equipment_units/{id} {
-      allow read: if isSignedIn();
+      allow read: if true;
       allow create, update: if isSuperAdmin() || isTenantAdmin(request.resource.data.tenantId);
       allow delete: if isSuperAdmin() || isTenantAdmin(resource.data.tenantId);
     }
@@ -110,7 +110,7 @@ service cloud.firestore {
 
     // AVAILABILITY SLOTS (PII-free unit reservation locks for live catalog checks)
     match /availability_slots/{slotId} {
-      allow read: if isSignedIn();
+      allow read: if true;
       allow create: if isEligibleRenter() || isSuperAdmin() || isTenantAdmin(request.resource.data.tenantId);
       allow update: if isSuperAdmin() || (resource != null && isTenantAdmin(resource.data.tenantId));
       allow delete: if isSuperAdmin();

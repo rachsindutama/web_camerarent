@@ -38,6 +38,7 @@ import { useTenant } from '@/hooks/useTenant';
 import { useAvailability } from '@/hooks/useAvailability';
 import { useBookingDraftStore } from '@/store/useBookingDraftStore';
 import { CurrencyText } from '@/components/shared/CurrencyText';
+import type { CheckoutAuthSummary } from '@/components/shared/AuthDialog';
 import { ImagePreviewModal, type PreviewImageItem } from '@/components/shared/ImagePreviewModal';
 import { LocationPickerModal } from '@/components/shared/LocationPickerModal';
 import { MembershipBadge } from '@/components/shared/MembershipBadge';
@@ -58,7 +59,11 @@ import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { BookingItem, Bundle, Equipment, UserProfile } from '@/types/schema';
 
-export function CatalogPage() {
+interface CatalogPageProps {
+  onRequireAuth?: (summary: CheckoutAuthSummary) => void;
+}
+
+export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { userProfile } = useAuth();
@@ -67,11 +72,13 @@ export function CatalogPage() {
     activeTenant: scopedTenant,
     defaultTenant,
     isAllTenants,
+    isLoading: loadingTenants,
     tenants,
     setSelectedTenantId,
   } = useTenant();
   const activeTenant = scopedTenant ?? defaultTenant;
   const activeTenantId = activeTenant?.id ?? null;
+  const isGuest = !userProfile;
   const isOperator = userProfile?.role === 'superadmin' || userProfile?.role === 'admin';
 
   const [search, setSearch] = useState('');
@@ -223,6 +230,14 @@ export function CatalogPage() {
     bufferHours: activeTenant?.bufferHours ?? 3,
   });
 
+  if (loadingTenants) {
+    return (
+      <div className="rounded-md border border-zinc-200 bg-white p-10 text-center text-xs text-muted-foreground">
+        Memuat cabang &amp; katalog alat...
+      </div>
+    );
+  }
+
   if (!activeTenantId || !activeTenant) {
     return (
       <EmptyState
@@ -305,8 +320,17 @@ export function CatalogPage() {
   };
 
   const handleCheckout = async () => {
-    if (!userProfile || !startDate || !endDate || !isValidRange) {
+    if (!startDate || !endDate || !isValidRange) {
       toast.error('Select a valid start and return date range.');
+      return;
+    }
+    if (!userProfile) {
+      onRequireAuth?.({
+        itemCount: totalDraftUnits,
+        totalAmount,
+        branchName: activeTenant.name,
+        rentalDays,
+      });
       return;
     }
     if (isOperator) {
@@ -836,7 +860,7 @@ export function CatalogPage() {
                 Booking Draft
               </span>
               <div className="flex items-center gap-1.5">
-                <MembershipBadge tier={memberTier} />
+                {!isGuest ? <MembershipBadge tier={memberTier} /> : null}
                 <span className="font-mono text-[11px] font-normal text-zinc-400">
                   {rentalDays}d
                 </span>
@@ -1017,7 +1041,7 @@ export function CatalogPage() {
               </div>
             ) : null}
 
-            {memberTier === 'premium' ? (
+            {!isGuest && memberTier === 'premium' ? (
               <div className="rounded-md border border-zinc-200 bg-zinc-50 p-2.5 text-[11px] text-zinc-700">
                 <p className="font-mono text-[10px] font-semibold uppercase text-zinc-900">
                   Active Premium Perks
@@ -1026,7 +1050,7 @@ export function CatalogPage() {
                   {formatTierSummaryParts(tierBenefits).join(' · ')}.
                 </p>
               </div>
-            ) : tierBenefits.maxUnitsPerBooking !== null ? (
+            ) : !isGuest && tierBenefits.maxUnitsPerBooking !== null ? (
               <div className="flex items-center justify-between rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-2 text-[11px] text-zinc-600">
                 <span>Basic Limit</span>
                 <span className="font-mono font-medium text-zinc-900">
@@ -1035,7 +1059,7 @@ export function CatalogPage() {
               </div>
             ) : null}
 
-            {exceedsUnitLimit ? (
+            {!isGuest && exceedsUnitLimit ? (
               <div className="rounded-md border border-red-200 bg-red-50 p-2.5 text-xs text-red-900">
                 <div className="flex items-center gap-1.5 font-semibold">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} />
@@ -1047,7 +1071,7 @@ export function CatalogPage() {
                 </p>
               </div>
             ) : null}
-            {!isOperator && !isKycVerified ? (
+            {!isGuest && !isOperator && !isKycVerified ? (
               <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
                 <div className="flex items-center gap-1.5 font-semibold">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} />
@@ -1308,20 +1332,23 @@ export function CatalogPage() {
               disabled={
                 !cartHasItems ||
                 !isValidRange ||
-                !isKycVerified ||
-                exceedsUnitLimit ||
-                (logisticsType === 'delivery' && !deliveryCoordinates) ||
+                (!isGuest &&
+                  (!isKycVerified ||
+                    exceedsUnitLimit ||
+                    (logisticsType === 'delivery' && !deliveryCoordinates))) ||
                 submitting
               }
               onClick={() => void handleCheckout()}
             >
               {submitting
                 ? 'Mengalokasikan Unit SN...'
-                : isOperator
-                  ? selectedRenter
-                    ? `Buat Booking — ${selectedRenter.displayName}`
-                    : 'Pilih Penyewa Terlebih Dahulu'
-                  : 'Confirm & Lock Booking'}
+                : isGuest
+                  ? 'Masuk untuk Checkout'
+                  : isOperator
+                    ? selectedRenter
+                      ? `Buat Booking — ${selectedRenter.displayName}`
+                      : 'Pilih Penyewa Terlebih Dahulu'
+                    : 'Confirm & Lock Booking'}
             </Button>
           </CardContent>
         </Card>
