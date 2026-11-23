@@ -13,6 +13,7 @@ import {
 import {
   Building2,
   Database,
+  Lock,
   MapPin,
   Pencil,
   Plus,
@@ -411,25 +412,49 @@ export function TenantsPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:items-end">
-              <div className="space-y-1">
-                <Label htmlFor="t-lat">Latitude</Label>
-                <Input id="t-lat" type="number" step="0.0001" className="font-mono" {...form.register('lat')} />
+            <div className="space-y-1.5">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:items-end">
+                <div className="space-y-1">
+                  <Label htmlFor="t-lat" className="inline-flex items-center gap-1">
+                    Latitude
+                    <Lock className="h-3 w-3 text-muted-foreground" strokeWidth={1.5} />
+                  </Label>
+                  <Input
+                    id="t-lat"
+                    readOnly
+                    value={Number(form.watch('lat')).toFixed(6)}
+                    onClick={() => setBranchMapOpen(true)}
+                    title="Klik untuk ubah melalui Pin Cabang di Peta"
+                    className="cursor-pointer bg-muted/50 font-mono text-xs text-muted-foreground"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="t-lng" className="inline-flex items-center gap-1">
+                    Longitude
+                    <Lock className="h-3 w-3 text-muted-foreground" strokeWidth={1.5} />
+                  </Label>
+                  <Input
+                    id="t-lng"
+                    readOnly
+                    value={Number(form.watch('lng')).toFixed(6)}
+                    onClick={() => setBranchMapOpen(true)}
+                    title="Klik untuk ubah melalui Pin Cabang di Peta"
+                    className="cursor-pointer bg-muted/50 font-mono text-xs text-muted-foreground"
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-9"
+                  onClick={() => setBranchMapOpen(true)}
+                >
+                  <MapPin className="h-3.5 w-3.5" strokeWidth={1.5} />
+                  Pin Cabang di Peta
+                </Button>
               </div>
-              <div className="space-y-1">
-                <Label htmlFor="t-lng">Longitude</Label>
-                <Input id="t-lng" type="number" step="0.0001" className="font-mono" {...form.register('lng')} />
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-8"
-                onClick={() => setBranchMapOpen(true)}
-              >
-                <MapPin className="h-3.5 w-3.5 text-primary" strokeWidth={1.5} />
-                Pin Cabang di Peta
-              </Button>
+              <p className="text-[11px] text-muted-foreground">
+                Koordinat terkunci otomatis mengikuti titik pin peta cabang.
+              </p>
             </div>
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -475,11 +500,20 @@ export function TenantsPage() {
         singlePinMode
         title="Pin Lokasi Cabang Rental"
         onConfirm={({ coordinates, address }) => {
-          form.setValue('lat', Number(coordinates.lat.toFixed(6)));
-          form.setValue('lng', Number(coordinates.lng.toFixed(6)));
+          form.setValue('lat', Number(coordinates.lat.toFixed(6)), {
+            shouldDirty: true,
+            shouldValidate: true,
+          });
+          form.setValue('lng', Number(coordinates.lng.toFixed(6)), {
+            shouldDirty: true,
+            shouldValidate: true,
+          });
           if (address && !form.getValues('address')) {
-            form.setValue('address', address);
+            form.setValue('address', address, { shouldDirty: true, shouldValidate: true });
           }
+          toast.success(
+            `Titik cabang diperbarui (${coordinates.lat.toFixed(6)}, ${coordinates.lng.toFixed(6)}).`
+          );
         }}
       />
     </div>
