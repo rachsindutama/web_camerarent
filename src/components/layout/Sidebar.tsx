@@ -2,7 +2,6 @@ import { NavLink } from 'react-router-dom';
 import {
   Aperture,
   Building2,
-  ShieldBan,
   BarChart3,
   Camera,
   Package,
@@ -13,6 +12,7 @@ import {
   MessageSquare,
   FileCheck2,
   Users,
+  Briefcase,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -37,7 +37,6 @@ const NAV_GROUPS: NavGroup[] = [
     roles: ['superadmin'],
     items: [
       { label: 'Tenants', to: '/superadmin/tenants', icon: Building2 },
-      { label: 'Global Blacklist', to: '/superadmin/blacklist', icon: ShieldBan },
       { label: 'Global GMV', to: '/superadmin/gmv', icon: BarChart3 },
     ],
   },
@@ -51,7 +50,8 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Antar-Jemput', to: '/admin/logistics', icon: Truck },
       { label: 'Inspections', to: '/admin/inspections', icon: ClipboardCheck },
       { label: 'Cash Flow Ledger', to: '/admin/finance', icon: ReceiptText },
-      { label: 'Members & Tiers', to: '/admin/members', icon: Users },
+      { label: 'Staff & Karyawan', to: '/admin/staff', icon: Briefcase },
+      { label: 'Members & Blacklist', to: '/admin/members', icon: Users },
       { label: 'Client Chat', to: '/admin/chat', icon: MessageSquare },
     ],
   },

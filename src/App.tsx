@@ -11,7 +11,6 @@ import { RegisterPage } from '@/features/auth/RegisterPage';
 import { KycOnboardingPage } from '@/features/auth/KycOnboardingPage';
 import { BlacklistNoticePage } from '@/features/auth/BlacklistNoticePage';
 import { TenantsPage } from '@/features/superadmin/TenantsPage';
-import { BlacklistPage } from '@/features/superadmin/BlacklistPage';
 import { GlobalGmvPage } from '@/features/superadmin/GlobalGmvPage';
 import { InventoryPage } from '@/features/inventory/InventoryPage';
 import { BundlesPage } from '@/features/inventory/BundlesPage';
@@ -21,6 +20,7 @@ import { AdminBookingsPage } from '@/features/bookings/AdminBookingsPage';
 import { LogisticsPage } from '@/features/logistics/LogisticsPage';
 import { InspectionsPage } from '@/features/inspections/InspectionsPage';
 import { FinancePage } from '@/features/finance/FinancePage';
+import { StaffPage } from '@/features/staff/StaffPage';
 import { MembersPage } from '@/features/members/MembersPage';
 import { ChatPage } from '@/features/chat/ChatPage';
 import { useAuth } from '@/hooks/useAuth';
@@ -53,7 +53,10 @@ export function App() {
             {/* Superadmin governance routes */}
             <Route element={<RoleGuard allowedRoles={['superadmin']} />}>
               <Route path="/superadmin/tenants" element={<TenantsPage />} />
-              <Route path="/superadmin/blacklist" element={<BlacklistPage />} />
+              <Route
+                path="/superadmin/blacklist"
+                element={<Navigate to="/admin/members" replace />}
+              />
               <Route path="/superadmin/gmv" element={<GlobalGmvPage />} />
             </Route>
 
@@ -65,6 +68,7 @@ export function App() {
               <Route path="/admin/logistics" element={<LogisticsPage />} />
               <Route path="/admin/inspections" element={<InspectionsPage />} />
               <Route path="/admin/finance" element={<FinancePage />} />
+              <Route path="/admin/staff" element={<StaffPage />} />
               <Route path="/admin/members" element={<MembersPage />} />
               <Route path="/admin/chat" element={<ChatPage mode="admin" />} />
             </Route>

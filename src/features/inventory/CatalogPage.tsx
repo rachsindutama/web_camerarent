@@ -694,7 +694,7 @@ export function CatalogPage() {
                   </Button>
                   {userProfile?.role === 'superadmin' ? (
                     <Button asChild size="sm" variant="outline" className="h-7 bg-white">
-                      <Link to="/superadmin/blacklist">Approve in Governance</Link>
+                      <Link to="/admin/members">Approve in Members</Link>
                     </Button>
                   ) : null}
                 </div>
