@@ -1,5 +1,6 @@
-import { Building2, Check, ChevronsUpDown, Lock } from 'lucide-react';
+import { Building2, Check, ChevronsUpDown, Globe, Lock } from 'lucide-react';
 import { useTenant } from '@/hooks/useTenant';
+import { ALL_TENANTS_SCOPE } from '@/store/useTenantStore';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -11,7 +12,15 @@ import {
 } from '@/components/ui/dropdown-menu';
 
 export function TenantSwitcher() {
-  const { tenants, activeTenant, isLockedToTenant, isLoading, setSelectedTenantId } = useTenant();
+  const {
+    tenants,
+    activeTenant,
+    isAllTenants,
+    isSuperAdmin,
+    isLockedToTenant,
+    isLoading,
+    setSelectedTenantId,
+  } = useTenant();
 
   if (isLockedToTenant) {
     return (
@@ -32,25 +41,46 @@ export function TenantSwitcher() {
           size="sm"
           className="h-7 gap-2 border-zinc-200 bg-white px-2.5 text-xs font-normal text-zinc-800 shadow-none"
         >
-          <Building2 className="h-3.5 w-3.5 text-zinc-500" strokeWidth={1.5} />
+          {isAllTenants ? (
+            <Globe className="h-3.5 w-3.5 text-zinc-500" strokeWidth={1.5} />
+          ) : (
+            <Building2 className="h-3.5 w-3.5 text-zinc-500" strokeWidth={1.5} />
+          )}
           <span className="max-w-[180px] truncate font-medium">
             {isLoading
               ? 'Loading branches...'
-              : activeTenant?.name ?? (tenants.length === 0 ? 'No active tenant' : 'Select tenant')}
+              : isAllTenants
+                ? `Semua Cabang (${tenants.length})`
+                : activeTenant?.name ?? (tenants.length === 0 ? 'No active tenant' : 'Select tenant')}
           </span>
           <ChevronsUpDown className="h-3 w-3 text-zinc-400" strokeWidth={1.5} />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-60">
-        <DropdownMenuLabel>Active Rental House</DropdownMenuLabel>
+        <DropdownMenuLabel>Scope Cabang</DropdownMenuLabel>
         <DropdownMenuSeparator />
+        {isSuperAdmin ? (
+          <>
+            <DropdownMenuItem
+              onSelect={() => setSelectedTenantId(ALL_TENANTS_SCOPE)}
+              className="flex items-center justify-between"
+            >
+              <div className="min-w-0">
+                <p className="truncate font-medium text-zinc-900">Semua Cabang</p>
+                <p className="truncate text-[10px] text-zinc-500">
+                  Tampilkan seluruh data lintas cabang
+                </p>
+              </div>
+              {isAllTenants ? <Check className="h-3.5 w-3.5 text-primary" strokeWidth={1.5} /> : null}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        ) : null}
         {tenants.length === 0 ? (
-          <div className="px-2 py-2 text-xs text-zinc-500">
-            No active tenants provisioned yet. Superadmin can create one in Phase 2.
-          </div>
+          <div className="px-2 py-2 text-xs text-zinc-500">Belum ada cabang terdaftar.</div>
         ) : (
           tenants.map((tenant) => {
-            const isSelected = tenant.id === activeTenant?.id;
+            const isSelected = !isAllTenants && tenant.id === activeTenant?.id;
             return (
               <DropdownMenuItem
                 key={tenant.id}
@@ -70,4 +100,3 @@ export function TenantSwitcher() {
     </DropdownMenu>
   );
 }
-

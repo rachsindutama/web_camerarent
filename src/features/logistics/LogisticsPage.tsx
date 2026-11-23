@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -73,7 +73,7 @@ interface SelectableCourierOption {
 export function LogisticsPage() {
   const queryClient = useQueryClient();
   const { userProfile } = useAuth();
-  const { activeTenantId, activeTenant } = useTenant();
+  const { activeTenantId, activeTenant, isAllTenants, tenantById } = useTenant();
 
   const [selectedCourierByBooking, setSelectedCourierByBooking] = useState<Record<string, string>>(
     {}
@@ -81,17 +81,18 @@ export function LogisticsPage() {
   const [mapBooking, setMapBooking] = useState<Booking | null>(null);
 
   const { data: deliveries = [], isLoading } = useQuery<Booking[]>({
-    queryKey: ['logistics', activeTenantId],
-    enabled: Boolean(db && activeTenantId),
+    queryKey: ['logistics', isAllTenants ? 'all' : activeTenantId],
+    enabled: Boolean(db && (isAllTenants || activeTenantId)),
     queryFn: async () => {
-      if (!db || !activeTenantId) return [];
-      const snap = await getDocs(
-        query(
-          collection(db, 'bookings'),
-          where('tenantId', '==', activeTenantId),
-          where('logisticsType', '==', 'delivery')
-        )
-      );
+      if (!db || (!isAllTenants && !activeTenantId)) return [];
+      const q = isAllTenants
+        ? query(collection(db, 'bookings'), where('logisticsType', '==', 'delivery'))
+        : query(
+            collection(db, 'bookings'),
+            where('tenantId', '==', activeTenantId),
+            where('logisticsType', '==', 'delivery')
+          );
+      const snap = await getDocs(q);
       return snap.docs
         .map((d) => ({ id: d.id, ...d.data() }) as Booking)
         .filter((b) => b.bookingStatus !== 'cancelled')
@@ -100,13 +101,14 @@ export function LogisticsPage() {
   });
 
   const { data: branchStaff = [] } = useQuery<TenantStaff[]>({
-    queryKey: ['tenant_staff', activeTenantId],
-    enabled: Boolean(db && activeTenantId),
+    queryKey: ['tenant_staff', isAllTenants ? 'all' : activeTenantId],
+    enabled: Boolean(db && (isAllTenants || activeTenantId)),
     queryFn: async () => {
-      if (!db || !activeTenantId) return [];
-      const snap = await getDocs(
-        query(collection(db, 'tenant_staff'), where('tenantId', '==', activeTenantId))
-      );
+      if (!db || (!isAllTenants && !activeTenantId)) return [];
+      const q = isAllTenants
+        ? collection(db, 'tenant_staff')
+        : query(collection(db, 'tenant_staff'), where('tenantId', '==', activeTenantId));
+      const snap = await getDocs(q);
       return snap.docs
         .map((d) => ({ id: d.id, ...d.data() }) as TenantStaff)
         .sort((a, b) => a.name.localeCompare(b.name));
@@ -114,36 +116,36 @@ export function LogisticsPage() {
   });
 
   const { data: branchAdmins = [] } = useQuery<UserProfile[]>({
-    queryKey: ['tenant_admin_staff', activeTenantId],
-    enabled: Boolean(db && activeTenantId),
+    queryKey: ['tenant_admin_staff', isAllTenants ? 'all' : activeTenantId],
+    enabled: Boolean(db && (isAllTenants || activeTenantId)),
     queryFn: async () => {
-      if (!db || !activeTenantId) return [];
-      const snap = await getDocs(
-        query(
-          collection(db, 'users'),
-          where('tenantId', '==', activeTenantId),
-          where('role', '==', 'admin')
-        )
-      );
+      if (!db || (!isAllTenants && !activeTenantId)) return [];
+      const q = isAllTenants
+        ? query(collection(db, 'users'), where('role', '==', 'admin'))
+        : query(
+            collection(db, 'users'),
+            where('tenantId', '==', activeTenantId),
+            where('role', '==', 'admin')
+          );
+      const snap = await getDocs(q);
       return snap.docs.map((d) => ({ uid: d.id, ...d.data() }) as UserProfile);
     },
   });
 
-  const courierOptions = useMemo<SelectableCourierOption[]>(() => {
-    const fromStaff: SelectableCourierOption[] = branchStaff
-      .filter((s) => s.isActive)
-      .map((s) => ({
-        id: s.id,
-        name: s.vehicleInfo ? `${s.name} (${s.vehicleInfo})` : s.name,
-        phone: s.phone,
-        label: s.vehicleInfo
-          ? `${s.name} · ${STAFF_ROLE_LABELS[s.role]} · ${s.vehicleInfo}`
-          : `${s.name} · ${STAFF_ROLE_LABELS[s.role]}`,
-      }));
+  const getCourierOptionsForTenant = (tenantId: string): SelectableCourierOption[] => {
+    const scopedStaff = branchStaff.filter((s) => s.isActive && s.tenantId === tenantId);
+    const fromStaff: SelectableCourierOption[] = scopedStaff.map((s) => ({
+      id: s.id,
+      name: s.vehicleInfo ? `${s.name} (${s.vehicleInfo})` : s.name,
+      phone: s.phone,
+      label: s.vehicleInfo
+        ? `${s.name} · ${STAFF_ROLE_LABELS[s.role]} · ${s.vehicleInfo}`
+        : `${s.name} · ${STAFF_ROLE_LABELS[s.role]}`,
+    }));
 
-    const linkedStaffUids = new Set(branchStaff.map((s) => s.userId).filter(Boolean));
+    const linkedStaffUids = new Set(scopedStaff.map((s) => s.userId).filter(Boolean));
     const fromAdmins: SelectableCourierOption[] = branchAdmins
-      .filter((u) => !linkedStaffUids.has(u.uid))
+      .filter((u) => u.tenantId === tenantId && !linkedStaffUids.has(u.uid))
       .map((u) => ({
         id: `admin_${u.uid}`,
         name: u.displayName,
@@ -152,9 +154,9 @@ export function LogisticsPage() {
       }));
 
     return [...fromStaff, ...fromAdmins];
-  }, [branchStaff, branchAdmins]);
+  };
 
-  if (!activeTenantId || !activeTenant) {
+  if (!isAllTenants && (!activeTenantId || !activeTenant)) {
     return (
       <EmptyState
         icon={Truck}
@@ -172,7 +174,8 @@ export function LogisticsPage() {
     }
 
     const chosenId = selectedCourierByBooking[booking.id] ?? booking.courierId ?? '';
-    const chosen = courierOptions.find((c) => c.id === chosenId);
+    const bookingCouriers = getCourierOptionsForTenant(booking.tenantId);
+    const chosen = bookingCouriers.find((c) => c.id === chosenId);
     if (!chosen) {
       toast.error('Pilih karyawan / kurir cabang dari daftar terlebih dahulu.');
       return;
@@ -185,7 +188,7 @@ export function LogisticsPage() {
         courierPhone: chosen.phone,
         courierStatus: booking.courierStatus ?? 'pending_dispatch',
       });
-      await queryClient.invalidateQueries({ queryKey: ['logistics', activeTenantId] });
+      await queryClient.invalidateQueries({ queryKey: ['logistics'] });
       await queryClient.invalidateQueries({ queryKey: ['bookings'] });
       toast.success(`Kurir ${chosen.name} ditugaskan ke ${booking.invoiceNumber}.`);
     } catch (error) {
@@ -205,9 +208,10 @@ export function LogisticsPage() {
       const nowDate = new Date();
       const now = Timestamp.fromDate(nowDate);
       let overduePatch: Partial<Booking> = {};
+      const bookingTenant = tenantById[booking.tenantId] ?? activeTenant;
 
       if (nextStatus === 'returned') {
-        const overdue = calculateOverdueFine(booking, activeTenant, nowDate);
+        const overdue = calculateOverdueFine(booking, bookingTenant, nowDate);
         if (overdue.isOverdue && booking.overdueFine === 0) {
           overduePatch = {
             bookingStatus: 'overdue',
@@ -245,7 +249,7 @@ export function LogisticsPage() {
         ...(nextStatus === 'returned' ? { returnedAt: now } : {}),
         ...overduePatch,
       });
-      await queryClient.invalidateQueries({ queryKey: ['logistics', activeTenantId] });
+      await queryClient.invalidateQueries({ queryKey: ['logistics'] });
       await queryClient.invalidateQueries({ queryKey: ['bookings'] });
       await queryClient.invalidateQueries({ queryKey: ['inspections'] });
       await queryClient.invalidateQueries({ queryKey: ['transactions'] });
@@ -263,9 +267,17 @@ export function LogisticsPage() {
           Antar-Jemput Courier Dispatch
         </h2>
         <p className="mt-0.5 text-xs text-zinc-500">
-          Branch: <span className="font-medium text-zinc-800">{activeTenant.name}</span> · Rate:{' '}
-          <CurrencyText amount={activeTenant.deliveryRatePerKm} suffix="/km" /> · Tugaskan kurir
-          dari menu{' '}
+          Branch:{' '}
+          <span className="font-medium text-zinc-800">
+            {isAllTenants ? 'Semua Cabang' : activeTenant?.name}
+          </span>
+          {activeTenant ? (
+            <>
+              {' '}
+              · Rate: <CurrencyText amount={activeTenant.deliveryRatePerKm} suffix="/km" />
+            </>
+          ) : null}{' '}
+          · Tugaskan kurir dari menu{' '}
           <Link to="/admin/staff" className="font-medium text-primary hover:underline">
             Staff &amp; Karyawan
           </Link>
@@ -292,6 +304,8 @@ export function LogisticsPage() {
             const isCompleted = booking.bookingStatus === 'completed';
             const activeSelectedId =
               selectedCourierByBooking[booking.id] ?? booking.courierId ?? '';
+            const bookingTenant = tenantById[booking.tenantId] ?? activeTenant;
+            const courierOptions = getCourierOptionsForTenant(booking.tenantId);
 
             return (
               <Card key={booking.id} className="shadow-none">
@@ -299,6 +313,11 @@ export function LogisticsPage() {
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2.5">
                       <CardTitle className="font-mono text-sm">{booking.invoiceNumber}</CardTitle>
+                      {isAllTenants && bookingTenant ? (
+                        <span className="rounded bg-secondary px-2 py-0.5 text-[11px] font-medium text-secondary-foreground">
+                          {bookingTenant.name}
+                        </span>
+                      ) : null}
                       <StatusBadge status={booking.bookingStatus} />
                       {booking.membershipTier === 'premium' ? (
                         <MembershipBadge tier="premium" />
@@ -337,7 +356,7 @@ export function LogisticsPage() {
                           </button>
                           <a
                             href={buildGoogleMapsDirectionUrl(
-                              activeTenant.coordinates,
+                              bookingTenant?.coordinates ?? { lat: -6.2088, lng: 106.8456 },
                               booking.deliveryCoordinates
                             )}
                             target="_blank"
@@ -488,8 +507,11 @@ export function LogisticsPage() {
         <LocationPickerModal
           open={Boolean(mapBooking)}
           onOpenChange={(open) => !open && setMapBooking(null)}
-          branchName={activeTenant.name}
-          branchCoordinates={activeTenant.coordinates}
+          branchName={tenantById[mapBooking.tenantId]?.name ?? activeTenant?.name ?? 'CameraRent'}
+          branchCoordinates={
+            tenantById[mapBooking.tenantId]?.coordinates ??
+            activeTenant?.coordinates ?? { lat: -6.2088, lng: 106.8456 }
+          }
           initialCoordinates={mapBooking.deliveryCoordinates}
           initialAddress={mapBooking.deliveryAddress ?? ''}
           readOnly

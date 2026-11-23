@@ -1,9 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { collection, getDocs, query, Timestamp } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
-import { useTenantStore } from '@/store/useTenantStore';
+import { ALL_TENANTS_SCOPE, useTenantStore } from '@/store/useTenantStore';
 import type { Tenant } from '@/types/schema';
 
 export function useTenant() {
@@ -41,18 +41,28 @@ export function useTenant() {
     staleTime: 1000 * 30,
   });
 
-  const tenants =
-    userProfile?.role === 'superadmin'
-      ? allTenants
-      : allTenants.filter((t) => t.status === 'active');
+  const isSuperAdmin = userProfile?.role === 'superadmin';
+
+  const tenants = isSuperAdmin
+    ? allTenants
+    : allTenants.filter((t) => t.status === 'active');
 
   const isLockedToTenant = userProfile?.role === 'admin' && Boolean(userProfile.tenantId);
 
+  // Superadmin defaults to All Branches unless explicitly switched to a specific tenant
+  const isAllTenants =
+    isSuperAdmin &&
+    (!selectedTenantId ||
+      selectedTenantId === ALL_TENANTS_SCOPE ||
+      !tenants.some((t) => t.id === selectedTenantId));
+
   const activeTenantId = isLockedToTenant
     ? userProfile.tenantId
-    : selectedTenantId && tenants.some((t) => t.id === selectedTenantId)
-      ? selectedTenantId
-      : tenants[0]?.id ?? null;
+    : isAllTenants
+      ? null
+      : selectedTenantId && tenants.some((t) => t.id === selectedTenantId)
+        ? selectedTenantId
+        : tenants[0]?.id ?? null;
 
   useEffect(() => {
     if (isLockedToTenant && userProfile?.tenantId) {
@@ -62,18 +72,43 @@ export function useTenant() {
       return;
     }
 
+    if (isSuperAdmin) {
+      if (
+        selectedTenantId &&
+        selectedTenantId !== ALL_TENANTS_SCOPE &&
+        tenants.length > 0 &&
+        !tenants.some((t) => t.id === selectedTenantId)
+      ) {
+        setSelectedTenantId(ALL_TENANTS_SCOPE);
+      }
+      return;
+    }
+
     if ((!selectedTenantId || !tenants.some((t) => t.id === selectedTenantId)) && tenants.length > 0) {
       setSelectedTenantId(tenants[0].id);
     }
-  }, [isLockedToTenant, userProfile?.tenantId, selectedTenantId, tenants, setSelectedTenantId]);
+  }, [isLockedToTenant, isSuperAdmin, userProfile?.tenantId, selectedTenantId, tenants, setSelectedTenantId]);
 
-  const activeTenant = tenants.find((t) => t.id === activeTenantId) ?? null;
+  const activeTenant = activeTenantId ? tenants.find((t) => t.id === activeTenantId) ?? null : null;
+  const defaultTenant = activeTenant ?? tenants[0] ?? null;
+
+  const tenantById = useMemo(() => {
+    const map: Record<string, Tenant> = {};
+    allTenants.forEach((t) => {
+      map[t.id] = t;
+    });
+    return map;
+  }, [allTenants]);
 
   return {
     tenants,
     allTenants,
+    tenantById,
     activeTenant,
     activeTenantId,
+    defaultTenant,
+    isAllTenants,
+    isSuperAdmin,
     isLockedToTenant,
     isLoading,
     setSelectedTenantId,

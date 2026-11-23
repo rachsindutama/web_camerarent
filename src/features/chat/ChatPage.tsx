@@ -95,7 +95,16 @@ function formatTimeShort(ts?: Timestamp): string {
 
 export function ChatPage({ mode }: ChatPageProps) {
   const { userProfile } = useAuth();
-  const { activeTenantId, activeTenant } = useTenant();
+  const {
+    activeTenant: scopedTenant,
+    defaultTenant,
+    isAllTenants,
+    tenantById,
+  } = useTenant();
+  // In user mode (Renter Support Chat), always bind to a concrete branch; in admin mode, allow All Branches
+  const activeTenant = mode === 'user' ? scopedTenant ?? defaultTenant : scopedTenant;
+  const activeTenantId = activeTenant?.id ?? null;
+  const isAdminAllTenants = mode === 'admin' && isAllTenants;
 
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
@@ -136,13 +145,15 @@ export function ChatPage({ mode }: ChatPageProps) {
 
   // Fetch relevant bookings for booking-card referencing
   const { data: bookings = [] } = useQuery<Booking[]>({
-    queryKey: ['chat-bookings', mode, activeTenantId, userProfile?.uid],
-    enabled: Boolean(db && activeTenantId && userProfile),
+    queryKey: ['chat-bookings', mode, isAdminAllTenants ? 'all' : activeTenantId, userProfile?.uid],
+    enabled: Boolean(db && (isAdminAllTenants || activeTenantId) && userProfile),
     queryFn: async () => {
-      if (!db || !activeTenantId || !userProfile) return [];
+      if (!db || (!isAdminAllTenants && !activeTenantId) || !userProfile) return [];
       const q =
         mode === 'admin'
-          ? query(collection(db, 'bookings'), where('tenantId', '==', activeTenantId))
+          ? isAdminAllTenants
+            ? collection(db, 'bookings')
+            : query(collection(db, 'bookings'), where('tenantId', '==', activeTenantId))
           : query(collection(db, 'bookings'), where('userId', '==', userProfile.uid));
       const snap = await getDocs(q);
       return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Booking);
@@ -183,11 +194,13 @@ export function ChatPage({ mode }: ChatPageProps) {
     },
   });
 
-  // Admin: subscribe to all threads for activeTenantId
+  // Admin: subscribe to all threads for activeTenantId (or all branches for Superadmin)
   useEffect(() => {
-    if (mode !== 'admin' || !db || !activeTenantId) return;
+    if (mode !== 'admin' || !db || (!isAdminAllTenants && !activeTenantId)) return;
 
-    const q = query(collection(db, 'chats'), where('tenantId', '==', activeTenantId));
+    const q = isAdminAllTenants
+      ? collection(db, 'chats')
+      : query(collection(db, 'chats'), where('tenantId', '==', activeTenantId));
     const unsub = onSnapshot(
       q,
       (snap) => {
@@ -205,7 +218,7 @@ export function ChatPage({ mode }: ChatPageProps) {
     );
 
     return () => unsub();
-  }, [mode, activeTenantId, activeChatId]);
+  }, [mode, isAdminAllTenants, activeTenantId, activeChatId]);
 
   // Subscribe to the active thread metadata (for clearedAtByUser)
   useEffect(() => {
@@ -315,7 +328,7 @@ export function ChatPage({ mode }: ChatPageProps) {
     });
   }, [threads, threadSearch, memberMap]);
 
-  if (!activeTenantId || !activeTenant || !userProfile) {
+  if ((!isAdminAllTenants && (!activeTenantId || !activeTenant)) || !userProfile) {
     return (
       <EmptyState
         icon={MessageSquare}
@@ -489,10 +502,17 @@ export function ChatPage({ mode }: ChatPageProps) {
           ? `Booking ${bookingsById[refBookingId]?.invoiceNumber ?? refBookingId}`
           : 'Lampiran gambar');
 
+      const resolvedThreadTenantId =
+        mode === 'user'
+          ? activeTenantId
+          : threads.find((t) => t.id === resolvedChatId)?.tenantId ??
+            activeTenantId ??
+            resolvedChatId.split('_')[0];
+
       await setDoc(
         doc(db, 'chats', resolvedChatId),
         {
-          tenantId: activeTenantId,
+          tenantId: resolvedThreadTenantId,
           userId: targetUserId,
           ...(refBookingId !== 'none' ? { bookingId: refBookingId } : {}),
           lastMessage: summaryText,
@@ -535,7 +555,7 @@ export function ChatPage({ mode }: ChatPageProps) {
           if (!t) return 'Pilih percakapan';
           return memberMap[t.userId]?.displayName ?? `USER // ${t.userId.slice(0, 10)}`;
         })()
-      : activeTenant.name;
+      : activeTenant?.name ?? 'CameraRent';
 
   const activeParticipantTier =
     mode === 'admin'
@@ -549,7 +569,9 @@ export function ChatPage({ mode }: ChatPageProps) {
     <div className="space-y-4">
       <div className="border-b border-zinc-200 pb-3">
         <h2 className="text-base font-semibold tracking-tight text-zinc-950">
-          {mode === 'admin' ? 'Client Support Threads' : `Direct Chat — ${activeTenant.name}`}
+          {mode === 'admin'
+            ? `Client Support Threads${isAdminAllTenants ? ' — Semua Cabang' : activeTenant ? ` — ${activeTenant.name}` : ''}`
+            : `Direct Chat — ${activeTenant?.name ?? 'CameraRent'}`}
         </h2>
         <p className="mt-0.5 text-xs text-zinc-500">
           Real-time messaging dengan Reply, Edit, Read Receipts, Hapus untuk Saya, dan Batal Kirim
@@ -583,7 +605,8 @@ export function ChatPage({ mode }: ChatPageProps) {
             <div className="flex-1 divide-y divide-zinc-100 overflow-y-auto">
               {filteredThreads.length === 0 ? (
                 <p className="p-4 text-xs text-zinc-400">
-                  Belum ada percakapan untuk {activeTenant.name}.
+                  Belum ada percakapan untuk{' '}
+                  {isAdminAllTenants ? 'semua cabang' : activeTenant?.name ?? 'cabang ini'}.
                 </p>
               ) : (
                 filteredThreads.map((thread) => {
@@ -615,6 +638,11 @@ export function ChatPage({ mode }: ChatPageProps) {
                           {formatTimeShort(thread.updatedAt)}
                         </span>
                       </div>
+                      {isAdminAllTenants && tenantById[thread.tenantId] ? (
+                        <p className="mt-0.5 truncate text-[10px] font-medium text-muted-foreground">
+                          {tenantById[thread.tenantId].name}
+                        </p>
+                      ) : null}
                       <p className="mt-1 truncate text-[11px] text-zinc-500">
                         {thread.lastMessage}
                       </p>

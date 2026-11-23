@@ -46,7 +46,7 @@ import type { Booking, BookingStatus, UserProfile } from '@/types/schema';
 export function AdminBookingsPage() {
   const queryClient = useQueryClient();
   const { userProfile } = useAuth();
-  const { activeTenantId, activeTenant } = useTenant();
+  const { activeTenantId, activeTenant, isAllTenants, tenantById } = useTenant();
   const [statusFilter, setStatusFilter] = useState<'all' | BookingStatus>('all');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [detailBookingId, setDetailBookingId] = useState<string | null>(null);
@@ -67,20 +67,21 @@ export function AdminBookingsPage() {
   });
 
   const { data: bookings = [], isLoading } = useQuery<Booking[]>({
-    queryKey: ['bookings', 'tenant', activeTenantId],
-    enabled: Boolean(db && activeTenantId),
+    queryKey: ['bookings', 'tenant', isAllTenants ? 'all' : activeTenantId],
+    enabled: Boolean(db && (isAllTenants || activeTenantId)),
     queryFn: async () => {
-      if (!db || !activeTenantId) return [];
-      const snap = await getDocs(
-        query(collection(db, 'bookings'), where('tenantId', '==', activeTenantId))
-      );
+      if (!db || (!isAllTenants && !activeTenantId)) return [];
+      const q = isAllTenants
+        ? collection(db, 'bookings')
+        : query(collection(db, 'bookings'), where('tenantId', '==', activeTenantId));
+      const snap = await getDocs(q);
       return snap.docs
         .map((d) => ({ id: d.id, ...d.data() }) as Booking)
         .sort((a, b) => b.createdAt.toMillis() - a.createdAt.toMillis());
     },
   });
 
-  if (!activeTenantId || !activeTenant) {
+  if (!isAllTenants && (!activeTenantId || !activeTenant)) {
     return (
       <EmptyState
         icon={CalendarClock}
@@ -181,9 +182,12 @@ export function AdminBookingsPage() {
           Booking Queue &amp; Payment Verification
         </h2>
         <p className="mt-0.5 text-xs text-zinc-500">
-          Branch: <span className="font-medium text-zinc-800">{activeTenant.name}</span> · Approving
-          payment posts separate Revenue and Security Deposit Liability entries to the immutable
-          ledger.
+          Branch:{' '}
+          <span className="font-medium text-zinc-800">
+            {isAllTenants ? 'Semua Cabang' : activeTenant?.name}
+          </span>{' '}
+          · Approving payment posts separate Revenue and Security Deposit Liability entries to the
+          immutable ledger.
         </p>
       </div>
 
@@ -240,6 +244,11 @@ export function AdminBookingsPage() {
                     <p className="font-mono font-semibold text-zinc-950">{b.invoiceNumber}</p>
                     {b.membershipTier === 'premium' ? <MembershipBadge tier="premium" /> : null}
                   </div>
+                  {isAllTenants ? (
+                    <p className="text-[11px] font-medium text-muted-foreground">
+                      {tenantById[b.tenantId]?.name ?? b.tenantId}
+                    </p>
+                  ) : null}
                   <p className="font-mono text-[10px] text-zinc-500">
                     {formatDateTime(b.startDate)} → {formatDateTime(b.endDate)}
                   </p>
@@ -373,7 +382,11 @@ export function AdminBookingsPage() {
             open={Boolean(selectedBooking)}
             onOpenChange={(open) => !open && setDetailBookingId(null)}
             booking={selectedBooking}
-            tenant={activeTenant}
+            tenant={
+              selectedBooking
+                ? tenantById[selectedBooking.tenantId] ?? activeTenant
+                : activeTenant
+            }
             renter={selectedBooking ? rentersById[selectedBooking.userId] ?? null : null}
             footerActions={
               selectedBooking && canVerify ? (

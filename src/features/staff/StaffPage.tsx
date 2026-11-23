@@ -67,7 +67,7 @@ function getInitials(name: string): string {
 export function StaffPage() {
   const queryClient = useQueryClient();
   const { userProfile } = useAuth();
-  const { activeTenantId, activeTenant, allTenants } = useTenant();
+  const { activeTenantId, activeTenant, allTenants, isAllTenants, tenantById } = useTenant();
   const isSuperAdmin = userProfile?.role === 'superadmin';
 
   const [search, setSearch] = useState('');
@@ -77,6 +77,7 @@ export function StaffPage() {
   const [createStaffOpen, setCreateStaffOpen] = useState(false);
   const [staffNikQuery, setStaffNikQuery] = useState('');
   const [newStaffForm, setNewStaffForm] = useState({
+    tenantId: '',
     userId: '',
     phone: '',
     role: 'courier' as StaffRole,
@@ -113,13 +114,14 @@ export function StaffPage() {
   });
 
   const { data: branchStaff = [], isLoading: loadingStaff } = useQuery<TenantStaff[]>({
-    queryKey: ['tenant_staff', activeTenantId],
-    enabled: Boolean(db && activeTenantId),
+    queryKey: ['tenant_staff', isAllTenants ? 'all' : activeTenantId],
+    enabled: Boolean(db && (isAllTenants || activeTenantId)),
     queryFn: async () => {
-      if (!db || !activeTenantId) return [];
-      const snap = await getDocs(
-        query(collection(db, 'tenant_staff'), where('tenantId', '==', activeTenantId))
-      );
+      if (!db || (!isAllTenants && !activeTenantId)) return [];
+      const q = isAllTenants
+        ? collection(db, 'tenant_staff')
+        : query(collection(db, 'tenant_staff'), where('tenantId', '==', activeTenantId));
+      const snap = await getDocs(q);
       return snap.docs
         .map((d) => ({ id: d.id, ...d.data() }) as TenantStaff)
         .sort((a, b) => a.name.localeCompare(b.name));
@@ -127,8 +129,8 @@ export function StaffPage() {
   });
 
   const { data: allUsers = [], isLoading: loadingAdmins } = useQuery<UserProfile[]>({
-    queryKey: ['staff-users', activeTenantId],
-    enabled: Boolean(db && activeTenantId),
+    queryKey: ['staff-users', isAllTenants ? 'all' : activeTenantId],
+    enabled: Boolean(db && (isAllTenants || activeTenantId)),
     queryFn: async () => {
       if (!db) return [];
       const snap = await getDocs(collection(db, 'users'));
@@ -136,7 +138,7 @@ export function StaffPage() {
     },
   });
 
-  if (!activeTenantId || !activeTenant) {
+  if (!isAllTenants && (!activeTenantId || !activeTenant)) {
     return (
       <EmptyState
         icon={Users}
@@ -149,11 +151,14 @@ export function StaffPage() {
   const branchAdmins = allUsers.filter(
     (u) =>
       u.role === 'superadmin' ||
-      (u.role === 'admin' && u.tenantId === activeTenantId)
+      (u.role === 'admin' && (isAllTenants || u.tenantId === activeTenantId))
   );
   const assignableUsers = allUsers.filter((u) => u.uid !== userProfile?.uid);
   const detailStaff = branchStaff.find((s) => s.id === detailStaffId) ?? null;
   const detailAdmin = allUsers.find((u) => u.uid === detailAdminUid) ?? null;
+
+  const targetCreateTenantId = activeTenantId ?? (newStaffForm.tenantId || allTenants[0]?.id || '');
+  const fallbackTenantId = activeTenantId ?? allTenants[0]?.id ?? '';
 
   const canEditAdminAccount = (admin: UserProfile) =>
     isSuperAdmin || admin.uid === userProfile?.uid;
@@ -161,7 +166,7 @@ export function StaffPage() {
   const openAssignRoleDialog = () => {
     setSelectedUserUid('');
     setAssignRole('admin');
-    setAssignTenantId(activeTenantId);
+    setAssignTenantId(fallbackTenantId);
     setAssignAdminOpen(true);
   };
 
@@ -184,11 +189,16 @@ export function StaffPage() {
       phone: admin.phone || '',
       nik: admin.nik || '',
       role: admin.role,
-      tenantId: admin.tenantId || activeTenantId,
+      tenantId: admin.tenantId || fallbackTenantId,
     });
   };
 
-  const existingStaffUids = new Set(branchStaff.map((s) => s.userId).filter(Boolean));
+  const existingStaffUids = new Set(
+    branchStaff
+      .filter((s) => s.tenantId === targetCreateTenantId)
+      .map((s) => s.userId)
+      .filter(Boolean)
+  );
   const cleanStaffNikQuery = staffNikQuery.replace(/\D/g, '');
   const exactNikMatchedUsers =
     cleanStaffNikQuery.length === 16
@@ -217,7 +227,10 @@ export function StaffPage() {
 
   const handleCreateStaff = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!db || !activeTenantId) return;
+    if (!db || !targetCreateTenantId) {
+      toast.error('Pilih cabang terlebih dahulu.');
+      return;
+    }
     if (!selectedCandidateUser) {
       toast.error('Pilih akun user yang akan ditambahkan sebagai karyawan.');
       return;
@@ -230,7 +243,7 @@ export function StaffPage() {
 
     try {
       await addDoc(collection(db, 'tenant_staff'), {
-        tenantId: activeTenantId,
+        tenantId: targetCreateTenantId,
         userId: selectedCandidateUser.uid,
         email: selectedCandidateUser.email,
         name: selectedCandidateUser.displayName,
@@ -240,11 +253,13 @@ export function StaffPage() {
         isActive: true,
         createdAt: Timestamp.now(),
       });
-      await queryClient.invalidateQueries({ queryKey: ['tenant_staff', activeTenantId] });
-      toast.success(`${selectedCandidateUser.displayName} ditambahkan ke ${activeTenant.name}.`);
+      await queryClient.invalidateQueries({ queryKey: ['tenant_staff'] });
+      toast.success(
+        `${selectedCandidateUser.displayName} ditambahkan ke ${tenantById[targetCreateTenantId]?.name ?? 'cabang'}.`
+      );
       setCreateStaffOpen(false);
       setStaffNikQuery('');
-      setNewStaffForm({ userId: '', phone: '', role: 'courier', vehicleInfo: '' });
+      setNewStaffForm({ tenantId: '', userId: '', phone: '', role: 'courier', vehicleInfo: '' });
     } catch (error) {
       console.error('Create staff error:', error);
       toast.error('Gagal menambahkan karyawan.');
@@ -253,7 +268,7 @@ export function StaffPage() {
 
   const handleSaveStaffEdit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!db || !activeTenantId || !detailStaff) return;
+    if (!db || !detailStaff) return;
     if (!editStaffForm.name.trim() || !editStaffForm.phone.trim()) {
       toast.error('Nama dan nomor HP/WhatsApp karyawan wajib diisi.');
       return;
@@ -267,7 +282,7 @@ export function StaffPage() {
         role: editStaffForm.role,
         vehicleInfo: editStaffForm.vehicleInfo.trim(),
       });
-      await queryClient.invalidateQueries({ queryKey: ['tenant_staff', activeTenantId] });
+      await queryClient.invalidateQueries({ queryKey: ['tenant_staff'] });
       toast.success(`Data ${editStaffForm.name.trim()} disimpan.`);
       setStaffModalTab('detail');
     } catch (error) {
@@ -279,16 +294,16 @@ export function StaffPage() {
   };
 
   const handleToggleStaffActive = async (staff: TenantStaff) => {
-    if (!db || !activeTenantId) return;
+    if (!db) return;
     await updateDoc(doc(db, 'tenant_staff', staff.id), { isActive: !staff.isActive });
-    await queryClient.invalidateQueries({ queryKey: ['tenant_staff', activeTenantId] });
+    await queryClient.invalidateQueries({ queryKey: ['tenant_staff'] });
     toast.success(`${staff.name} kini ${!staff.isActive ? 'aktif' : 'nonaktif'}.`);
   };
 
   const handleDeleteStaff = async (staff: TenantStaff) => {
-    if (!db || !activeTenantId) return;
+    if (!db) return;
     await deleteDoc(doc(db, 'tenant_staff', staff.id));
-    await queryClient.invalidateQueries({ queryKey: ['tenant_staff', activeTenantId] });
+    await queryClient.invalidateQueries({ queryKey: ['tenant_staff'] });
     setDetailStaffId(null);
     toast.success(`Karyawan ${staff.name} dihapus.`);
   };
@@ -332,7 +347,7 @@ export function StaffPage() {
         const isSelf = detailAdmin.uid === userProfile?.uid;
         const nextRole = isSelf ? detailAdmin.role : adminEditForm.role;
         payload.role = nextRole;
-        payload.tenantId = nextRole === 'admin' ? adminEditForm.tenantId || activeTenantId : null;
+        payload.tenantId = nextRole === 'admin' ? adminEditForm.tenantId || fallbackTenantId : null;
       }
 
       await updateDoc(doc(db, 'users', detailAdmin.uid), payload);
@@ -371,7 +386,7 @@ export function StaffPage() {
         assignRole === 'superadmin'
           ? 'Superadmin'
           : assignRole === 'admin'
-            ? `Branch Admin (${allTenants.find((t) => t.id === assignTenantId)?.name ?? activeTenant.name})`
+            ? `Branch Admin (${allTenants.find((t) => t.id === assignTenantId)?.name ?? activeTenant?.name ?? 'Cabang'})`
             : 'Member (User)';
       toast.success(`Role akun diperbarui menjadi ${roleLabel}.`);
       setAssignAdminOpen(false);
@@ -408,8 +423,11 @@ export function StaffPage() {
             Staff &amp; Karyawan
           </h2>
           <p className="text-sm text-muted-foreground">
-            Cabang <span className="font-medium text-foreground">{activeTenant.name}</span> — kelola
-            kurir antar-jemput, teknisi QC, dan akun admin cabang.
+            Cabang{' '}
+            <span className="font-medium text-foreground">
+              {isAllTenants ? 'Semua Cabang' : activeTenant?.name}
+            </span>{' '}
+            — kelola kurir antar-jemput, teknisi QC, dan akun admin cabang.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -480,7 +498,7 @@ export function StaffPage() {
           ) : filteredStaff.length === 0 ? (
             <EmptyState
               icon={Users}
-              title={`Belum ada karyawan di ${activeTenant.name}`}
+              title={`Belum ada karyawan di ${isAllTenants ? 'semua cabang' : activeTenant?.name}`}
               description="Tambahkan kurir, teknisi QC, atau staf admin operasional agar tersedia di penugasan Antar-Jemput."
               action={
                 <Button size="sm" onClick={() => setCreateStaffOpen(true)}>
@@ -515,8 +533,15 @@ export function StaffPage() {
                         </div>
                         <div className="min-w-0">
                           <p className="truncate font-medium text-foreground">{staff.name}</p>
-                          {staff.email ? (
-                            <p className="truncate text-xs text-muted-foreground">{staff.email}</p>
+                          {staff.email || isAllTenants ? (
+                            <p className="truncate text-xs text-muted-foreground">
+                              {[
+                                staff.email,
+                                isAllTenants ? tenantById[staff.tenantId]?.name : undefined,
+                              ]
+                                .filter(Boolean)
+                                .join(' · ')}
+                            </p>
                           ) : null}
                         </div>
                       </div>
@@ -560,7 +585,7 @@ export function StaffPage() {
           ) : branchAdmins.length === 0 ? (
             <EmptyState
               icon={BadgeCheck}
-              title={`Belum ada admin khusus di ${activeTenant.name}`}
+              title={`Belum ada admin khusus di ${isAllTenants ? 'semua cabang' : activeTenant?.name}`}
               description="Superadmin dapat menugaskan akun terdaftar menjadi admin cabang ini."
               action={
                 isSuperAdmin ? (
@@ -611,7 +636,11 @@ export function StaffPage() {
                             : 'bg-secondary text-secondary-foreground'
                         }`}
                       >
-                        {admin.role === 'superadmin' ? 'Superadmin' : 'Branch Admin'}
+                        {admin.role === 'superadmin'
+                          ? 'Superadmin'
+                          : isAllTenants && admin.tenantId && tenantById[admin.tenantId]
+                            ? `Admin · ${tenantById[admin.tenantId].name}`
+                            : 'Branch Admin'}
                       </span>
                     </TableCell>
                     <TableCell className="text-right">
@@ -635,7 +664,13 @@ export function StaffPage() {
           setCreateStaffOpen(open);
           if (!open) {
             setStaffNikQuery('');
-            setNewStaffForm({ userId: '', phone: '', role: 'courier', vehicleInfo: '' });
+            setNewStaffForm({
+              tenantId: '',
+              userId: '',
+              phone: '',
+              role: 'courier',
+              vehicleInfo: '',
+            });
           }
         }}
       >
@@ -644,10 +679,30 @@ export function StaffPage() {
             <DialogTitle>Tambah Karyawan</DialogTitle>
             <DialogDescription>
               Masukkan NIK lengkap 16 digit untuk mencari akun terdaftar di cabang{' '}
-              {activeTenant.name}.
+              {tenantById[targetCreateTenantId]?.name ?? activeTenant?.name ?? 'terpilih'}.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleCreateStaff} className="space-y-4">
+            {isAllTenants ? (
+              <div className="space-y-1.5">
+                <Label>Cabang Penempatan</Label>
+                <Select
+                  value={targetCreateTenantId}
+                  onValueChange={(tid) => setNewStaffForm((prev) => ({ ...prev, tenantId: tid }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Pilih cabang..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {allTenants.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <Label htmlFor="staff-nik-lookup">NIK Lengkap (16 Digit)</Label>
@@ -780,7 +835,7 @@ export function StaffPage() {
                   const found = allUsers.find((u) => u.uid === uid);
                   if (found) {
                     setAssignRole(found.role === 'user' ? 'admin' : found.role);
-                    setAssignTenantId(found.tenantId || activeTenantId);
+                    setAssignTenantId(found.tenantId || fallbackTenantId);
                   }
                 }}
               >
@@ -853,7 +908,8 @@ export function StaffPage() {
                   <div className="min-w-0 flex-1">
                     <DialogTitle className="truncate">{detailStaff.name}</DialogTitle>
                     <DialogDescription className="mt-1">
-                      {STAFF_ROLE_LABELS[detailStaff.role]} · {activeTenant.name}
+                      {STAFF_ROLE_LABELS[detailStaff.role]} ·{' '}
+                      {tenantById[detailStaff.tenantId]?.name ?? activeTenant?.name ?? 'Cabang'}
                     </DialogDescription>
                     <div className="mt-2">
                       <StatusBadge
@@ -909,7 +965,7 @@ export function StaffPage() {
                   <div className="space-y-2.5 border-t pt-4">
                     <WhatsAppButton
                       phone={detailStaff.phone}
-                      message={`Halo ${detailStaff.name}, koordinasi operasional cabang ${activeTenant.name}.`}
+                      message={`Halo ${detailStaff.name}, koordinasi operasional cabang ${tenantById[detailStaff.tenantId]?.name ?? activeTenant?.name ?? 'CameraRent'}.`}
                       className="w-full"
                     />
                     <div className="flex items-center justify-between">
@@ -1053,7 +1109,8 @@ export function StaffPage() {
                         {detailAdmin.role === 'superadmin'
                           ? 'Semua Cabang (Global)'
                           : allTenants.find((t) => t.id === detailAdmin.tenantId)?.name ??
-                            activeTenant.name}
+                            activeTenant?.name ??
+                            '—'}
                       </dd>
                     </div>
                     <div className="flex items-center justify-between py-2.5">

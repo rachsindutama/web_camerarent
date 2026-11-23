@@ -66,7 +66,7 @@ const CATEGORIES: Equipment['category'][] = [
 
 export function InventoryPage() {
   const queryClient = useQueryClient();
-  const { activeTenantId, activeTenant } = useTenant();
+  const { activeTenantId, activeTenant, isAllTenants, allTenants, tenantById } = useTenant();
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
 
@@ -74,6 +74,7 @@ export function InventoryPage() {
   const [eqDialogOpen, setEqDialogOpen] = useState(false);
   const [editingEq, setEditingEq] = useState<Equipment | null>(null);
   const [eqForm, setEqForm] = useState({
+    tenantId: '',
     name: '',
     brand: '',
     category: 'camera' as Equipment['category'],
@@ -93,30 +94,32 @@ export function InventoryPage() {
   });
 
   const { data: equipmentList = [], isLoading: loadingEq } = useQuery<Equipment[]>({
-    queryKey: ['equipment', activeTenantId],
-    enabled: Boolean(db && activeTenantId),
+    queryKey: ['equipment', isAllTenants ? 'all' : activeTenantId],
+    enabled: Boolean(db && (isAllTenants || activeTenantId)),
     queryFn: async () => {
-      if (!db || !activeTenantId) return [];
-      const snap = await getDocs(
-        query(collection(db, 'equipment'), where('tenantId', '==', activeTenantId))
-      );
+      if (!db || (!isAllTenants && !activeTenantId)) return [];
+      const q = isAllTenants
+        ? collection(db, 'equipment')
+        : query(collection(db, 'equipment'), where('tenantId', '==', activeTenantId));
+      const snap = await getDocs(q);
       return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Equipment);
     },
   });
 
   const { data: allUnits = [] } = useQuery<EquipmentUnit[]>({
-    queryKey: ['equipment_units', activeTenantId],
-    enabled: Boolean(db && activeTenantId),
+    queryKey: ['equipment_units', isAllTenants ? 'all' : activeTenantId],
+    enabled: Boolean(db && (isAllTenants || activeTenantId)),
     queryFn: async () => {
-      if (!db || !activeTenantId) return [];
-      const snap = await getDocs(
-        query(collection(db, 'equipment_units'), where('tenantId', '==', activeTenantId))
-      );
+      if (!db || (!isAllTenants && !activeTenantId)) return [];
+      const q = isAllTenants
+        ? collection(db, 'equipment_units')
+        : query(collection(db, 'equipment_units'), where('tenantId', '==', activeTenantId));
+      const snap = await getDocs(q);
       return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as EquipmentUnit);
     },
   });
 
-  if (!activeTenantId) {
+  if (!isAllTenants && !activeTenantId) {
     return (
       <EmptyState
         icon={Camera}
@@ -129,6 +132,7 @@ export function InventoryPage() {
   const openCreateEquipment = () => {
     setEditingEq(null);
     setEqForm({
+      tenantId: activeTenantId ?? allTenants[0]?.id ?? '',
       name: '',
       brand: '',
       category: 'camera',
@@ -143,6 +147,7 @@ export function InventoryPage() {
   const openEditEquipment = (eq: Equipment) => {
     setEditingEq(eq);
     setEqForm({
+      tenantId: eq.tenantId,
       name: eq.name,
       brand: eq.brand,
       category: eq.category,
@@ -158,7 +163,11 @@ export function InventoryPage() {
 
   const handleSaveEquipment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!db || !activeTenantId) return;
+    const targetTenantId = editingEq ? editingEq.tenantId : eqForm.tenantId || activeTenantId;
+    if (!db || !targetTenantId) {
+      toast.error('Pilih cabang terlebih dahulu.');
+      return;
+    }
     if (!eqForm.name.trim() || !eqForm.brand.trim()) {
       toast.error('Equipment name and brand are required.');
       return;
@@ -190,7 +199,7 @@ export function InventoryPage() {
         toast.success(`Updated ${eqForm.name}.`);
       } else {
         await addDoc(collection(db, 'equipment'), {
-          tenantId: activeTenantId,
+          tenantId: targetTenantId,
           name: eqForm.name.trim(),
           brand: eqForm.brand.trim(),
           category: eqForm.category,
@@ -203,7 +212,7 @@ export function InventoryPage() {
         });
         toast.success(`Added ${eqForm.name} to catalog.`);
       }
-      await queryClient.invalidateQueries({ queryKey: ['equipment', activeTenantId] });
+      await queryClient.invalidateQueries({ queryKey: ['equipment'] });
       setEqDialogOpen(false);
     } catch (error) {
       console.error('Save equipment error:', error);
@@ -213,7 +222,7 @@ export function InventoryPage() {
 
   const handleAddUnit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!db || !activeTenantId || !selectedEquipment) return;
+    if (!db || !selectedEquipment) return;
     if (!unitForm.serialNumber.trim()) {
       toast.error('Serial number is required.');
       return;
@@ -227,7 +236,7 @@ export function InventoryPage() {
     try {
       await addDoc(collection(db, 'equipment_units'), {
         equipmentId: selectedEquipment.id,
-        tenantId: activeTenantId,
+        tenantId: selectedEquipment.tenantId,
         serialNumber: unitForm.serialNumber.trim().toUpperCase(),
         condition: unitForm.condition,
         status: unitForm.status,
@@ -247,8 +256,8 @@ export function InventoryPage() {
         accessoriesText: '2x Battery, Charger, Cap',
       });
 
-      await queryClient.invalidateQueries({ queryKey: ['equipment_units', activeTenantId] });
-      await queryClient.invalidateQueries({ queryKey: ['equipment', activeTenantId] });
+      await queryClient.invalidateQueries({ queryKey: ['equipment_units'] });
+      await queryClient.invalidateQueries({ queryKey: ['equipment'] });
       toast.success(`Registered physical unit ${unitForm.serialNumber.toUpperCase()}.`);
     } catch (error) {
       console.error('Add unit error:', error);
@@ -257,13 +266,13 @@ export function InventoryPage() {
   };
 
   const handleUpdateUnitStatus = async (unit: EquipmentUnit, status: UnitStatus) => {
-    if (!db || !activeTenantId) return;
+    if (!db) return;
     try {
       await updateDoc(doc(db, 'equipment_units', unit.id), {
         status,
         lastCheckedAt: Timestamp.now(),
       });
-      await queryClient.invalidateQueries({ queryKey: ['equipment_units', activeTenantId] });
+      await queryClient.invalidateQueries({ queryKey: ['equipment_units'] });
       toast.success(`${unit.serialNumber} marked ${status}.`);
     } catch (error) {
       console.error('Unit status update error:', error);
@@ -272,7 +281,7 @@ export function InventoryPage() {
   };
 
   const handleDeleteUnit = async (unit: EquipmentUnit) => {
-    if (!db || !activeTenantId) return;
+    if (!db) return;
     try {
       await deleteDoc(doc(db, 'equipment_units', unit.id));
       const remaining = allUnits.filter(
@@ -281,8 +290,8 @@ export function InventoryPage() {
       await updateDoc(doc(db, 'equipment', unit.equipmentId), {
         totalUnits: remaining,
       });
-      await queryClient.invalidateQueries({ queryKey: ['equipment_units', activeTenantId] });
-      await queryClient.invalidateQueries({ queryKey: ['equipment', activeTenantId] });
+      await queryClient.invalidateQueries({ queryKey: ['equipment_units'] });
+      await queryClient.invalidateQueries({ queryKey: ['equipment'] });
       toast.success(`Removed unit ${unit.serialNumber}.`);
     } catch (error) {
       console.error('Delete unit error:', error);
@@ -308,8 +317,11 @@ export function InventoryPage() {
             Equipment Catalog &amp; Serial Units
           </h2>
           <p className="mt-0.5 text-xs text-zinc-500">
-            Branch: <span className="font-medium text-zinc-800">{activeTenant?.name}</span> · Track
-            catalog pricing and individual serial-numbered physical assets.
+            Branch:{' '}
+            <span className="font-medium text-zinc-800">
+              {isAllTenants ? 'Semua Cabang' : activeTenant?.name}
+            </span>{' '}
+            · Track catalog pricing and individual serial-numbered physical assets.
           </p>
         </div>
         <Button size="sm" onClick={openCreateEquipment}>
@@ -390,7 +402,10 @@ export function InventoryPage() {
                 <TableRow key={eq.id}>
                   <TableCell>
                     <p className="font-medium text-zinc-950">{eq.name}</p>
-                    <p className="text-[11px] text-zinc-500">{eq.brand}</p>
+                    <p className="text-[11px] text-zinc-500">
+                      {eq.brand}
+                      {isAllTenants ? ` · ${tenantById[eq.tenantId]?.name ?? eq.tenantId}` : ''}
+                    </p>
                   </TableCell>
                   <TableCell>
                     <span className="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 font-mono text-[10px] uppercase text-zinc-600">
@@ -441,10 +456,31 @@ export function InventoryPage() {
           <DialogHeader>
             <DialogTitle>{editingEq ? 'Edit Equipment Model' : 'New Equipment Model'}</DialogTitle>
             <DialogDescription>
-              Define catalog metadata and daily pricing for {activeTenant?.name}.
+              Define catalog metadata and daily pricing for{' '}
+              {tenantById[eqForm.tenantId]?.name ?? activeTenant?.name ?? 'selected branch'}.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSaveEquipment} className="space-y-3">
+            {isAllTenants && !editingEq ? (
+              <div className="space-y-1">
+                <Label>Cabang</Label>
+                <Select
+                  value={eqForm.tenantId}
+                  onValueChange={(v) => setEqForm({ ...eqForm, tenantId: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Pilih cabang..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {allTenants.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1">
                 <Label>Model Name</Label>

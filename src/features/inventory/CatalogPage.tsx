@@ -49,7 +49,9 @@ export function CatalogPage() {
   const queryClient = useQueryClient();
   const { userProfile } = useAuth();
   const { settings } = usePlatformSettings();
-  const { activeTenantId, activeTenant } = useTenant();
+  const { activeTenant: scopedTenant, defaultTenant } = useTenant();
+  const activeTenant = scopedTenant ?? defaultTenant;
+  const activeTenantId = activeTenant?.id ?? null;
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<string>('all');
   const [submitting, setSubmitting] = useState(false);

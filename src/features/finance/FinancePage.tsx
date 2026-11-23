@@ -70,9 +70,10 @@ const TX_TYPE_LABELS: Record<Transaction['type'], string> = {
 export function FinancePage() {
   const queryClient = useQueryClient();
   const { userProfile } = useAuth();
-  const { activeTenantId, activeTenant } = useTenant();
+  const { activeTenantId, activeTenant, isAllTenants, allTenants, tenantById } = useTenant();
   const [categoryTab, setCategoryTab] = useState<'all' | 'revenue' | 'liability' | 'expense'>('all');
   const [expenseOpen, setExpenseOpen] = useState(false);
+  const [expenseTenantId, setExpenseTenantId] = useState('');
   const [expenseAmount, setExpenseAmount] = useState(150000);
   const [expenseMethod, setExpenseMethod] = useState<Transaction['paymentMethod']>('bank_transfer');
   const [expenseNotes, setExpenseNotes] = useState('');
@@ -83,13 +84,14 @@ export function FinancePage() {
   const [proofPreview, setProofPreview] = useState<{ url: string; label: string } | null>(null);
 
   const { data: transactions = [], isLoading } = useQuery<Transaction[]>({
-    queryKey: ['transactions', activeTenantId],
-    enabled: Boolean(db && activeTenantId),
+    queryKey: ['transactions', isAllTenants ? 'all' : activeTenantId],
+    enabled: Boolean(db && (isAllTenants || activeTenantId)),
     queryFn: async () => {
-      if (!db || !activeTenantId) return [];
-      const snap = await getDocs(
-        query(collection(db, 'transactions'), where('tenantId', '==', activeTenantId))
-      );
+      if (!db || (!isAllTenants && !activeTenantId)) return [];
+      const q = isAllTenants
+        ? collection(db, 'transactions')
+        : query(collection(db, 'transactions'), where('tenantId', '==', activeTenantId));
+      const snap = await getDocs(q);
       return snap.docs
         .map((d) => ({ id: d.id, ...d.data() }) as Transaction)
         .sort((a, b) => b.createdAt.toMillis() - a.createdAt.toMillis());
@@ -97,13 +99,14 @@ export function FinancePage() {
   });
 
   const { data: bookings = [] } = useQuery<Booking[]>({
-    queryKey: ['finance-bookings', activeTenantId],
-    enabled: Boolean(db && activeTenantId),
+    queryKey: ['finance-bookings', isAllTenants ? 'all' : activeTenantId],
+    enabled: Boolean(db && (isAllTenants || activeTenantId)),
     queryFn: async () => {
-      if (!db || !activeTenantId) return [];
-      const snap = await getDocs(
-        query(collection(db, 'bookings'), where('tenantId', '==', activeTenantId))
-      );
+      if (!db || (!isAllTenants && !activeTenantId)) return [];
+      const q = isAllTenants
+        ? collection(db, 'bookings')
+        : query(collection(db, 'bookings'), where('tenantId', '==', activeTenantId));
+      const snap = await getDocs(q);
       return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Booking);
     },
   });
@@ -130,7 +133,7 @@ export function FinancePage() {
     return map;
   }, [bookings]);
 
-  if (!activeTenantId || !activeTenant) {
+  if (!isAllTenants && (!activeTenantId || !activeTenant)) {
     return (
       <EmptyState
         icon={ReceiptText}
@@ -164,9 +167,11 @@ export function FinancePage() {
     categoryTab === 'all' ? true : t.category === categoryTab
   );
 
+  const effectiveExpenseTenantId = activeTenantId ?? (expenseTenantId || allTenants[0]?.id || '');
+
   const handleRecordExpense = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!db || !userProfile || !activeTenantId) return;
+    if (!db || !userProfile || !effectiveExpenseTenantId) return;
     if (expenseAmount <= 0 || !expenseNotes.trim()) {
       toast.error('Enter a valid expense amount and description.');
       return;
@@ -174,7 +179,7 @@ export function FinancePage() {
 
     try {
       await addDoc(collection(db, 'transactions'), {
-        tenantId: activeTenantId,
+        tenantId: effectiveExpenseTenantId,
         type: 'operational_expense',
         category: 'expense',
         amount: Number(expenseAmount),
@@ -183,7 +188,7 @@ export function FinancePage() {
         verifiedBy: userProfile.uid,
         createdAt: Timestamp.now(),
       });
-      await queryClient.invalidateQueries({ queryKey: ['transactions', activeTenantId] });
+      await queryClient.invalidateQueries({ queryKey: ['transactions'] });
       toast.success('Operational expense posted to immutable ledger.');
       setExpenseOpen(false);
       setExpenseNotes('');
@@ -218,7 +223,7 @@ export function FinancePage() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `ledger-${activeTenant.slug}-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.download = `ledger-${activeTenant?.slug ?? 'all-branches'}-${new Date().toISOString().slice(0, 10)}.csv`;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -644,10 +649,28 @@ export function FinancePage() {
           <DialogHeader>
             <DialogTitle>Record Operational Expense</DialogTitle>
             <DialogDescription>
-              Posts an immutable expense entry for {activeTenant.name}.
+              Posts an immutable expense entry for{' '}
+              {tenantById[effectiveExpenseTenantId]?.name ?? activeTenant?.name ?? 'cabang terpilih'}.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleRecordExpense} className="space-y-3">
+            {isAllTenants ? (
+              <div className="space-y-1">
+                <Label>Cabang</Label>
+                <Select value={effectiveExpenseTenantId} onValueChange={setExpenseTenantId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Pilih cabang..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {allTenants.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label>Amount (IDR)</Label>
@@ -697,7 +720,11 @@ export function FinancePage() {
         open={Boolean(openBookingDetail)}
         onOpenChange={(open) => !open && setOpenBookingDetail(null)}
         booking={openBookingDetail}
-        tenant={activeTenant}
+        tenant={
+          openBookingDetail
+            ? tenantById[openBookingDetail.tenantId] ?? activeTenant
+            : activeTenant
+        }
         renter={openBookingDetail ? usersById[openBookingDetail.userId] ?? null : null}
       />
 

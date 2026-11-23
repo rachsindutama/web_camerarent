@@ -30,12 +30,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import type { Bundle, Equipment } from '@/types/schema';
 
 export function BundlesPage() {
   const queryClient = useQueryClient();
-  const { activeTenantId, activeTenant } = useTenant();
+  const { activeTenantId, activeTenant, isAllTenants, allTenants, tenantById } = useTenant();
   const [open, setOpen] = useState(false);
+  const [bundleTenantId, setBundleTenantId] = useState('');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -43,30 +51,32 @@ export function BundlesPage() {
   const [bundleDeposit, setBundleDeposit] = useState(2000000);
 
   const { data: equipmentList = [] } = useQuery<Equipment[]>({
-    queryKey: ['equipment', activeTenantId],
-    enabled: Boolean(db && activeTenantId),
+    queryKey: ['equipment', isAllTenants ? 'all' : activeTenantId],
+    enabled: Boolean(db && (isAllTenants || activeTenantId)),
     queryFn: async () => {
-      if (!db || !activeTenantId) return [];
-      const snap = await getDocs(
-        query(collection(db, 'equipment'), where('tenantId', '==', activeTenantId))
-      );
+      if (!db || (!isAllTenants && !activeTenantId)) return [];
+      const q = isAllTenants
+        ? collection(db, 'equipment')
+        : query(collection(db, 'equipment'), where('tenantId', '==', activeTenantId));
+      const snap = await getDocs(q);
       return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Equipment);
     },
   });
 
   const { data: bundles = [], isLoading } = useQuery<Bundle[]>({
-    queryKey: ['bundles', activeTenantId],
-    enabled: Boolean(db && activeTenantId),
+    queryKey: ['bundles', isAllTenants ? 'all' : activeTenantId],
+    enabled: Boolean(db && (isAllTenants || activeTenantId)),
     queryFn: async () => {
-      if (!db || !activeTenantId) return [];
-      const snap = await getDocs(
-        query(collection(db, 'bundles'), where('tenantId', '==', activeTenantId))
-      );
+      if (!db || (!isAllTenants && !activeTenantId)) return [];
+      const q = isAllTenants
+        ? collection(db, 'bundles')
+        : query(collection(db, 'bundles'), where('tenantId', '==', activeTenantId));
+      const snap = await getDocs(q);
       return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Bundle);
     },
   });
 
-  if (!activeTenantId) {
+  if (!isAllTenants && !activeTenantId) {
     return (
       <EmptyState
         icon={Package}
@@ -76,6 +86,15 @@ export function BundlesPage() {
     );
   }
 
+  const effectiveBundleTenantId = activeTenantId ?? (bundleTenantId || allTenants[0]?.id || '');
+  const dialogEquipmentList = equipmentList.filter((e) => e.tenantId === effectiveBundleTenantId);
+
+  const openCreateModal = () => {
+    setBundleTenantId(activeTenantId ?? allTenants[0]?.id ?? '');
+    setSelectedIds([]);
+    setOpen(true);
+  };
+
   const toggleEquipmentId = (eqId: string) => {
     setSelectedIds((prev) =>
       prev.includes(eqId) ? prev.filter((id) => id !== eqId) : [...prev, eqId]
@@ -83,13 +102,13 @@ export function BundlesPage() {
   };
 
   const standardRateSum = selectedIds.reduce((sum, id) => {
-    const eq = equipmentList.find((e) => e.id === id);
+    const eq = dialogEquipmentList.find((e) => e.id === id);
     return sum + (eq?.dailyRate ?? 0);
   }, 0);
 
   const handleCreateBundle = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!db || !activeTenantId) return;
+    if (!db || !effectiveBundleTenantId) return;
     if (!name.trim() || selectedIds.length < 2) {
       toast.error('Provide a kit name and select at least 2 equipment models.');
       return;
@@ -97,7 +116,7 @@ export function BundlesPage() {
 
     try {
       await addDoc(collection(db, 'bundles'), {
-        tenantId: activeTenantId,
+        tenantId: effectiveBundleTenantId,
         name: name.trim(),
         description: description.trim(),
         equipmentIds: selectedIds,
@@ -105,7 +124,7 @@ export function BundlesPage() {
         bundleDeposit: Number(bundleDeposit),
         isActive: true,
       });
-      await queryClient.invalidateQueries({ queryKey: ['bundles', activeTenantId] });
+      await queryClient.invalidateQueries({ queryKey: ['bundles'] });
       toast.success(`Created production bundle ${name}.`);
       setOpen(false);
       setName('');
@@ -118,15 +137,15 @@ export function BundlesPage() {
   };
 
   const handleToggleActive = async (bundle: Bundle) => {
-    if (!db || !activeTenantId) return;
+    if (!db) return;
     await updateDoc(doc(db, 'bundles', bundle.id), { isActive: !bundle.isActive });
-    await queryClient.invalidateQueries({ queryKey: ['bundles', activeTenantId] });
+    await queryClient.invalidateQueries({ queryKey: ['bundles'] });
   };
 
   const handleDelete = async (bundle: Bundle) => {
-    if (!db || !activeTenantId) return;
+    if (!db) return;
     await deleteDoc(doc(db, 'bundles', bundle.id));
-    await queryClient.invalidateQueries({ queryKey: ['bundles', activeTenantId] });
+    await queryClient.invalidateQueries({ queryKey: ['bundles'] });
     toast.success(`Deleted bundle ${bundle.name}.`);
   };
 
@@ -138,11 +157,14 @@ export function BundlesPage() {
             Production Kit Bundles
           </h2>
           <p className="mt-0.5 text-xs text-zinc-500">
-            Branch: <span className="font-medium text-zinc-800">{activeTenant?.name}</span> · Bundle
-            checkout atomically verifies and locks one physical unit for every component.
+            Branch:{' '}
+            <span className="font-medium text-zinc-800">
+              {isAllTenants ? 'Semua Cabang' : activeTenant?.name}
+            </span>{' '}
+            · Bundle checkout atomically verifies and locks one physical unit for every component.
           </p>
         </div>
-        <Button size="sm" onClick={() => setOpen(true)}>
+        <Button size="sm" onClick={openCreateModal}>
           <Plus className="h-3.5 w-3.5" strokeWidth={1.5} />
           New Kit Bundle
         </Button>
@@ -177,6 +199,11 @@ export function BundlesPage() {
                 <CardHeader className="pb-3">
                   <div className="flex items-start justify-between gap-2">
                     <div>
+                      {isAllTenants ? (
+                        <p className="mb-0.5 text-[11px] font-medium text-muted-foreground">
+                          {tenantById[bundle.tenantId]?.name ?? bundle.tenantId}
+                        </p>
+                      ) : null}
                       <CardTitle className="text-sm">{bundle.name}</CardTitle>
                       <CardDescription className="mt-1">{bundle.description}</CardDescription>
                     </div>
@@ -246,6 +273,29 @@ export function BundlesPage() {
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleCreateBundle} className="space-y-3">
+            {isAllTenants ? (
+              <div className="space-y-1">
+                <Label>Cabang</Label>
+                <Select
+                  value={effectiveBundleTenantId}
+                  onValueChange={(v) => {
+                    setBundleTenantId(v);
+                    setSelectedIds([]);
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Pilih cabang..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {allTenants.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
             <div className="space-y-1">
               <Label>Bundle Name</Label>
               <Input
@@ -267,7 +317,7 @@ export function BundlesPage() {
             <div className="space-y-1.5">
               <Label>Select Component Equipment ({selectedIds.length} selected)</Label>
               <div className="max-h-44 space-y-1 overflow-y-auto rounded-md border border-zinc-200 p-2">
-                {equipmentList.map((eq) => {
+                {dialogEquipmentList.map((eq) => {
                   const checked = selectedIds.includes(eq.id);
                   return (
                     <button

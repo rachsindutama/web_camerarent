@@ -55,7 +55,7 @@ import type { Booking, DamageReport } from '@/types/schema';
 export function InspectionsPage() {
   const queryClient = useQueryClient();
   const { userProfile } = useAuth();
-  const { activeTenantId, activeTenant } = useTenant();
+  const { activeTenantId, activeTenant, isAllTenants, tenantById } = useTenant();
 
   // Pre-rental handover dialog
   const [handoverTarget, setHandoverTarget] = useState<Booking | null>(null);
@@ -73,13 +73,14 @@ export function InspectionsPage() {
   const [damagePhotosText, setDamagePhotosText] = useState('');
 
   const { data: bookings = [], isLoading } = useQuery<Booking[]>({
-    queryKey: ['inspections', 'bookings', activeTenantId],
-    enabled: Boolean(db && activeTenantId),
+    queryKey: ['inspections', 'bookings', isAllTenants ? 'all' : activeTenantId],
+    enabled: Boolean(db && (isAllTenants || activeTenantId)),
     queryFn: async () => {
-      if (!db || !activeTenantId) return [];
-      const snap = await getDocs(
-        query(collection(db, 'bookings'), where('tenantId', '==', activeTenantId))
-      );
+      if (!db || (!isAllTenants && !activeTenantId)) return [];
+      const q = isAllTenants
+        ? collection(db, 'bookings')
+        : query(collection(db, 'bookings'), where('tenantId', '==', activeTenantId));
+      const snap = await getDocs(q);
       return snap.docs
         .map((d) => ({ id: d.id, ...d.data() }) as Booking)
         .filter((b) =>
@@ -90,18 +91,19 @@ export function InspectionsPage() {
   });
 
   const { data: damageReports = [] } = useQuery<DamageReport[]>({
-    queryKey: ['damage_reports', activeTenantId],
-    enabled: Boolean(db && activeTenantId),
+    queryKey: ['damage_reports', isAllTenants ? 'all' : activeTenantId],
+    enabled: Boolean(db && (isAllTenants || activeTenantId)),
     queryFn: async () => {
-      if (!db || !activeTenantId) return [];
-      const snap = await getDocs(
-        query(collection(db, 'damage_reports'), where('tenantId', '==', activeTenantId))
-      );
+      if (!db || (!isAllTenants && !activeTenantId)) return [];
+      const q = isAllTenants
+        ? collection(db, 'damage_reports')
+        : query(collection(db, 'damage_reports'), where('tenantId', '==', activeTenantId));
+      const snap = await getDocs(q);
       return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as DamageReport);
     },
   });
 
-  if (!activeTenantId || !activeTenant) {
+  if (!isAllTenants && (!activeTenantId || !activeTenant)) {
     return (
       <EmptyState
         icon={ClipboardCheck}
@@ -195,10 +197,11 @@ export function InspectionsPage() {
   };
 
   const handleCleanReturn = async (booking: Booking) => {
-    if (!db || !userProfile || !activeTenant) return;
+    const bookingTenant = tenantById[booking.tenantId] ?? activeTenant;
+    if (!db || !userProfile || !bookingTenant) return;
     try {
       const now = new Date();
-      const overdueCalc = calculateOverdueFine(booking, activeTenant, now);
+      const overdueCalc = calculateOverdueFine(booking, bookingTenant, now);
       // Auto-assess overdue fine on return if past grace period and not already posted
       const newlyAssessedOverdue =
         overdueCalc.isOverdue && booking.overdueFine === 0 ? overdueCalc.estimatedFine : 0;
@@ -415,9 +418,9 @@ export function InspectionsPage() {
           Pre-Rental &amp; Post-Rental Inspections
         </h2>
         <p className="mt-0.5 text-xs text-zinc-500">
-          Document physical unit condition before dispatch, monitor overdue grace windows (
-          {activeTenant.overdueGraceMinutes}m grace / {activeTenant.overdueHourlyRatePercent}% per
-          late hour), and process damage deductions.
+          {isAllTenants
+            ? 'Semua Cabang — dokumentasi serah terima, pemantauan grace period overdue, dan laporan kerusakan.'
+            : `Document physical unit condition before dispatch, monitor overdue grace windows (${activeTenant?.overdueGraceMinutes ?? 60}m grace / ${activeTenant?.overdueHourlyRatePercent ?? 10}% per late hour), and process damage deductions.`}
         </p>
       </div>
 
@@ -500,7 +503,8 @@ export function InspectionsPage() {
             />
           ) : (
             postRentalBookings.map((booking) => {
-              const overdue = calculateOverdueFine(booking, activeTenant);
+              const bookingTenant = tenantById[booking.tenantId] ?? activeTenant;
+              const overdue = calculateOverdueFine(booking, bookingTenant);
 
               return (
                 <Card
@@ -513,6 +517,11 @@ export function InspectionsPage() {
                         <CardTitle className="font-mono text-sm">
                           {booking.invoiceNumber}
                         </CardTitle>
+                        {isAllTenants && bookingTenant ? (
+                          <span className="rounded bg-secondary px-2 py-0.5 text-[11px] font-medium text-secondary-foreground">
+                            {bookingTenant.name}
+                          </span>
+                        ) : null}
                         <StatusBadge
                           status={overdue.isOverdue ? 'overdue' : booking.bookingStatus}
                         />
