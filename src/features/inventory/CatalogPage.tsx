@@ -62,7 +62,6 @@ export function CatalogPage() {
     logisticsType,
     deliveryAddress,
     deliveryCoordinates,
-    deliveryDistanceKm,
     setTenantId,
     setDateRange,
     addEquipment,

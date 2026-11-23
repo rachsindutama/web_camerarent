@@ -303,6 +303,21 @@ export function InspectionsPage() {
         });
       }
 
+      // Clear full deposit liability (portion applied to repair + portion refunded) so Liability Held balances to 0
+      if (deductedFromDeposit > 0) {
+        await addDoc(collection(db, 'transactions'), {
+          tenantId: damageTarget.tenantId,
+          bookingId: damageTarget.id,
+          type: 'deposit_refund',
+          category: 'liability',
+          amount: deductedFromDeposit,
+          paymentMethod: 'bank_transfer',
+          notes: `Deposit forfeited to cover damage fine (${damageTarget.invoiceNumber})`,
+          verifiedBy: userProfile.uid,
+          createdAt: Timestamp.now(),
+        });
+      }
+
       if (remainingDepositRefund > 0) {
         await addDoc(collection(db, 'transactions'), {
           tenantId: damageTarget.tenantId,

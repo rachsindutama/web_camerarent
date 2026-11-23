@@ -103,6 +103,10 @@ export function AdminBookingsPage() {
       // Record strictly separated Revenue vs Deposit Liability entries in immutable ledger
       const rentalRevenue = booking.subtotal + booking.deliveryFee;
       if (rentalRevenue > 0) {
+        const deliveryDetail =
+          booking.deliveryFee > 0
+            ? ` (Sewa Rp ${booking.subtotal.toLocaleString('id-ID')} + Antar-Jemput Rp ${booking.deliveryFee.toLocaleString('id-ID')})`
+            : '';
         await addDoc(collection(db, 'transactions'), {
           tenantId: booking.tenantId,
           bookingId: booking.id,
@@ -111,7 +115,7 @@ export function AdminBookingsPage() {
           amount: rentalRevenue,
           paymentMethod: 'bank_transfer',
           ...(booking.paymentProofUrl ? { proofUrl: booking.paymentProofUrl } : {}),
-          notes: `Verified payment for ${booking.invoiceNumber}`,
+          notes: `Verified payment for ${booking.invoiceNumber}${deliveryDetail}`,
           verifiedBy: userProfile.uid,
           createdAt: Timestamp.now(),
         });
