@@ -1,6 +1,7 @@
 import { Timestamp } from 'firebase/firestore';
 
 export type UserRole = 'superadmin' | 'admin' | 'user';
+export type StaffRole = 'courier' | 'technician' | 'admin_ops';
 export type MembershipTier = 'general' | 'premium';
 export type KycStatus = 'unverified' | 'pending' | 'verified' | 'rejected';
 export type UnitCondition = 'mint' | 'good' | 'fair' | 'damaged';
@@ -113,7 +114,9 @@ export interface Booking {
   deliveryCoordinates?: { lat: number; lng: number };
   deliveryDistanceKm?: number;
   deliveryFee: number;
+  courierId?: string;
   courierName?: string;
+  courierPhone?: string;
   courierStatus?: CourierStatus;
   courierTimestamps?: Partial<Record<CourierStatus, Timestamp>>;
   preRentalChecklist?: {
@@ -172,6 +175,17 @@ export interface Transaction {
   proofUrl?: string;
   notes?: string;
   verifiedBy: string;                  // Admin UID
+  createdAt: Timestamp;
+}
+
+export interface TenantStaff {
+  id: string;
+  tenantId: string;
+  name: string;
+  phone: string;
+  role: StaffRole;
+  vehicleInfo?: string;
+  isActive: boolean;
   createdAt: Timestamp;
 }
 

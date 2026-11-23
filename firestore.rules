@@ -28,6 +28,13 @@ service cloud.firestore {
       allow update: if isSuperAdmin() || isTenantAdmin(tenantId);
     }
 
+    // TENANT STAFF / EMPLOYEES (Branch Couriers, Technicians, Ops)
+    match /tenant_staff/{staffId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSuperAdmin() || isTenantAdmin(request.resource.data.tenantId);
+      allow delete: if isSuperAdmin() || isTenantAdmin(resource.data.tenantId);
+    }
+
     // USERS (Prevent self-escalation of role or removing own blacklist)
     match /users/{uid} {
       allow read: if isSignedIn() && (

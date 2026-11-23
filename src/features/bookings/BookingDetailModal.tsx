@@ -139,6 +139,9 @@ export function BookingDetailModal({
                   {booking.courierName ? (
                     <p className="font-mono text-[11px] text-zinc-600">
                       Kurir: <span className="text-zinc-900">{booking.courierName}</span>
+                      {booking.courierPhone ? (
+                        <span className="text-zinc-500"> · {booking.courierPhone}</span>
+                      ) : null}
                     </p>
                   ) : null}
 
