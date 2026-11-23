@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { collection, doc, getDocs, Timestamp, updateDoc } from 'firebase/firestore';
+import { collection, doc, getDocs, query, Timestamp, updateDoc, where } from 'firebase/firestore';
 import {
   Award,
+  CalendarClock,
   CheckCircle2,
   Eye,
+  Phone,
   Search,
   ShieldBan,
   ShieldCheck,
@@ -14,7 +16,9 @@ import {
 import { toast } from 'sonner';
 import { db } from '@/lib/firebase';
 import { MEMBERSHIP_BENEFITS } from '@/lib/membership';
+import { formatDateTime } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
+import { CurrencyText } from '@/components/shared/CurrencyText';
 import {
   ImagePreviewModal,
   type PreviewImageItem,
@@ -44,7 +48,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import type { MembershipTier, UserProfile } from '@/types/schema';
+import type { Booking, MembershipTier, UserProfile } from '@/types/schema';
 
 type FilterTab = 'all' | 'basic' | 'premium' | 'pending_kyc' | 'blacklisted';
 
@@ -57,7 +61,8 @@ export function MembersPage() {
   const [tab, setTab] = useState<FilterTab>('all');
   const [updatingUid, setUpdatingUid] = useState<string | null>(null);
 
-  // Governance modals (Superadmin)
+  // Governance modals (Superadmin) & Member Detail modal
+  const [detailMemberUid, setDetailMemberUid] = useState<string | null>(null);
   const [kycTarget, setKycTarget] = useState<UserProfile | null>(null);
   const [blacklistTarget, setBlacklistTarget] = useState<UserProfile | null>(null);
   const [blacklistReason, setBlacklistReason] = useState('');
@@ -95,6 +100,22 @@ export function MembersPage() {
           } as UserProfile;
         })
         .filter((u) => u.role === 'user');
+    },
+  });
+
+  const detailMember = members.find((m) => m.uid === detailMemberUid) ?? null;
+
+  const { data: detailMemberBookings = [] } = useQuery<Booking[]>({
+    queryKey: ['member-bookings', detailMemberUid],
+    enabled: Boolean(db && detailMemberUid),
+    queryFn: async () => {
+      if (!db || !detailMemberUid) return [];
+      const snap = await getDocs(
+        query(collection(db, 'bookings'), where('userId', '==', detailMemberUid))
+      );
+      return snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }) as Booking)
+        .sort((a, b) => b.createdAt.toMillis() - a.createdAt.toMillis());
     },
   });
 
@@ -270,7 +291,11 @@ export function MembersPage() {
           </TableHeader>
           <TableBody>
             {filtered.map((user) => (
-              <TableRow key={user.uid}>
+              <TableRow
+                key={user.uid}
+                onClick={() => setDetailMemberUid(user.uid)}
+                className="cursor-pointer"
+              >
                 <TableCell>
                   <p className="font-medium text-zinc-950">{user.displayName}</p>
                   <p className="font-mono text-[11px] text-zinc-500">{user.email}</p>
@@ -279,7 +304,7 @@ export function MembersPage() {
                   <div>{user.nik ?? 'No NIK'}</div>
                   <div className="text-zinc-500">{user.phone || '—'}</div>
                 </TableCell>
-                <TableCell>
+                <TableCell onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center gap-1.5">
                     <MembershipBadge tier={user.membershipTier} />
                     <button
@@ -313,8 +338,16 @@ export function MembersPage() {
                     ) : null}
                   </div>
                 </TableCell>
-                <TableCell className="text-right">
+                <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                   <div className="inline-flex items-center gap-1.5">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setDetailMemberUid(user.uid)}
+                    >
+                      <Eye className="h-3 w-3" strokeWidth={1.5} />
+                      Detail
+                    </Button>
                     {isSuperAdmin ? (
                       <>
                         <Button variant="outline" size="sm" onClick={() => setKycTarget(user)}>
@@ -508,6 +541,213 @@ export function MembersPage() {
               )}
             </div>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Member Detail Modal */}
+      <Dialog
+        open={Boolean(detailMember)}
+        onOpenChange={(open) => !open && setDetailMemberUid(null)}
+      >
+        <DialogContent className="flex max-h-[88vh] max-w-2xl flex-col gap-0 overflow-hidden p-0">
+          <DialogHeader className="shrink-0 border-b border-zinc-200 bg-zinc-50/80 px-6 py-4 pr-12">
+            <div className="flex flex-wrap items-center gap-2">
+              <DialogTitle className="text-base font-semibold text-zinc-950">
+                {detailMember?.displayName}
+              </DialogTitle>
+              {detailMember ? <MembershipBadge tier={detailMember.membershipTier} /> : null}
+              {detailMember ? <StatusBadge status={detailMember.kycStatus} /> : null}
+              {detailMember?.isBlacklisted ? <StatusBadge status="blacklisted" /> : null}
+            </div>
+            <DialogDescription className="mt-1 font-mono text-[11px] text-zinc-500">
+              {detailMember?.email} · Terdaftar {formatDateTime(detailMember?.createdAt)}
+            </DialogDescription>
+          </DialogHeader>
+
+          {detailMember ? (
+            <div className="flex-1 space-y-4 overflow-y-auto px-6 py-5 text-xs">
+              {detailMember.isBlacklisted ? (
+                <div className="rounded-md border border-red-200 bg-red-50 p-3 text-red-900">
+                  <p className="font-mono text-[10px] font-semibold uppercase text-red-700">
+                    Global Blacklist Active
+                  </p>
+                  <p className="mt-1 text-xs">
+                    {detailMember.blacklistReason || 'Akun diblokir oleh governance platform.'}
+                  </p>
+                </div>
+              ) : null}
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5 rounded-md border border-zinc-200 bg-white p-3.5 font-mono text-[11px]">
+                  <p className="font-sans text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+                    Identitas Member
+                  </p>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-zinc-400">NIK</span>
+                    <span className="text-zinc-950">{detailMember.nik ?? '—'}</span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-zinc-400">WHATSAPP / HP</span>
+                    <span className="inline-flex items-center gap-1 text-zinc-950">
+                      <Phone className="h-3 w-3 text-zinc-400" strokeWidth={1.5} />
+                      {detailMember.phone || '—'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-zinc-400">UID</span>
+                    <span className="truncate text-zinc-600">{detailMember.uid}</span>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5 rounded-md border border-zinc-200 bg-white p-3.5">
+                  <p className="flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+                    <CalendarClock className="h-3.5 w-3.5" strokeWidth={1.5} />
+                    Ringkasan Aktivitas Sewa
+                  </p>
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <div className="rounded border border-zinc-100 bg-zinc-50 p-2">
+                      <p className="font-mono text-[9px] uppercase text-zinc-400">Total Booking</p>
+                      <p className="mt-0.5 font-mono text-sm font-semibold text-zinc-950">
+                        {detailMemberBookings.length}
+                      </p>
+                    </div>
+                    <div className="rounded border border-zinc-100 bg-zinc-50 p-2">
+                      <p className="font-mono text-[9px] uppercase text-zinc-400">Total Transaksi</p>
+                      <p className="mt-0.5 text-sm font-semibold text-zinc-950">
+                        <CurrencyText
+                          amount={detailMemberBookings
+                            .filter((b) => b.bookingStatus !== 'cancelled')
+                            .reduce((s, b) => s + b.subtotal + b.deliveryFee, 0)}
+                        />
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Uploaded KYC Docs */}
+              <div className="space-y-2 rounded-md border border-zinc-200 bg-white p-3.5">
+                <p className="font-mono text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+                  Dokumen KYC ({detailMember.kycDocs?.length ?? 0})
+                </p>
+                {detailMember.kycDocs && detailMember.kycDocs.length > 0 ? (
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {detailMember.kycDocs.map((url, idx) => (
+                      <button
+                        key={url}
+                        type="button"
+                        onClick={() =>
+                          setPreviewState({
+                            open: true,
+                            images: (detailMember.kycDocs ?? []).map((u, i) => ({
+                              url: u,
+                              label: `KYC_DOC_${i + 1} — ${detailMember.displayName}`,
+                            })),
+                            index: idx,
+                          })
+                        }
+                        className="group overflow-hidden rounded border border-zinc-200 bg-zinc-50 text-left hover:border-zinc-400"
+                      >
+                        <img
+                          src={url}
+                          alt={`KYC_${idx + 1}`}
+                          className="h-24 w-full object-cover transition-transform group-hover:scale-105"
+                        />
+                        <div className="flex items-center justify-between px-2 py-1 font-mono text-[10px] text-zinc-600">
+                          <span>KYC_DOC_{idx + 1}</span>
+                          <Eye className="h-3 w-3 text-zinc-400" strokeWidth={1.5} />
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-zinc-400">Belum ada dokumen KYC yang diunggah.</p>
+                )}
+              </div>
+
+              {/* Recent Bookings */}
+              {detailMemberBookings.length > 0 ? (
+                <div className="space-y-2 rounded-md border border-zinc-200 bg-white p-3.5">
+                  <p className="font-mono text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+                    Riwayat Booking Terakhir
+                  </p>
+                  <div className="divide-y divide-zinc-100">
+                    {detailMemberBookings.slice(0, 5).map((b) => (
+                      <div
+                        key={b.id}
+                        className="flex flex-wrap items-center justify-between gap-2 py-2"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-semibold text-zinc-900">
+                            {b.invoiceNumber}
+                          </span>
+                          <StatusBadge status={b.bookingStatus} />
+                        </div>
+                        <div className="text-right font-mono text-[11px]">
+                          <CurrencyText amount={b.totalAmount} className="font-medium text-zinc-900" />
+                          <span className="ml-2 text-zinc-400">{formatDateTime(b.startDate)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-zinc-200 bg-zinc-50/80 px-6 py-3.5">
+            {detailMember ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  variant={detailMember.membershipTier === 'premium' ? 'outline' : 'default'}
+                  disabled={updatingUid === detailMember.uid}
+                  onClick={() =>
+                    void handleSetTier(
+                      detailMember,
+                      detailMember.membershipTier === 'premium' ? 'basic' : 'premium'
+                    )
+                  }
+                >
+                  <Award className="h-3.5 w-3.5" strokeWidth={1.5} />
+                  {detailMember.membershipTier === 'premium' ? 'Set Basic' : 'Upgrade Premium'}
+                </Button>
+                {isSuperAdmin ? (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="bg-white"
+                      onClick={() => setKycTarget(detailMember)}
+                    >
+                      <ShieldCheck className="h-3.5 w-3.5" strokeWidth={1.5} />
+                      Review KYC
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={detailMember.isBlacklisted ? 'outline' : 'destructive'}
+                      onClick={() => {
+                        setBlacklistTarget(detailMember);
+                        setBlacklistReason(detailMember.blacklistReason ?? '');
+                      }}
+                    >
+                      <ShieldBan className="h-3.5 w-3.5" strokeWidth={1.5} />
+                      {detailMember.isBlacklisted ? 'Cabut Ban' : 'Ban Member'}
+                    </Button>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
+
+            <Button
+              variant="outline"
+              size="sm"
+              className="bg-white"
+              onClick={() => setDetailMemberUid(null)}
+            >
+              Close
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
 

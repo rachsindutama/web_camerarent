@@ -13,6 +13,7 @@ import {
 } from 'firebase/firestore';
 import {
   BadgeCheck,
+  Eye,
   Pencil,
   Phone,
   Plus,
@@ -24,6 +25,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { db } from '@/lib/firebase';
+import { formatDateTime } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { useTenant } from '@/hooks/useTenant';
 import { StatusBadge } from '@/components/shared/StatusBadge';
@@ -85,6 +87,8 @@ export function StaffPage() {
   // Assign existing registered user as Branch Admin (Superadmin only)
   const [assignAdminOpen, setAssignAdminOpen] = useState(false);
   const [selectedUserUid, setSelectedUserUid] = useState('');
+  const [detailStaff, setDetailStaff] = useState<TenantStaff | null>(null);
+  const [detailAdmin, setDetailAdmin] = useState<UserProfile | null>(null);
 
   const { data: branchStaff = [], isLoading: loadingStaff } = useQuery<TenantStaff[]>({
     queryKey: ['tenant_staff', activeTenantId],
@@ -351,7 +355,11 @@ export function StaffPage() {
               </TableHeader>
               <TableBody>
                 {filteredStaff.map((staff) => (
-                  <TableRow key={staff.id}>
+                  <TableRow
+                    key={staff.id}
+                    onClick={() => setDetailStaff(staff)}
+                    className="cursor-pointer"
+                  >
                     <TableCell className="font-medium text-zinc-950">{staff.name}</TableCell>
                     <TableCell>
                       <span className="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 font-mono text-[10px] uppercase text-zinc-700">
@@ -373,8 +381,16 @@ export function StaffPage() {
                         label={staff.isActive ? 'Aktif' : 'Nonaktif'}
                       />
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="inline-flex items-center gap-1">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setDetailStaff(staff)}
+                        >
+                          <Eye className="h-3 w-3" strokeWidth={1.5} />
+                          Detail
+                        </Button>
                         <Button variant="outline" size="sm" onClick={() => openEditStaff(staff)}>
                           <Pencil className="h-3 w-3" strokeWidth={1.5} />
                           Edit
@@ -438,7 +454,11 @@ export function StaffPage() {
               </TableHeader>
               <TableBody>
                 {branchAdmins.map((admin) => (
-                  <TableRow key={admin.uid}>
+                  <TableRow
+                    key={admin.uid}
+                    onClick={() => setDetailAdmin(admin)}
+                    className="cursor-pointer"
+                  >
                     <TableCell>
                       <p className="font-medium text-zinc-950">{admin.displayName}</p>
                       <p className="font-mono text-[11px] text-zinc-500">{admin.email}</p>
@@ -459,18 +479,26 @@ export function StaffPage() {
                       </span>
                     </TableCell>
                     {isSuperAdmin ? (
-                      <TableCell className="text-right">
-                        {admin.role === 'admin' ? (
+                      <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                        <div className="inline-flex items-center gap-1.5">
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => void handleRevokeBranchAdmin(admin)}
+                            onClick={() => setDetailAdmin(admin)}
                           >
-                            Cabut Akses Admin
+                            <Eye className="h-3 w-3" strokeWidth={1.5} />
+                            Detail
                           </Button>
-                        ) : (
-                          <span className="font-mono text-[10px] text-zinc-400">PLATFORM OWNER</span>
-                        )}
+                          {admin.role === 'admin' ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => void handleRevokeBranchAdmin(admin)}
+                            >
+                              Cabut Akses Admin
+                            </Button>
+                          ) : null}
+                        </div>
                       </TableCell>
                     ) : null}
                   </TableRow>
@@ -582,6 +610,134 @@ export function StaffPage() {
             </Button>
             <Button disabled={!selectedUserUid} onClick={() => void handleAssignBranchAdmin()}>
               Tetapkan Admin Cabang
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Operational Staff Detail Modal */}
+      <Dialog open={Boolean(detailStaff)} onOpenChange={(o) => !o && setDetailStaff(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-sm">
+              {detailStaff?.name}
+              {detailStaff ? (
+                <StatusBadge
+                  status={detailStaff.isActive ? 'active' : 'suspended'}
+                  label={detailStaff.isActive ? 'Aktif' : 'Nonaktif'}
+                />
+              ) : null}
+            </DialogTitle>
+            <DialogDescription>
+              {detailStaff ? STAFF_ROLE_LABELS[detailStaff.role] : ''} · {activeTenant.name}
+            </DialogDescription>
+          </DialogHeader>
+          {detailStaff ? (
+            <div className="space-y-2 rounded-md border border-zinc-200 bg-zinc-50 p-3.5 font-mono text-[11px]">
+              <div className="flex justify-between gap-2">
+                <span className="text-zinc-400">JABATAN</span>
+                <span className="text-zinc-900">{STAFF_ROLE_LABELS[detailStaff.role]}</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-zinc-400">HP / WHATSAPP</span>
+                <span className="text-zinc-900">{detailStaff.phone}</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-zinc-400">KENDARAAN / PLAT</span>
+                <span className="text-zinc-900">{detailStaff.vehicleInfo || '—'}</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-zinc-400">TERDAFTAR</span>
+                <span className="text-zinc-600">{formatDateTime(detailStaff.createdAt)}</span>
+              </div>
+            </div>
+          ) : null}
+          <DialogFooter>
+            {detailStaff ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const target = detailStaff;
+                  setDetailStaff(null);
+                  openEditStaff(target);
+                }}
+              >
+                <Pencil className="h-3.5 w-3.5" strokeWidth={1.5} />
+                Edit Karyawan
+              </Button>
+            ) : null}
+            <Button variant="outline" size="sm" onClick={() => setDetailStaff(null)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Admin / Superadmin Account Detail Modal */}
+      <Dialog open={Boolean(detailAdmin)} onOpenChange={(o) => !o && setDetailAdmin(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-sm">
+              {detailAdmin?.displayName}
+              {detailAdmin ? (
+                <span
+                  className={`rounded border px-1.5 py-0.5 font-mono text-[10px] uppercase ${
+                    detailAdmin.role === 'superadmin'
+                      ? 'border-zinc-900 bg-zinc-900 text-white'
+                      : 'border-zinc-200 bg-zinc-50 text-zinc-800'
+                  }`}
+                >
+                  {detailAdmin.role === 'superadmin' ? 'SUPERADMIN' : 'BRANCH ADMIN'}
+                </span>
+              ) : null}
+            </DialogTitle>
+            <DialogDescription className="font-mono text-[11px]">
+              {detailAdmin?.email}
+            </DialogDescription>
+          </DialogHeader>
+          {detailAdmin ? (
+            <div className="space-y-2 rounded-md border border-zinc-200 bg-zinc-50 p-3.5 font-mono text-[11px]">
+              <div className="flex justify-between gap-2">
+                <span className="text-zinc-400">ROLE SCOPE</span>
+                <span className="uppercase text-zinc-900">{detailAdmin.role}</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-zinc-400">CABANG</span>
+                <span className="text-zinc-900">
+                  {detailAdmin.role === 'superadmin' ? 'All Branches (Global)' : activeTenant.name}
+                </span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-zinc-400">HP / WHATSAPP</span>
+                <span className="text-zinc-900">{detailAdmin.phone || '—'}</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-zinc-400">NIK</span>
+                <span className="text-zinc-900">{detailAdmin.nik || '—'}</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-zinc-400">UID</span>
+                <span className="truncate text-zinc-600">{detailAdmin.uid}</span>
+              </div>
+            </div>
+          ) : null}
+          <DialogFooter>
+            {isSuperAdmin && detailAdmin?.role === 'admin' ? (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => {
+                  const target = detailAdmin;
+                  setDetailAdmin(null);
+                  void handleRevokeBranchAdmin(target);
+                }}
+              >
+                Cabut Akses Admin
+              </Button>
+            ) : null}
+            <Button variant="outline" size="sm" onClick={() => setDetailAdmin(null)}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>
