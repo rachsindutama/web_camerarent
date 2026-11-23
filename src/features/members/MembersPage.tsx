@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { collection, doc, getDocs, query, Timestamp, updateDoc, where } from 'firebase/firestore';
-import { ChevronRight, Eye, MessageCircle, Search, Users } from 'lucide-react';
+import { ChevronRight, Eye, Search, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { db } from '@/lib/firebase';
 import { MEMBERSHIP_BENEFITS } from '@/lib/membership';
-import { buildWhatsAppUrl, formatDateTime } from '@/lib/utils';
+import { formatDateTime } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { useTenant } from '@/hooks/useTenant';
 import { CurrencyText } from '@/components/shared/CurrencyText';
@@ -15,6 +15,7 @@ import {
 } from '@/components/shared/ImagePreviewModal';
 import { MembershipBadge } from '@/components/shared/MembershipBadge';
 import { StatusBadge } from '@/components/shared/StatusBadge';
+import { WhatsAppButton } from '@/components/shared/WhatsAppButton';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -476,24 +477,10 @@ export function MembersPage() {
                         {detailMember.nik || '—'}
                       </dd>
                     </div>
-                    <div className="flex items-center justify-between gap-3 py-2.5">
+                    <div className="flex items-center justify-between py-2.5">
                       <dt className="text-muted-foreground">WhatsApp / HP</dt>
-                      <dd className="flex items-center gap-2">
-                        <span className="tabular-nums font-medium text-foreground">
-                          {detailMember.phone || '—'}
-                        </span>
-                        {buildWhatsAppUrl(detailMember.phone) ? (
-                          <Button asChild variant="outline" size="sm" className="h-7 px-2.5 text-xs">
-                            <a
-                              href={buildWhatsAppUrl(detailMember.phone) ?? '#'}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                              <MessageCircle className="h-3.5 w-3.5" strokeWidth={1.5} />
-                              WhatsApp
-                            </a>
-                          </Button>
-                        ) : null}
+                      <dd className="tabular-nums font-medium text-foreground">
+                        {detailMember.phone || '—'}
                       </dd>
                     </div>
                     <div className="flex items-center justify-between py-2.5">
@@ -540,6 +527,16 @@ export function MembersPage() {
                           </div>
                         ))}
                       </div>
+                    </div>
+                  ) : null}
+
+                  {detailMember.phone ? (
+                    <div className="border-t pt-4">
+                      <WhatsAppButton
+                        phone={detailMember.phone}
+                        message={`Halo ${detailMember.displayName}, kami dari tim CameraRent.`}
+                        className="w-full"
+                      />
                     </div>
                   ) : null}
                 </TabsContent>

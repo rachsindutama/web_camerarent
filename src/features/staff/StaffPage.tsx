@@ -11,13 +11,14 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore';
-import { BadgeCheck, ChevronRight, MessageCircle, Plus, Search, UserCog, Users } from 'lucide-react';
+import { BadgeCheck, ChevronRight, Plus, Search, UserCog, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { db } from '@/lib/firebase';
-import { buildWhatsAppUrl, formatDateTime } from '@/lib/utils';
+import { formatDateTime } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { useTenant } from '@/hooks/useTenant';
 import { StatusBadge } from '@/components/shared/StatusBadge';
+import { WhatsAppButton } from '@/components/shared/WhatsAppButton';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -887,24 +888,10 @@ export function StaffPage() {
                         {STAFF_ROLE_LABELS[detailStaff.role]}
                       </dd>
                     </div>
-                    <div className="flex items-center justify-between gap-3 py-2.5">
+                    <div className="flex items-center justify-between py-2.5">
                       <dt className="text-muted-foreground">WhatsApp / HP</dt>
-                      <dd className="flex items-center gap-2">
-                        <span className="tabular-nums font-medium text-foreground">
-                          {detailStaff.phone || '—'}
-                        </span>
-                        {buildWhatsAppUrl(detailStaff.phone) ? (
-                          <Button asChild variant="outline" size="sm" className="h-7 px-2.5 text-xs">
-                            <a
-                              href={buildWhatsAppUrl(detailStaff.phone) ?? '#'}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                              <MessageCircle className="h-3.5 w-3.5" strokeWidth={1.5} />
-                              WhatsApp
-                            </a>
-                          </Button>
-                        ) : null}
+                      <dd className="tabular-nums font-medium text-foreground">
+                        {detailStaff.phone || '—'}
                       </dd>
                     </div>
                     <div className="flex items-center justify-between py-2.5">
@@ -919,22 +906,29 @@ export function StaffPage() {
                     </div>
                   </dl>
 
-                  <div className="flex items-center justify-between border-t pt-4">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => void handleToggleStaffActive(detailStaff)}
-                    >
-                      {detailStaff.isActive ? 'Nonaktifkan' : 'Aktifkan'}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                      onClick={() => void handleDeleteStaff(detailStaff)}
-                    >
-                      Hapus Karyawan
-                    </Button>
+                  <div className="space-y-2.5 border-t pt-4">
+                    <WhatsAppButton
+                      phone={detailStaff.phone}
+                      message={`Halo ${detailStaff.name}, koordinasi operasional cabang ${activeTenant.name}.`}
+                      className="w-full"
+                    />
+                    <div className="flex items-center justify-between">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void handleToggleStaffActive(detailStaff)}
+                      >
+                        {detailStaff.isActive ? 'Nonaktifkan' : 'Aktifkan'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        onClick={() => void handleDeleteStaff(detailStaff)}
+                      >
+                        Hapus Karyawan
+                      </Button>
+                    </div>
                   </div>
                 </TabsContent>
 
@@ -1062,24 +1056,10 @@ export function StaffPage() {
                             activeTenant.name}
                       </dd>
                     </div>
-                    <div className="flex items-center justify-between gap-3 py-2.5">
+                    <div className="flex items-center justify-between py-2.5">
                       <dt className="text-muted-foreground">WhatsApp / HP</dt>
-                      <dd className="flex items-center gap-2">
-                        <span className="tabular-nums font-medium text-foreground">
-                          {detailAdmin.phone || '—'}
-                        </span>
-                        {buildWhatsAppUrl(detailAdmin.phone) ? (
-                          <Button asChild variant="outline" size="sm" className="h-7 px-2.5 text-xs">
-                            <a
-                              href={buildWhatsAppUrl(detailAdmin.phone) ?? '#'}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                              <MessageCircle className="h-3.5 w-3.5" strokeWidth={1.5} />
-                              WhatsApp
-                            </a>
-                          </Button>
-                        ) : null}
+                      <dd className="tabular-nums font-medium text-foreground">
+                        {detailAdmin.phone || '—'}
                       </dd>
                     </div>
                     <div className="flex items-center justify-between py-2.5">
@@ -1096,16 +1076,25 @@ export function StaffPage() {
                     </div>
                   </dl>
 
-                  {isSuperAdmin && detailAdmin.role === 'admin' ? (
-                    <div className="flex justify-end border-t pt-4">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                        onClick={() => void handleRevokeBranchAdmin(detailAdmin)}
-                      >
-                        Cabut Akses Admin
-                      </Button>
+                  {detailAdmin.phone || (isSuperAdmin && detailAdmin.role === 'admin') ? (
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-4">
+                      <WhatsAppButton
+                        phone={detailAdmin.phone}
+                        message={`Halo ${detailAdmin.displayName}, koordinasi CameraRent.`}
+                        className={
+                          isSuperAdmin && detailAdmin.role === 'admin' ? undefined : 'w-full'
+                        }
+                      />
+                      {isSuperAdmin && detailAdmin.role === 'admin' ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="ml-auto text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          onClick={() => void handleRevokeBranchAdmin(detailAdmin)}
+                        >
+                          Cabut Akses Admin
+                        </Button>
+                      ) : null}
                     </div>
                   ) : null}
                 </TabsContent>
