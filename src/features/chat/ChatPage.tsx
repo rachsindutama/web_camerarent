@@ -885,7 +885,7 @@ export function ChatPage({ mode }: ChatPageProps) {
                           msg.deletedForEveryone
                             ? 'border-dashed border-zinc-300 bg-zinc-100/70 text-zinc-500'
                             : isSelf
-                              ? 'border-zinc-900 bg-zinc-900 text-zinc-50'
+                              ? 'border-zinc-300 bg-zinc-100 text-zinc-900'
                               : 'border-zinc-200 bg-white text-zinc-900'
                         }`}
                       >
@@ -905,7 +905,7 @@ export function ChatPage({ mode }: ChatPageProps) {
                               <div
                                 className={`rounded border-l-2 px-2 py-1 text-[11px] ${
                                   isSelf
-                                    ? 'border-zinc-400 bg-zinc-800 text-zinc-300'
+                                    ? 'border-zinc-400 bg-white/80 text-zinc-600'
                                     : 'border-zinc-400 bg-zinc-100 text-zinc-600'
                                 }`}
                               >
@@ -923,7 +923,7 @@ export function ChatPage({ mode }: ChatPageProps) {
                               <div
                                 className={`rounded border p-2 text-[11px] ${
                                   isSelf
-                                    ? 'border-zinc-700 bg-zinc-800 text-zinc-100'
+                                    ? 'border-zinc-300/80 bg-white text-zinc-800'
                                     : 'border-zinc-200 bg-zinc-50 text-zinc-800'
                                 }`}
                               >
@@ -972,15 +972,7 @@ export function ChatPage({ mode }: ChatPageProps) {
                         )}
 
                         {/* Bubble Metadata Footer: Time + Edited + Read Receipt */}
-                        <div
-                          className={`mt-1 flex items-center justify-end gap-1.5 font-mono text-[9.5px] ${
-                            msg.deletedForEveryone
-                              ? 'text-zinc-400'
-                              : isSelf
-                                ? 'text-zinc-400'
-                                : 'text-zinc-400'
-                          }`}
-                        >
+                        <div className="mt-1 flex items-center justify-end gap-1.5 font-mono text-[9.5px] text-zinc-500">
                           {msg.editedAt && !msg.deletedForEveryone ? (
                             <span className="italic">{tx('edited', 'diedit')}</span>
                           ) : null}
@@ -990,13 +982,13 @@ export function ChatPage({ mode }: ChatPageProps) {
                           {isSelf && !msg.deletedForEveryone ? (
                             isReadByOther ? (
                               <CheckCheck
-                                className="h-3 w-3 text-blue-400"
+                                className="h-3 w-3 text-blue-600"
                                 strokeWidth={1.75}
                                 aria-label={tx('Read', 'Dibaca')}
                               />
                             ) : (
                               <Check
-                                className="h-3 w-3 text-zinc-400"
+                                className="h-3 w-3 text-zinc-500"
                                 strokeWidth={1.75}
                                 aria-label={tx('Sent', 'Terkirim')}
                               />
