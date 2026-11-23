@@ -11,10 +11,10 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore';
-import { BadgeCheck, ChevronRight, Plus, Search, UserCog, Users } from 'lucide-react';
+import { BadgeCheck, ChevronRight, MessageCircle, Plus, Search, UserCog, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { db } from '@/lib/firebase';
-import { formatDateTime } from '@/lib/utils';
+import { buildWhatsAppUrl, formatDateTime } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { useTenant } from '@/hooks/useTenant';
 import { StatusBadge } from '@/components/shared/StatusBadge';
@@ -887,10 +887,24 @@ export function StaffPage() {
                         {STAFF_ROLE_LABELS[detailStaff.role]}
                       </dd>
                     </div>
-                    <div className="flex items-center justify-between py-2.5">
+                    <div className="flex items-center justify-between gap-3 py-2.5">
                       <dt className="text-muted-foreground">WhatsApp / HP</dt>
-                      <dd className="tabular-nums font-medium text-foreground">
-                        {detailStaff.phone}
+                      <dd className="flex items-center gap-2">
+                        <span className="tabular-nums font-medium text-foreground">
+                          {detailStaff.phone || '—'}
+                        </span>
+                        {buildWhatsAppUrl(detailStaff.phone) ? (
+                          <Button asChild variant="outline" size="sm" className="h-7 px-2.5 text-xs">
+                            <a
+                              href={buildWhatsAppUrl(detailStaff.phone) ?? '#'}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <MessageCircle className="h-3.5 w-3.5" strokeWidth={1.5} />
+                              WhatsApp
+                            </a>
+                          </Button>
+                        ) : null}
                       </dd>
                     </div>
                     <div className="flex items-center justify-between py-2.5">
@@ -1048,10 +1062,24 @@ export function StaffPage() {
                             activeTenant.name}
                       </dd>
                     </div>
-                    <div className="flex items-center justify-between py-2.5">
+                    <div className="flex items-center justify-between gap-3 py-2.5">
                       <dt className="text-muted-foreground">WhatsApp / HP</dt>
-                      <dd className="tabular-nums font-medium text-foreground">
-                        {detailAdmin.phone || '—'}
+                      <dd className="flex items-center gap-2">
+                        <span className="tabular-nums font-medium text-foreground">
+                          {detailAdmin.phone || '—'}
+                        </span>
+                        {buildWhatsAppUrl(detailAdmin.phone) ? (
+                          <Button asChild variant="outline" size="sm" className="h-7 px-2.5 text-xs">
+                            <a
+                              href={buildWhatsAppUrl(detailAdmin.phone) ?? '#'}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <MessageCircle className="h-3.5 w-3.5" strokeWidth={1.5} />
+                              WhatsApp
+                            </a>
+                          </Button>
+                        ) : null}
                       </dd>
                     </div>
                     <div className="flex items-center justify-between py-2.5">

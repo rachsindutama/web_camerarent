@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { collection, doc, getDocs, query, Timestamp, updateDoc, where } from 'firebase/firestore';
-import { ChevronRight, Eye, Search, Users } from 'lucide-react';
+import { ChevronRight, Eye, MessageCircle, Search, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { db } from '@/lib/firebase';
 import { MEMBERSHIP_BENEFITS } from '@/lib/membership';
-import { formatDateTime } from '@/lib/utils';
+import { buildWhatsAppUrl, formatDateTime } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { useTenant } from '@/hooks/useTenant';
 import { CurrencyText } from '@/components/shared/CurrencyText';
@@ -476,10 +476,24 @@ export function MembersPage() {
                         {detailMember.nik || '—'}
                       </dd>
                     </div>
-                    <div className="flex items-center justify-between py-2.5">
+                    <div className="flex items-center justify-between gap-3 py-2.5">
                       <dt className="text-muted-foreground">WhatsApp / HP</dt>
-                      <dd className="tabular-nums font-medium text-foreground">
-                        {detailMember.phone || '—'}
+                      <dd className="flex items-center gap-2">
+                        <span className="tabular-nums font-medium text-foreground">
+                          {detailMember.phone || '—'}
+                        </span>
+                        {buildWhatsAppUrl(detailMember.phone) ? (
+                          <Button asChild variant="outline" size="sm" className="h-7 px-2.5 text-xs">
+                            <a
+                              href={buildWhatsAppUrl(detailMember.phone) ?? '#'}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <MessageCircle className="h-3.5 w-3.5" strokeWidth={1.5} />
+                              WhatsApp
+                            </a>
+                          </Button>
+                        ) : null}
                       </dd>
                     </div>
                     <div className="flex items-center justify-between py-2.5">

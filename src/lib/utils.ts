@@ -37,3 +37,16 @@ export function getInitials(name?: string | null): string {
     .join('');
 }
 
+export function buildWhatsAppUrl(phone?: string | null, text?: string): string | null {
+  if (!phone) return null;
+  let digits = phone.replace(/\D/g, '');
+  if (digits.length < 6) return null;
+  if (digits.startsWith('0')) {
+    digits = `62${digits.slice(1)}`;
+  } else if (digits.startsWith('8')) {
+    digits = `62${digits}`;
+  }
+  const base = `https://wa.me/${digits}`;
+  return text ? `${base}?text=${encodeURIComponent(text)}` : base;
+}
+

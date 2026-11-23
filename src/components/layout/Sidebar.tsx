@@ -79,12 +79,7 @@ export function Sidebar() {
         <div className="flex h-6 w-6 items-center justify-center rounded border border-zinc-900 bg-zinc-950 text-white">
           <Aperture className="h-3.5 w-3.5" strokeWidth={1.5} />
         </div>
-        <div className="flex flex-col leading-none">
-          <span className="text-xs font-semibold tracking-tight text-zinc-950">CAMERARENT</span>
-          <span className="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-zinc-400">
-            OPS // V3
-          </span>
-        </div>
+        <span className="text-sm font-semibold tracking-tight text-zinc-950">CameraRent</span>
       </div>
 
       <nav className="flex-1 space-y-5 overflow-y-auto px-2.5 py-4">

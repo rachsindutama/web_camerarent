@@ -63,10 +63,8 @@ export function LoginPage() {
               <Aperture className="h-4 w-4" strokeWidth={1.5} />
             </div>
             <div>
-              <p className="text-xs font-semibold tracking-tight text-zinc-950">CAMERARENT</p>
-              <p className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-                MULTI-TENANT GEAR RENTAL OPS
-              </p>
+              <p className="text-sm font-semibold tracking-tight text-zinc-950">CameraRent</p>
+              <p className="text-xs text-zinc-500">Multi-Tenant Gear Rental Operations</p>
             </div>
           </div>
           <span className="rounded border border-zinc-200 bg-white px-2 py-0.5 font-mono text-[10px] text-zinc-600">
@@ -103,9 +101,8 @@ export function LoginPage() {
           </div>
         </div>
 
-        <div className="flex items-center justify-between border-t border-zinc-200 pt-4 font-mono text-[10px] text-zinc-500">
-          <span>RBAC: SUPERADMIN // TENANT_ADMIN // RENTER</span>
-          <span>CURRENCY: IDR</span>
+        <div className="border-t border-zinc-200 pt-4 text-xs text-zinc-500">
+          Copyright © {new Date().getFullYear()} PT Pratamavisual Media Kreatif
         </div>
       </div>
 
