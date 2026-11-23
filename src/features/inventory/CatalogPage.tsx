@@ -579,7 +579,7 @@ export function CatalogPage() {
                       <CardHeader className="pb-2">
                         <div className="flex items-start justify-between gap-2.5">
                           <div className="flex min-w-0 items-start gap-2.5">
-                            <div className="relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted/40">
+                            <div className="relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-white">
                               {coverImage ? (
                                 <button
                                   type="button"
@@ -604,7 +604,7 @@ export function CatalogPage() {
                                     onError={() =>
                                       setBrokenImageIds((prev) => ({ ...prev, [eq.id]: true }))
                                     }
-                                    className="h-full w-full object-cover"
+                                    className="h-full w-full object-contain p-0.5"
                                   />
                                   <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
                                     <ZoomIn className="h-3.5 w-3.5 text-white" strokeWidth={1.75} />

@@ -5,18 +5,23 @@ import { collection, getDocs, query, Timestamp, where } from 'firebase/firestore
 import {
   AlertTriangle,
   Aperture,
-  Building2,
   Camera,
   CheckCircle2,
+  LocateFixed,
   LogIn,
+  MapPin,
   Package,
   Plus,
   Search,
   ShieldCheck,
   UserPlus,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
+import { useNearestBranch } from '@/hooks/useNearestBranch';
 import { db, isFirebaseConfigured, missingFirebaseKeys } from '@/lib/firebase';
+import { formatBranchDistanceKm } from '@/lib/geo';
+import { useTenantStore } from '@/store/useTenantStore';
 import { CurrencyText } from '@/components/shared/CurrencyText';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { Button } from '@/components/ui/button';
@@ -63,10 +68,13 @@ export function LoginPage() {
   const justRegistered = searchParams.get('registered') === '1';
 
   const { authError, unregisteredEmail, isConfigured, signInWithGoogle } = useAuth();
+  const { setSelectedTenantId: setStoreTenantId, isManualSelection: storeManualSelection } =
+    useTenantStore();
   const [submitting, setSubmitting] = useState(false);
 
-  // Public catalog state
-  const [selectedTenantId, setSelectedTenantId] = useState<string>('all');
+  // Public catalog state — defaults automatically to nearest active branch
+  const [selectedTenantId, setSelectedTenantId] = useState<string>('');
+  const [manualBranchPicked, setManualBranchPicked] = useState(false);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('all');
   const [catalogTab, setCatalogTab] = useState<'gear' | 'bundles'>('gear');
@@ -119,15 +127,75 @@ export function LoginPage() {
     [tenants]
   );
 
-  const { data: equipmentList = [], isLoading: loadingEquipment } = useQuery<Equipment[]>({
-    queryKey: ['public', 'equipment', selectedTenantId],
-    enabled: isFirebaseConfigured && Boolean(db),
+  const {
+    visitorLocation,
+    detecting: detectingNearest,
+    locationReady,
+    nearestTenant,
+    distancesById,
+    sortedTenants,
+    detectNow,
+  } = useNearestBranch({
+    tenants,
+    enabled: tenants.length > 0,
+  });
+
+  // Automatically lock default catalog branch to the nearest branch for the visitor
+  useEffect(() => {
+    if (tenants.length === 0 || manualBranchPicked) return;
+    if (!locationReady && !visitorLocation) return;
+
+    const target = nearestTenant ?? tenants[0];
+    if (!target) return;
+
+    setSelectedTenantId(target.id);
+    if (!storeManualSelection) {
+      setStoreTenantId(target.id, false);
+    }
+  }, [
+    tenants,
+    manualBranchPicked,
+    locationReady,
+    visitorLocation,
+    nearestTenant,
+    storeManualSelection,
+    setStoreTenantId,
+  ]);
+
+  const effectiveTenantId =
+    selectedTenantId || (locationReady && tenants.length > 0 ? (nearestTenant ?? tenants[0]).id : '');
+
+  const handleBranchChange = (value: string) => {
+    setManualBranchPicked(true);
+    setSelectedTenantId(value);
+    if (value !== 'all') {
+      setStoreTenantId(value, true);
+    }
+  };
+
+  const handleDetectNearest = async () => {
+    setManualBranchPicked(false);
+    const loc = await detectNow();
+    if (!loc) {
+      toast.error('Tidak dapat mendeteksi lokasi Anda. Pilih cabang secara manual.');
+      return;
+    }
+    toast.success('Menampilkan katalog cabang terdekat dari lokasi Anda.');
+  };
+
+  const isNearestActive = Boolean(
+    visitorLocation && nearestTenant && effectiveTenantId === nearestTenant.id
+  );
+
+  const { data: equipmentList = [], isLoading: loadingEqQuery } = useQuery<Equipment[]>({
+    queryKey: ['public', 'equipment', effectiveTenantId],
+    enabled: isFirebaseConfigured && Boolean(db) && Boolean(effectiveTenantId),
     queryFn: async () => {
-      if (!db) return [];
+      if (!db || !effectiveTenantId) return [];
       const q =
-        selectedTenantId === 'all'
+        effectiveTenantId === 'all'
           ? collection(db, 'equipment')
-          : query(collection(db, 'equipment'), where('tenantId', '==', selectedTenantId));
+          : query(collection(db, 'equipment'), where('tenantId', '==', effectiveTenantId));
       const snap = await getDocs(q);
       return snap.docs
         .map((d) => ({ id: d.id, ...d.data() }) as Equipment)
@@ -137,15 +205,17 @@ export function LoginPage() {
     staleTime: 1000 * 30,
   });
 
-  const { data: bundleList = [], isLoading: loadingBundles } = useQuery<Bundle[]>({
-    queryKey: ['public', 'bundles', selectedTenantId],
-    enabled: isFirebaseConfigured && Boolean(db),
+  const loadingEquipment = loadingEqQuery || (tenants.length > 0 && !effectiveTenantId);
+
+  const { data: bundleList = [], isLoading: loadingBundlesQuery } = useQuery<Bundle[]>({
+    queryKey: ['public', 'bundles', effectiveTenantId],
+    enabled: isFirebaseConfigured && Boolean(db) && Boolean(effectiveTenantId),
     queryFn: async () => {
-      if (!db) return [];
+      if (!db || !effectiveTenantId) return [];
       const q =
-        selectedTenantId === 'all'
+        effectiveTenantId === 'all'
           ? collection(db, 'bundles')
-          : query(collection(db, 'bundles'), where('tenantId', '==', selectedTenantId));
+          : query(collection(db, 'bundles'), where('tenantId', '==', effectiveTenantId));
       const snap = await getDocs(q);
       return snap.docs
         .map((d) => ({ id: d.id, ...d.data() }) as Bundle)
@@ -154,6 +224,8 @@ export function LoginPage() {
     },
     staleTime: 1000 * 30,
   });
+
+  const loadingBundles = loadingBundlesQuery || (tenants.length > 0 && !effectiveTenantId);
 
   const equipmentById = useMemo(
     () => new Map(equipmentList.map((e) => [e.id, e])),
@@ -214,21 +286,53 @@ export function LoginPage() {
             </div>
 
             {tenants.length > 0 ? (
-              <div className="hidden items-center gap-2 border-l pl-3 sm:flex">
-                <Building2 className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.5} />
-                <Select value={selectedTenantId} onValueChange={setSelectedTenantId}>
-                  <SelectTrigger className="h-8 w-48 border-none bg-transparent px-2 text-xs shadow-none hover:bg-muted/60">
-                    <SelectValue placeholder="Pilih cabang" />
+              <div className="hidden items-center gap-1.5 border-l pl-3 sm:flex">
+                <MapPin className="h-3.5 w-3.5 shrink-0 text-muted-foreground" strokeWidth={1.5} />
+                <Select value={effectiveTenantId} onValueChange={handleBranchChange}>
+                  <SelectTrigger className="h-8 w-56 border-none bg-transparent px-2 text-xs shadow-none hover:bg-muted/60">
+                    <SelectValue
+                      placeholder={detectingNearest ? 'Mendeteksi cabang terdekat...' : 'Pilih cabang'}
+                    />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Semua Cabang ({tenants.length})</SelectItem>
-                    {tenants.map((t) => (
-                      <SelectItem key={t.id} value={t.id}>
-                        {t.name}
-                      </SelectItem>
-                    ))}
+                    {sortedTenants.map((t) => {
+                      const dist = distancesById[t.id];
+                      const isClosest = Boolean(visitorLocation && nearestTenant?.id === t.id);
+                      return (
+                        <SelectItem key={t.id} value={t.id}>
+                          {t.name}
+                          {isClosest ? ' · Terdekat' : ''}
+                          {dist !== undefined ? ` (${formatBranchDistanceKm(dist)})` : ''}
+                        </SelectItem>
+                      );
+                    })}
+                    {tenants.length > 1 ? (
+                      <SelectItem value="all">Semua Cabang ({tenants.length})</SelectItem>
+                    ) : null}
                   </SelectContent>
                 </Select>
+                {isNearestActive ? (
+                  <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-secondary-foreground">
+                    Terdekat
+                    {distancesById[effectiveTenantId] !== undefined
+                      ? ` · ~${formatBranchDistanceKm(distancesById[effectiveTenantId])}`
+                      : ''}
+                  </span>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                  disabled={detectingNearest}
+                  onClick={() => void handleDetectNearest()}
+                  title="Deteksi cabang terdekat dari lokasi Anda"
+                >
+                  <LocateFixed
+                    className={`h-3.5 w-3.5 ${detectingNearest ? 'animate-pulse' : ''}`}
+                    strokeWidth={1.5}
+                  />
+                </Button>
               </div>
             ) : null}
           </div>
@@ -265,20 +369,41 @@ export function LoginPage() {
 
             <div className="flex flex-wrap items-center gap-2">
               {tenants.length > 0 ? (
-                <div className="sm:hidden">
-                  <Select value={selectedTenantId} onValueChange={setSelectedTenantId}>
-                    <SelectTrigger className="h-9 w-44">
-                      <SelectValue placeholder="Pilih cabang" />
+                <div className="flex items-center gap-1.5 sm:hidden">
+                  <Select value={effectiveTenantId} onValueChange={handleBranchChange}>
+                    <SelectTrigger className="h-9 w-48">
+                      <SelectValue
+                        placeholder={detectingNearest ? 'Mendeteksi...' : 'Pilih cabang'}
+                      />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">Semua Cabang</SelectItem>
-                      {tenants.map((t) => (
-                        <SelectItem key={t.id} value={t.id}>
-                          {t.name}
-                        </SelectItem>
-                      ))}
+                      {sortedTenants.map((t) => {
+                        const dist = distancesById[t.id];
+                        const isClosest = Boolean(visitorLocation && nearestTenant?.id === t.id);
+                        return (
+                          <SelectItem key={t.id} value={t.id}>
+                            {t.name}
+                            {isClosest ? ' · Terdekat' : ''}
+                            {dist !== undefined ? ` (${formatBranchDistanceKm(dist)})` : ''}
+                          </SelectItem>
+                        );
+                      })}
+                      {tenants.length > 1 ? (
+                        <SelectItem value="all">Semua Cabang ({tenants.length})</SelectItem>
+                      ) : null}
                     </SelectContent>
                   </Select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="h-9 w-9 shrink-0"
+                    disabled={detectingNearest}
+                    onClick={() => void handleDetectNearest()}
+                    title="Deteksi cabang terdekat"
+                  >
+                    <LocateFixed className="h-4 w-4" strokeWidth={1.5} />
+                  </Button>
                 </div>
               ) : null}
 
@@ -361,15 +486,16 @@ export function LoginPage() {
                         key={item.id}
                         className="flex flex-col overflow-hidden transition-colors hover:border-foreground/20"
                       >
-                        <div className="relative aspect-[4/3] w-full overflow-hidden border-b bg-muted/40">
+                        <div className="relative aspect-[4/3] w-full overflow-hidden border-b bg-white">
                           {coverImage ? (
                             <img
                               src={coverImage}
                               alt={item.name}
-                              className="h-full w-full object-cover"
+                              loading="lazy"
+                              className="h-full w-full object-contain p-3"
                             />
                           ) : (
-                            <div className="flex h-full w-full items-center justify-center text-muted-foreground/40">
+                            <div className="flex h-full w-full items-center justify-center bg-muted/40 text-muted-foreground/40">
                               <Camera className="h-10 w-10" strokeWidth={1.25} />
                             </div>
                           )}

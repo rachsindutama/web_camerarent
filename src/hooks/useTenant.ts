@@ -2,14 +2,14 @@ import { useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { collection, getDocs, query, Timestamp } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '@/lib/firebase';
-import { normalizeTierMap } from '@/lib/membership';
 import { useAuth } from '@/hooks/useAuth';
+import { useNearestBranch } from '@/hooks/useNearestBranch';
 import { ALL_TENANTS_SCOPE, useTenantStore } from '@/store/useTenantStore';
 import type { Tenant } from '@/types/schema';
 
 export function useTenant() {
   const { userProfile } = useAuth();
-  const { selectedTenantId, setSelectedTenantId } = useTenantStore();
+  const { selectedTenantId, isManualSelection, setSelectedTenantId } = useTenantStore();
 
   const { data: allTenants = [], isLoading } = useQuery<Tenant[]>({
     queryKey: ['tenants', 'all'],
@@ -29,7 +29,6 @@ export function useTenant() {
           bufferHours: Number(d.bufferHours ?? 3),
           overdueGraceMinutes: Number(d.overdueGraceMinutes ?? 60),
           overdueHourlyRatePercent: Number(d.overdueHourlyRatePercent ?? 10),
-          ...(d.membershipTiers ? { membershipTiers: normalizeTierMap(d.membershipTiers) } : {}),
           bankDetails: d.bankDetails ?? {
             bankName: 'BCA',
             accountNumber: '-',
@@ -44,12 +43,26 @@ export function useTenant() {
   });
 
   const isSuperAdmin = userProfile?.role === 'superadmin';
+  const isRenter = userProfile?.role === 'user';
 
-  const tenants = isSuperAdmin
-    ? allTenants
-    : allTenants.filter((t) => t.status === 'active');
+  const tenants = useMemo(
+    () => (isSuperAdmin ? allTenants : allTenants.filter((t) => t.status === 'active')),
+    [isSuperAdmin, allTenants]
+  );
 
   const isLockedToTenant = userProfile?.role === 'admin' && Boolean(userProfile.tenantId);
+
+  const {
+    visitorLocation,
+    detecting: detectingNearest,
+    nearestTenant,
+    distancesById,
+    sortedTenants,
+    detectNow: detectNearestBranch,
+  } = useNearestBranch({
+    tenants,
+    enabled: isRenter && tenants.length > 0,
+  });
 
   // Superadmin defaults to All Branches unless explicitly switched to a specific tenant
   const isAllTenants =
@@ -58,18 +71,21 @@ export function useTenant() {
       selectedTenantId === ALL_TENANTS_SCOPE ||
       !tenants.some((t) => t.id === selectedTenantId));
 
+  const fallbackTenantId =
+    isRenter && nearestTenant ? nearestTenant.id : tenants[0]?.id ?? null;
+
   const activeTenantId = isLockedToTenant
     ? userProfile.tenantId
     : isAllTenants
       ? null
       : selectedTenantId && tenants.some((t) => t.id === selectedTenantId)
         ? selectedTenantId
-        : tenants[0]?.id ?? null;
+        : fallbackTenantId;
 
   useEffect(() => {
     if (isLockedToTenant && userProfile?.tenantId) {
       if (selectedTenantId !== userProfile.tenantId) {
-        setSelectedTenantId(userProfile.tenantId);
+        setSelectedTenantId(userProfile.tenantId, false);
       }
       return;
     }
@@ -81,18 +97,40 @@ export function useTenant() {
         tenants.length > 0 &&
         !tenants.some((t) => t.id === selectedTenantId)
       ) {
-        setSelectedTenantId(ALL_TENANTS_SCOPE);
+        setSelectedTenantId(ALL_TENANTS_SCOPE, false);
       }
       return;
     }
 
-    if ((!selectedTenantId || !tenants.some((t) => t.id === selectedTenantId)) && tenants.length > 0) {
-      setSelectedTenantId(tenants[0].id);
+    if (tenants.length === 0) return;
+
+    // Renter: auto-select nearest branch until they manually switch branches
+    if (isRenter && visitorLocation && nearestTenant && !isManualSelection) {
+      if (selectedTenantId !== nearestTenant.id) {
+        setSelectedTenantId(nearestTenant.id, false);
+      }
+      return;
     }
-  }, [isLockedToTenant, isSuperAdmin, userProfile?.tenantId, selectedTenantId, tenants, setSelectedTenantId]);
+
+    if (!selectedTenantId || !tenants.some((t) => t.id === selectedTenantId)) {
+      const targetId = isRenter && nearestTenant ? nearestTenant.id : tenants[0].id;
+      setSelectedTenantId(targetId, false);
+    }
+  }, [
+    isLockedToTenant,
+    isSuperAdmin,
+    isRenter,
+    userProfile?.tenantId,
+    selectedTenantId,
+    isManualSelection,
+    visitorLocation,
+    nearestTenant,
+    tenants,
+    setSelectedTenantId,
+  ]);
 
   const activeTenant = activeTenantId ? tenants.find((t) => t.id === activeTenantId) ?? null : null;
-  const defaultTenant = activeTenant ?? tenants[0] ?? null;
+  const defaultTenant = activeTenant ?? nearestTenant ?? tenants[0] ?? null;
 
   const tenantById = useMemo(() => {
     const map: Record<string, Tenant> = {};
@@ -104,11 +142,16 @@ export function useTenant() {
 
   return {
     tenants,
+    sortedTenants,
     allTenants,
     tenantById,
     activeTenant,
     activeTenantId,
     defaultTenant,
+    nearestTenantId: visitorLocation ? nearestTenant?.id ?? null : null,
+    distancesById,
+    detectingNearest,
+    detectNearestBranch,
     isAllTenants,
     isSuperAdmin,
     isLockedToTenant,

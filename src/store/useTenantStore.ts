@@ -5,14 +5,17 @@ export const ALL_TENANTS_SCOPE = '__all__';
 
 interface TenantStoreState {
   selectedTenantId: string | null;
-  setSelectedTenantId: (tenantId: string | null) => void;
+  isManualSelection: boolean;
+  setSelectedTenantId: (tenantId: string | null, manual?: boolean) => void;
 }
 
 export const useTenantStore = create<TenantStoreState>()(
   persist(
     (set) => ({
       selectedTenantId: null,
-      setSelectedTenantId: (tenantId) => set({ selectedTenantId: tenantId }),
+      isManualSelection: false,
+      setSelectedTenantId: (tenantId, manual = true) =>
+        set({ selectedTenantId: tenantId, isManualSelection: manual }),
     }),
     {
       name: 'camerarent-tenant-context-v2',

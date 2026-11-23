@@ -3,6 +3,12 @@ export interface GeoCoordinates {
   lng: number;
 }
 
+export interface VisitorLocation {
+  coords: GeoCoordinates;
+  source: 'gps' | 'ip';
+  city?: string;
+}
+
 export interface NominatimSearchResult {
   displayName: string;
   lat: number;
@@ -127,5 +133,143 @@ export function buildGoogleMapsDirectionUrl(
     return `https://www.google.com/maps/dir/?api=1&origin=${origin.lat},${origin.lng}&destination=${dest.lat},${dest.lng}`;
   }
   return `https://www.google.com/maps/search/?api=1&query=${dest.lat},${dest.lng}`;
+}
+
+const VISITOR_LOCATION_CACHE_KEY = 'camerarent-visitor-location-v1';
+
+export function getCachedVisitorLocation(): VisitorLocation | null {
+  try {
+    const raw = sessionStorage.getItem(VISITOR_LOCATION_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as VisitorLocation;
+    if (
+      parsed?.coords &&
+      typeof parsed.coords.lat === 'number' &&
+      typeof parsed.coords.lng === 'number'
+    ) {
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function setCachedVisitorLocation(loc: VisitorLocation): void {
+  try {
+    sessionStorage.setItem(VISITOR_LOCATION_CACHE_KEY, JSON.stringify(loc));
+  } catch {
+    // Ignore storage quota / privacy mode errors
+  }
+}
+
+export function formatBranchDistanceKm(km: number): string {
+  if (!Number.isFinite(km)) return '';
+  if (km < 1) return '<1 km';
+  if (km < 10) return `${Math.round(km * 10) / 10} km`;
+  return `${Math.round(km)} km`;
+}
+
+export function getBrowserGpsLocation(timeoutMs = 7000): Promise<VisitorLocation | null> {
+  if (typeof navigator === 'undefined' || !navigator.geolocation) {
+    return Promise.resolve(null);
+  }
+  return new Promise((resolve) => {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const loc: VisitorLocation = {
+          coords: {
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+          },
+          source: 'gps',
+        };
+        setCachedVisitorLocation(loc);
+        resolve(loc);
+      },
+      () => resolve(null),
+      {
+        enableHighAccuracy: false,
+        timeout: timeoutMs,
+        maximumAge: 1000 * 60 * 15,
+      }
+    );
+  });
+}
+
+export async function getIpVisitorLocation(timeoutMs = 3500): Promise<VisitorLocation | null> {
+  const endpoints: Array<{
+    url: string;
+    parse: (data: Record<string, unknown>) => VisitorLocation | null;
+  }> = [
+    {
+      url: 'https://get.geojs.io/v1/ip/geo.json',
+      parse: (data) => {
+        const lat = Number(data.latitude);
+        const lng = Number(data.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        return {
+          coords: { lat, lng },
+          source: 'ip',
+          city: typeof data.city === 'string' ? data.city : undefined,
+        };
+      },
+    },
+    {
+      url: 'https://ipwho.is/',
+      parse: (data) => {
+        if (data.success === false) return null;
+        const lat = Number(data.latitude);
+        const lng = Number(data.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        return {
+          coords: { lat, lng },
+          source: 'ip',
+          city: typeof data.city === 'string' ? data.city : undefined,
+        };
+      },
+    },
+  ];
+
+  for (const ep of endpoints) {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(ep.url, { signal: controller.signal });
+      window.clearTimeout(timer);
+      if (!res.ok) continue;
+      const json = (await res.json()) as Record<string, unknown>;
+      const loc = ep.parse(json);
+      if (loc) {
+        // Don't overwrite an already-cached exact GPS fix with lower-precision IP geo
+        const existing = getCachedVisitorLocation();
+        if (!existing || existing.source !== 'gps') {
+          setCachedVisitorLocation(loc);
+        }
+        return loc;
+      }
+    } catch {
+      window.clearTimeout(timer);
+    }
+  }
+  return null;
+}
+
+export function rankBranchesByDistance<
+  T extends { id: string; coordinates: GeoCoordinates },
+>(coords: GeoCoordinates, branches: T[]) {
+  const distancesById: Record<string, number> = {};
+  const withDist = branches.map((branch) => {
+    const distanceKm = haversineDistanceKm(coords, branch.coordinates);
+    distancesById[branch.id] = distanceKm;
+    return { branch, distanceKm };
+  });
+  withDist.sort((a, b) => a.distanceKm - b.distanceKm);
+  return {
+    nearest: withDist[0]?.branch ?? null,
+    nearestDistanceKm: withDist[0]?.distanceKm ?? null,
+    distancesById,
+    sorted: withDist.map((item) => item.branch),
+  };
 }
 
