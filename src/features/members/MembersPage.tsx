@@ -5,6 +5,7 @@ import {
   Award,
   CalendarClock,
   CheckCircle2,
+  ChevronRight,
   Eye,
   Pencil,
   Phone,
@@ -354,7 +355,7 @@ export function MembersPage() {
               <TableHead>NIK / Phone</TableHead>
               <TableHead>Tier</TableHead>
               <TableHead>KYC &amp; Blacklist</TableHead>
-              <TableHead className="text-right">Aksi</TableHead>
+              <TableHead className="w-8" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -362,103 +363,35 @@ export function MembersPage() {
               <TableRow
                 key={user.uid}
                 onClick={() => openMemberDetail(user, false)}
-                className="cursor-pointer"
+                className="group cursor-pointer"
               >
                 <TableCell>
                   <p className="font-medium text-zinc-950">{user.displayName}</p>
                   <p className="font-mono text-[11px] text-zinc-500">{user.email}</p>
                 </TableCell>
                 <TableCell className="font-mono text-[11px]">
-                  <div>{user.nik ?? 'No NIK'}</div>
+                  <div>{user.nik || 'No NIK'}</div>
                   <div className="text-zinc-500">{user.phone || '—'}</div>
                 </TableCell>
-                <TableCell onClick={(e) => e.stopPropagation()}>
-                  <div className="flex items-center gap-1.5">
-                    <MembershipBadge tier={user.membershipTier} />
-                    <button
-                      type="button"
-                      disabled={updatingUid === user.uid}
-                      onClick={() =>
-                        void handleSetTier(
-                          user,
-                          user.membershipTier === 'premium' ? 'basic' : 'premium'
-                        )
-                      }
-                      className="rounded border border-zinc-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-zinc-700 hover:bg-zinc-50"
-                      title="Ubah tier member"
-                    >
-                      {user.membershipTier === 'premium' ? 'Set Basic' : 'Set Premium'}
-                    </button>
-                  </div>
+                <TableCell>
+                  <MembershipBadge tier={user.membershipTier} />
                 </TableCell>
                 <TableCell>
-                  <div className="flex flex-col items-start gap-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <StatusBadge status={user.kycStatus} />
-                    {user.isBlacklisted ? (
-                      <div>
-                        <StatusBadge status="blacklisted" />
-                        {user.blacklistReason ? (
-                          <p className="mt-0.5 max-w-[180px] truncate text-[10px] text-red-700">
-                            {user.blacklistReason}
-                          </p>
-                        ) : null}
-                      </div>
-                    ) : null}
+                    {user.isBlacklisted ? <StatusBadge status="blacklisted" /> : null}
                   </div>
+                  {user.isBlacklisted && user.blacklistReason ? (
+                    <p className="mt-0.5 max-w-[200px] truncate text-[10px] text-red-700">
+                      {user.blacklistReason}
+                    </p>
+                  ) : null}
                 </TableCell>
-                <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                  <div className="inline-flex items-center gap-1.5">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => openMemberDetail(user, false)}
-                    >
-                      <Eye className="h-3 w-3" strokeWidth={1.5} />
-                      Detail
-                    </Button>
-                    {isSuperAdmin ? (
-                      <>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => openMemberDetail(user, true)}
-                        >
-                          <Pencil className="h-3 w-3" strokeWidth={1.5} />
-                          Edit
-                        </Button>
-                        <Button variant="outline" size="sm" onClick={() => setKycTarget(user)}>
-                          <ShieldCheck className="h-3 w-3" strokeWidth={1.5} />
-                          KYC
-                        </Button>
-                        <Button
-                          variant={user.isBlacklisted ? 'outline' : 'destructive'}
-                          size="sm"
-                          onClick={() => {
-                            setBlacklistTarget(user);
-                            setBlacklistReason(user.blacklistReason ?? '');
-                          }}
-                        >
-                          <ShieldBan className="h-3 w-3" strokeWidth={1.5} />
-                          {user.isBlacklisted ? 'Lift' : 'Ban'}
-                        </Button>
-                      </>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant={user.membershipTier === 'premium' ? 'outline' : 'default'}
-                        disabled={updatingUid === user.uid}
-                        onClick={() =>
-                          void handleSetTier(
-                            user,
-                            user.membershipTier === 'premium' ? 'basic' : 'premium'
-                          )
-                        }
-                      >
-                        <Award className="h-3 w-3" strokeWidth={1.5} />
-                        {user.membershipTier === 'premium' ? 'Turunkan ke Basic' : 'Upgrade Premium'}
-                      </Button>
-                    )}
-                  </div>
+                <TableCell className="text-right">
+                  <ChevronRight
+                    className="ml-auto h-4 w-4 text-zinc-300 transition-all group-hover:translate-x-0.5 group-hover:text-zinc-700"
+                    strokeWidth={1.5}
+                  />
                 </TableCell>
               </TableRow>
             ))}

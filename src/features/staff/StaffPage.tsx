@@ -13,7 +13,7 @@ import {
 } from 'firebase/firestore';
 import {
   BadgeCheck,
-  Eye,
+  ChevronRight,
   Pencil,
   Phone,
   Plus,
@@ -88,7 +88,7 @@ export function StaffPage() {
   // Assign existing registered user as Branch Admin (Superadmin only)
   const [assignAdminOpen, setAssignAdminOpen] = useState(false);
   const [selectedUserUid, setSelectedUserUid] = useState('');
-  const [detailStaff, setDetailStaff] = useState<TenantStaff | null>(null);
+  const [detailStaffId, setDetailStaffId] = useState<string | null>(null);
   const [detailAdminUid, setDetailAdminUid] = useState<string | null>(null);
   const [isEditingAdmin, setIsEditingAdmin] = useState(false);
   const [savingAdminEdit, setSavingAdminEdit] = useState(false);
@@ -141,6 +141,7 @@ export function StaffPage() {
   const assignableUsers = allUsers.filter(
     (u) => u.role === 'user' || (u.role === 'admin' && u.tenantId !== activeTenantId)
   );
+  const detailStaff = branchStaff.find((s) => s.id === detailStaffId) ?? null;
   const detailAdmin = allUsers.find((u) => u.uid === detailAdminUid) ?? null;
 
   const canEditAdminAccount = (admin: UserProfile) =>
@@ -421,15 +422,15 @@ export function StaffPage() {
                   <TableHead>WhatsApp / HP</TableHead>
                   <TableHead>Kendaraan / Plat</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Aksi</TableHead>
+                  <TableHead className="w-8" />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredStaff.map((staff) => (
                   <TableRow
                     key={staff.id}
-                    onClick={() => setDetailStaff(staff)}
-                    className="cursor-pointer"
+                    onClick={() => setDetailStaffId(staff.id)}
+                    className="group cursor-pointer"
                   >
                     <TableCell className="font-medium text-zinc-950">{staff.name}</TableCell>
                     <TableCell>
@@ -452,40 +453,11 @@ export function StaffPage() {
                         label={staff.isActive ? 'Aktif' : 'Nonaktif'}
                       />
                     </TableCell>
-                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                      <div className="inline-flex items-center gap-1">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setDetailStaff(staff)}
-                        >
-                          <Eye className="h-3 w-3" strokeWidth={1.5} />
-                          Detail
-                        </Button>
-                        <Button variant="outline" size="sm" onClick={() => openEditStaff(staff)}>
-                          <Pencil className="h-3 w-3" strokeWidth={1.5} />
-                          Edit
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => void handleToggleStaffActive(staff)}
-                          title={staff.isActive ? 'Nonaktifkan' : 'Aktifkan'}
-                        >
-                          <Power className="h-3.5 w-3.5 text-zinc-600" strokeWidth={1.5} />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => void handleDeleteStaff(staff)}
-                          title="Hapus karyawan"
-                        >
-                          <Trash2
-                            className="h-3.5 w-3.5 text-zinc-400 hover:text-red-600"
-                            strokeWidth={1.5}
-                          />
-                        </Button>
-                      </div>
+                    <TableCell className="text-right">
+                      <ChevronRight
+                        className="ml-auto h-4 w-4 text-zinc-300 transition-all group-hover:translate-x-0.5 group-hover:text-zinc-700"
+                        strokeWidth={1.5}
+                      />
                     </TableCell>
                   </TableRow>
                 ))}
@@ -520,7 +492,7 @@ export function StaffPage() {
                   <TableHead>Nama &amp; Email</TableHead>
                   <TableHead>Phone / NIK</TableHead>
                   <TableHead>Role</TableHead>
-                  <TableHead className="text-right">Aksi</TableHead>
+                  <TableHead className="w-8" />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -528,7 +500,7 @@ export function StaffPage() {
                   <TableRow
                     key={admin.uid}
                     onClick={() => openAdminDetail(admin, false)}
-                    className="cursor-pointer"
+                    className="group cursor-pointer"
                   >
                     <TableCell>
                       <p className="font-medium text-zinc-950">{admin.displayName}</p>
@@ -549,36 +521,11 @@ export function StaffPage() {
                         {admin.role === 'superadmin' ? 'SUPERADMIN' : 'BRANCH ADMIN'}
                       </span>
                     </TableCell>
-                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                      <div className="inline-flex items-center gap-1.5">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => openAdminDetail(admin, false)}
-                        >
-                          <Eye className="h-3 w-3" strokeWidth={1.5} />
-                          Detail
-                        </Button>
-                        {canEditAdminAccount(admin) ? (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => openAdminDetail(admin, true)}
-                          >
-                            <Pencil className="h-3 w-3" strokeWidth={1.5} />
-                            Edit
-                          </Button>
-                        ) : null}
-                        {isSuperAdmin && admin.role === 'admin' ? (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => void handleRevokeBranchAdmin(admin)}
-                          >
-                            Cabut Akses Admin
-                          </Button>
-                        ) : null}
-                      </div>
+                    <TableCell className="text-right">
+                      <ChevronRight
+                        className="ml-auto h-4 w-4 text-zinc-300 transition-all group-hover:translate-x-0.5 group-hover:text-zinc-700"
+                        strokeWidth={1.5}
+                      />
                     </TableCell>
                   </TableRow>
                 ))}
@@ -695,7 +642,7 @@ export function StaffPage() {
       </Dialog>
 
       {/* Operational Staff Detail Modal */}
-      <Dialog open={Boolean(detailStaff)} onOpenChange={(o) => !o && setDetailStaff(null)}>
+      <Dialog open={Boolean(detailStaff)} onOpenChange={(o) => !o && setDetailStaffId(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-sm">
@@ -731,22 +678,44 @@ export function StaffPage() {
               </div>
             </div>
           ) : null}
-          <DialogFooter>
+          <DialogFooter className="flex-wrap gap-2 sm:justify-between">
             {detailStaff ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  const target = detailStaff;
-                  setDetailStaff(null);
-                  openEditStaff(target);
-                }}
-              >
-                <Pencil className="h-3.5 w-3.5" strokeWidth={1.5} />
-                Edit Karyawan
-              </Button>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const target = detailStaff;
+                    setDetailStaffId(null);
+                    openEditStaff(target);
+                  }}
+                >
+                  <Pencil className="h-3.5 w-3.5" strokeWidth={1.5} />
+                  Edit
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void handleToggleStaffActive(detailStaff)}
+                >
+                  <Power className="h-3.5 w-3.5" strokeWidth={1.5} />
+                  {detailStaff.isActive ? 'Nonaktifkan' : 'Aktifkan'}
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => {
+                    const target = detailStaff;
+                    setDetailStaffId(null);
+                    void handleDeleteStaff(target);
+                  }}
+                >
+                  <Trash2 className="h-3.5 w-3.5" strokeWidth={1.5} />
+                  Hapus
+                </Button>
+              </div>
             ) : null}
-            <Button variant="outline" size="sm" onClick={() => setDetailStaff(null)}>
+            <Button variant="outline" size="sm" onClick={() => setDetailStaffId(null)}>
               Close
             </Button>
           </DialogFooter>
