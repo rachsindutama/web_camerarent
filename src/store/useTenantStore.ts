@@ -12,11 +12,16 @@ interface TenantStoreState {
 
 export const useTenantStore = create<TenantStoreState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       selectedTenantId: null,
       isManualSelection: false,
-      setSelectedTenantId: (tenantId, manual = true) =>
-        set({ selectedTenantId: tenantId, isManualSelection: manual }),
+      setSelectedTenantId: (tenantId, manual = true) => {
+        const current = get();
+        if (current.selectedTenantId === tenantId && current.isManualSelection === manual) {
+          return;
+        }
+        set({ selectedTenantId: tenantId, isManualSelection: manual });
+      },
       resetSelection: () => set({ selectedTenantId: null, isManualSelection: false }),
     }),
     {

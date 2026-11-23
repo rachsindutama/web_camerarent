@@ -7,11 +7,13 @@ import { useNearestBranch } from '@/hooks/useNearestBranch';
 import { ALL_TENANTS_SCOPE, useTenantStore } from '@/store/useTenantStore';
 import type { Tenant } from '@/types/schema';
 
+const EMPTY_TENANTS: Tenant[] = [];
+
 export function useTenant() {
   const { userProfile } = useAuth();
   const { selectedTenantId, isManualSelection, setSelectedTenantId } = useTenantStore();
 
-  const { data: allTenants = [], isLoading } = useQuery<Tenant[]>({
+  const { data: allTenants = EMPTY_TENANTS, isLoading } = useQuery<Tenant[]>({
     queryKey: ['tenants', 'all'],
     enabled: isFirebaseConfigured && Boolean(db),
     queryFn: async () => {
@@ -130,7 +132,9 @@ export function useTenant() {
 
     if (!selectedTenantId || !tenants.some((t) => t.id === selectedTenantId)) {
       const targetId = autoDetectNearest && nearestTenant ? nearestTenant.id : tenants[0].id;
-      setSelectedTenantId(targetId, false);
+      if (selectedTenantId !== targetId) {
+        setSelectedTenantId(targetId, false);
+      }
     }
   }, [
     isLockedToTenant,

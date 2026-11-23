@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
+import { create } from 'zustand';
 import {
   getBrowserGpsLocation,
   getCachedVisitorLocation,
@@ -8,96 +9,115 @@ import {
 } from '@/lib/geo';
 import type { Tenant } from '@/types/schema';
 
+interface VisitorLocationState {
+  visitorLocation: VisitorLocation | null;
+  detecting: boolean;
+  locationReady: boolean;
+  hasAutoStarted: boolean;
+  setVisitorLocation: (loc: VisitorLocation | null) => void;
+  setDetecting: (detecting: boolean) => void;
+  setLocationReady: (ready: boolean) => void;
+  markAutoStarted: () => void;
+}
+
+const initialCached = typeof window !== 'undefined' ? getCachedVisitorLocation() : null;
+
+const useVisitorLocationStore = create<VisitorLocationState>((set) => ({
+  visitorLocation: initialCached,
+  detecting: false,
+  locationReady: Boolean(initialCached),
+  hasAutoStarted: false,
+  setVisitorLocation: (visitorLocation) => set({ visitorLocation }),
+  setDetecting: (detecting) => set({ detecting }),
+  setLocationReady: (locationReady) => set({ locationReady }),
+  markAutoStarted: () => set({ hasAutoStarted: true }),
+}));
+
+function startAutoDetectionOnce() {
+  const state = useVisitorLocationStore.getState();
+  if (state.hasAutoStarted) return;
+  state.markAutoStarted();
+
+  const cached = getCachedVisitorLocation();
+  if (cached?.source === 'gps') {
+    useVisitorLocationStore.setState({
+      visitorLocation: cached,
+      detecting: false,
+      locationReady: true,
+    });
+    return;
+  }
+
+  let settled = Boolean(cached);
+  const markReady = () => {
+    if (!settled) {
+      settled = true;
+      useVisitorLocationStore.setState({ detecting: false, locationReady: true });
+    }
+  };
+
+  if (!cached) {
+    useVisitorLocationStore.setState({ detecting: true });
+  }
+
+  // 1. Fast silent IP geolocation fallback so branch resolves immediately without waiting on GPS prompt
+  void getIpVisitorLocation(3000).then((ipLoc) => {
+    if (ipLoc) {
+      const curr = useVisitorLocationStore.getState().visitorLocation;
+      if (curr?.source !== 'gps') {
+        useVisitorLocationStore.setState({ visitorLocation: ipLoc });
+      }
+    }
+    markReady();
+  });
+
+  // 2. High-precision browser GPS in parallel (upgrades IP approximation if user allows)
+  void getBrowserGpsLocation(8000).then((gpsLoc) => {
+    if (gpsLoc) {
+      useVisitorLocationStore.setState({ visitorLocation: gpsLoc });
+    }
+    markReady();
+  });
+}
+
 interface UseNearestBranchOptions {
   tenants: Tenant[];
   enabled?: boolean;
 }
 
 export function useNearestBranch({ tenants, enabled = true }: UseNearestBranchOptions) {
-  const [visitorLocation, setVisitorLocation] = useState<VisitorLocation | null>(() =>
-    getCachedVisitorLocation()
-  );
-  const [detecting, setDetecting] = useState<boolean>(
-    () => enabled && !getCachedVisitorLocation()
-  );
-  const [locationReady, setLocationReady] = useState<boolean>(() =>
-    Boolean(getCachedVisitorLocation())
-  );
-  const hasAutoRunRef = useRef(false);
+  const visitorLocation = useVisitorLocationStore((s) => s.visitorLocation);
+  const detecting = useVisitorLocationStore((s) => s.detecting);
+  const locationReady = useVisitorLocationStore((s) => s.locationReady);
 
   useEffect(() => {
-    if (!enabled) {
-      setDetecting(false);
-      return;
-    }
-    if (hasAutoRunRef.current) return;
-    hasAutoRunRef.current = true;
-
-    const cached = getCachedVisitorLocation();
-    if (cached?.source === 'gps') {
-      setVisitorLocation(cached);
-      setDetecting(false);
-      setLocationReady(true);
-      return;
-    }
-
-    let cancelled = false;
-    let settled = Boolean(cached);
-
-    const markReady = () => {
-      if (!cancelled && !settled) {
-        settled = true;
-        setDetecting(false);
-        setLocationReady(true);
-      }
-    };
-
-    if (!cached) {
-      setDetecting(true);
-    }
-
-    // 1. Fast silent IP geolocation fallback so branch resolves immediately without waiting on GPS prompt
-    void getIpVisitorLocation(3000).then((ipLoc) => {
-      if (cancelled) return;
-      if (ipLoc) {
-        setVisitorLocation((prev) => (prev?.source === 'gps' ? prev : ipLoc));
-      }
-      markReady();
-    });
-
-    // 2. High-precision browser GPS in parallel (upgrades IP approximation if user allows)
-    void getBrowserGpsLocation(8000).then((gpsLoc) => {
-      if (cancelled) return;
-      if (gpsLoc) {
-        setVisitorLocation(gpsLoc);
-      }
-      markReady();
-    });
-
-    return () => {
-      cancelled = true;
-    };
+    if (!enabled) return;
+    startAutoDetectionOnce();
   }, [enabled]);
 
   const detectNow = useCallback(async (): Promise<VisitorLocation | null> => {
-    setDetecting(true);
+    useVisitorLocationStore.setState({ detecting: true });
     try {
       const gpsLoc = await getBrowserGpsLocation(9000);
       if (gpsLoc) {
-        setVisitorLocation(gpsLoc);
-        setLocationReady(true);
+        useVisitorLocationStore.setState({
+          visitorLocation: gpsLoc,
+          locationReady: true,
+        });
         return gpsLoc;
       }
       const ipLoc = await getIpVisitorLocation(3500);
       if (ipLoc) {
-        setVisitorLocation(ipLoc);
-        setLocationReady(true);
+        useVisitorLocationStore.setState({
+          visitorLocation: ipLoc,
+          locationReady: true,
+        });
         return ipLoc;
       }
-      setLocationReady(true);
+      useVisitorLocationStore.setState({ locationReady: true });
       return null;
     } finally {
-      setDetecting(false);
+      useVisitorLocationStore.setState({ detecting: false });
     }
   }, []);
 
@@ -115,7 +135,7 @@ export function useNearestBranch({ tenants, enabled = true }: UseNearestBranchOp
 
   return {
     visitorLocation,
-    detecting,
+    detecting: enabled ? detecting : false,
     locationReady,
     nearestTenant: ranked.nearest,
     nearestDistanceKm: ranked.nearestDistanceKm,
@@ -124,4 +144,3 @@ export function useNearestBranch({ tenants, enabled = true }: UseNearestBranchOp
     detectNow,
   };
 }
-
