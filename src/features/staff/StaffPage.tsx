@@ -200,8 +200,7 @@ export function StaffPage() {
     cleanStaffNikQuery.length === 16 &&
     exactNikMatchedUsers.length > 0 &&
     staffCandidateUsers.length === 0;
-  const selectedCandidateUser =
-    staffCandidateUsers.find((u) => u.uid === newStaffForm.userId) ?? null;
+  const selectedCandidateUser = staffCandidateUsers[0] ?? null;
 
   const filteredStaff = branchStaff.filter((s) => {
     if (roleFilter !== 'all' && s.role !== roleFilter) return false;
@@ -664,82 +663,51 @@ export function StaffPage() {
                 onChange={(e) => {
                   const nextNik = e.target.value.replace(/\D/g, '').slice(0, 16);
                   setStaffNikQuery(nextNik);
-                  setNewStaffForm((prev) => ({ ...prev, userId: '', phone: '' }));
+                  if (nextNik.length === 16) {
+                    const matched = allUsers.find(
+                      (u) =>
+                        (u.nik ?? '').replace(/\D/g, '') === nextNik &&
+                        !existingStaffUids.has(u.uid)
+                    );
+                    setNewStaffForm((prev) => ({
+                      ...prev,
+                      userId: matched?.uid ?? '',
+                      phone: matched?.phone ?? '',
+                    }));
+                  } else {
+                    setNewStaffForm((prev) => ({ ...prev, userId: '', phone: '' }));
+                  }
                 }}
               />
               {cleanStaffNikQuery.length < 16 ? (
                 <p className="text-xs text-muted-foreground">
-                  Ketik 16 digit NIK lengkap untuk memunculkan akun di dropdown.
+                  Ketik 16 digit NIK lengkap untuk mengambil data akun user.
                 </p>
               ) : nikAlreadyAssignedInBranch ? (
                 <p className="text-xs text-destructive">
                   Akun dengan NIK ini sudah terdaftar sebagai karyawan di cabang ini.
                 </p>
-              ) : staffCandidateUsers.length === 0 ? (
+              ) : !selectedCandidateUser ? (
                 <p className="text-xs text-destructive">
                   Tidak ditemukan akun user dengan NIK tersebut.
                 </p>
-              ) : (
-                <p className="text-xs text-foreground">
-                  {staffCandidateUsers.length} akun ditemukan — silakan pilih di dropdown di bawah.
-                </p>
-              )}
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Pilih Akun User</Label>
-              <Select
-                disabled={cleanStaffNikQuery.length !== 16 || staffCandidateUsers.length === 0}
-                value={newStaffForm.userId}
-                onValueChange={(uid) => {
-                  const u = staffCandidateUsers.find((item) => item.uid === uid);
-                  setNewStaffForm((prev) => ({
-                    ...prev,
-                    userId: uid,
-                    phone: u?.phone || '',
-                  }));
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue
-                    placeholder={
-                      cleanStaffNikQuery.length < 16
-                        ? 'Masukkan 16 digit NIK terlebih dahulu...'
-                        : staffCandidateUsers.length === 0
-                          ? 'Akun tidak tersedia'
-                          : 'Pilih akun user...'
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {staffCandidateUsers.map((u) => (
-                    <SelectItem key={u.uid} value={u.uid}>
-                      {u.displayName} ({u.email})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              ) : null}
             </div>
 
             {selectedCandidateUser ? (
-              <dl className="divide-y divide-border rounded-md border bg-muted/30 px-3 text-xs">
-                <div className="flex items-center justify-between py-2">
-                  <dt className="text-muted-foreground">Nama</dt>
-                  <dd className="font-medium text-foreground">
+              <div className="flex items-center gap-3 rounded-md border bg-muted/40 px-3 py-2.5">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-background border text-xs font-medium text-foreground">
+                  {getInitials(selectedCandidateUser.displayName)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-foreground">
                     {selectedCandidateUser.displayName}
-                  </dd>
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {selectedCandidateUser.email}
+                  </p>
                 </div>
-                <div className="flex items-center justify-between py-2">
-                  <dt className="text-muted-foreground">Email</dt>
-                  <dd className="text-foreground">{selectedCandidateUser.email}</dd>
-                </div>
-                <div className="flex items-center justify-between py-2">
-                  <dt className="text-muted-foreground">NIK</dt>
-                  <dd className="font-mono text-foreground">
-                    {selectedCandidateUser.nik || '—'}
-                  </dd>
-                </div>
-              </dl>
+              </div>
             ) : null}
 
             <div className="grid grid-cols-2 gap-3">
