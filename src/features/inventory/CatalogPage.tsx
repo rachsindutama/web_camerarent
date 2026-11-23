@@ -45,7 +45,7 @@ import { MembershipBadge } from '@/components/shared/MembershipBadge';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -58,6 +58,16 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { BookingItem, Bundle, Equipment, UserProfile } from '@/types/schema';
+
+const CATALOG_CATEGORIES: { value: string; label: string }[] = [
+  { value: 'all', label: 'Semua' },
+  { value: 'camera', label: 'Camera' },
+  { value: 'lens', label: 'Lens' },
+  { value: 'lighting', label: 'Lighting' },
+  { value: 'audio', label: 'Audio' },
+  { value: 'stabilizer', label: 'Stabilizer' },
+  { value: 'accessory', label: 'Accessory' },
+];
 
 interface CatalogPageProps {
   onRequireAuth?: (summary: CheckoutAuthSummary) => void;
@@ -83,6 +93,7 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
 
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<string>('all');
+  const [catalogTab, setCatalogTab] = useState<'gear' | 'bundles'>('gear');
   const [submitting, setSubmitting] = useState(false);
   const [mapPickerOpen, setMapPickerOpen] = useState(false);
   const [locatingShareloc, setLocatingShareloc] = useState(false);
@@ -474,243 +485,305 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
 
   const filteredEquipment = equipmentList.filter((eq) => {
     if (category !== 'all' && eq.category !== category) return false;
-    const q = search.toLowerCase();
-    return eq.name.toLowerCase().includes(q) || eq.brand.toLowerCase().includes(q);
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      eq.name.toLowerCase().includes(q) ||
+      eq.brand.toLowerCase().includes(q) ||
+      eq.category.toLowerCase().includes(q)
+    );
+  });
+
+  const filteredBundles = bundleList.filter((bundle) => {
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      bundle.name.toLowerCase().includes(q) ||
+      bundle.description.toLowerCase().includes(q)
+    );
   });
 
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-      {/* Left 8 cols: DateRange availability bar + Catalog */}
-      <div className="space-y-4 lg:col-span-8">
-        <Card className="shadow-none">
-          <CardContent className="grid grid-cols-1 gap-3 p-3.5 sm:grid-cols-12 sm:items-end">
-            <div className="space-y-1 sm:col-span-4">
-              <Label className="font-mono text-[10px] uppercase text-zinc-500">
-                Pickup / Start
-              </Label>
-              <Input
-                type="datetime-local"
-                className="font-mono text-xs"
-                value={startDateIso}
-                onChange={(e) => setDateRange(e.target.value, endDateIso)}
-              />
-            </div>
-            <div className="space-y-1 sm:col-span-4">
-              <Label className="font-mono text-[10px] uppercase text-zinc-500">
-                Return / End
-              </Label>
-              <Input
-                type="datetime-local"
-                className="font-mono text-xs"
-                value={endDateIso}
-                onChange={(e) => setDateRange(startDateIso, e.target.value)}
-              />
-            </div>
-            <div className="flex flex-col justify-between rounded border border-zinc-200 bg-zinc-50 px-3 py-1.5 sm:col-span-4">
-              <div className="flex items-center justify-between text-[11px] text-zinc-600">
-                <span className="flex items-center gap-1">
-                  <CalendarClock className="h-3 w-3" strokeWidth={1.5} />
-                  Cycle
-                </span>
-                <span className="font-mono font-semibold text-zinc-950">
-                  {isValidRange ? `${rentalDays} day(s)` : 'Invalid range'}
-                </span>
+    <div className="space-y-5">
+      {/* Storefront Hero & Search Header */}
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+            Katalog Kamera &amp; Gear Produksi
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Jelajahi kamera, lensa, lighting, dan paket produksi yang tersedia di{' '}
+            <span className="font-medium text-foreground">{activeTenant.name}</span>.
+          </p>
+        </div>
+
+        <div className="relative w-full md:w-72">
+          <Search
+            className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground"
+            strokeWidth={1.5}
+          />
+          <Input
+            placeholder="Cari kamera, lensa, brand..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="bg-background pl-9"
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+        {/* Left 8 cols: DateRange availability bar + Storefront Catalog */}
+        <div className="space-y-4 lg:col-span-8">
+          <Card className="shadow-none">
+            <CardContent className="grid grid-cols-1 gap-3 p-3.5 sm:grid-cols-12 sm:items-end">
+              <div className="space-y-1 sm:col-span-4">
+                <Label className="font-mono text-[10px] uppercase text-zinc-500">
+                  Pickup / Start
+                </Label>
+                <Input
+                  type="datetime-local"
+                  className="font-mono text-xs"
+                  value={startDateIso}
+                  onChange={(e) => setDateRange(e.target.value, endDateIso)}
+                />
               </div>
-              <div className="mt-0.5 flex items-center justify-between font-mono text-[10px] text-zinc-400">
-                <span>+{activeTenant.bufferHours}h turnaround buffer</span>
-                <span>{checkingAvail ? 'SYNCING' : 'LIVE'}</span>
+              <div className="space-y-1 sm:col-span-4">
+                <Label className="font-mono text-[10px] uppercase text-zinc-500">
+                  Return / End
+                </Label>
+                <Input
+                  type="datetime-local"
+                  className="font-mono text-xs"
+                  value={endDateIso}
+                  onChange={(e) => setDateRange(startDateIso, e.target.value)}
+                />
               </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {availabilityError ? (
-          <div className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-900">
-            <div className="flex items-center gap-2 font-semibold">
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} />
-              <span>Availability Check Error</span>
-            </div>
-            <p className="mt-1 break-all font-mono text-[11px] text-red-800">
-              {(availabilityError as Error).message}
-            </p>
-          </div>
-        ) : null}
-
-        <Tabs defaultValue="gear">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <TabsList>
-              <TabsTrigger value="gear">Individual Gear ({equipmentList.length})</TabsTrigger>
-              <TabsTrigger value="bundles">Production Kits ({bundleList.length})</TabsTrigger>
-            </TabsList>
-
-            <div className="relative w-60">
-              <Search
-                className="pointer-events-none absolute left-2.5 top-2 h-3.5 w-3.5 text-zinc-400"
-                strokeWidth={1.5}
-              />
-              <Input
-                placeholder="Search camera, lens, light..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-8"
-              />
-            </div>
-          </div>
-
-          <TabsContent value="gear" className="space-y-3">
-            <div className="flex flex-wrap gap-1.5">
-              {['all', 'camera', 'lens', 'lighting', 'audio', 'stabilizer', 'accessory'].map(
-                (cat) => (
-                  <button
-                    key={cat}
-                    type="button"
-                    onClick={() => setCategory(cat)}
-                    className={`rounded border px-2 py-0.5 font-mono text-[10px] uppercase transition-colors ${
-                      category === cat
-                        ? 'border-zinc-900 bg-zinc-900 text-white'
-                        : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50'
-                    }`}
-                  >
-                    {cat}
-                  </button>
-                )
-              )}
-            </div>
-
-            {loadingEq ? (
-              <div className="rounded-md border border-zinc-200 bg-white p-8 text-center font-mono text-xs text-zinc-400">
-                QUERYING LIVE AVAILABILITY...
+              <div className="flex flex-col justify-between rounded-md border border-zinc-200 bg-zinc-50 px-3 py-1.5 sm:col-span-4">
+                <div className="flex items-center justify-between text-[11px] text-zinc-600">
+                  <span className="flex items-center gap-1">
+                    <CalendarClock className="h-3 w-3" strokeWidth={1.5} />
+                    Durasi
+                  </span>
+                  <span className="font-mono font-semibold text-zinc-950">
+                    {isValidRange ? `${rentalDays} hari` : 'Rentang tidak valid'}
+                  </span>
+                </div>
+                <div className="mt-0.5 flex items-center justify-between font-mono text-[10px] text-zinc-400">
+                  <span>+{activeTenant.bufferHours}j buffer</span>
+                  <span>{checkingAvail ? 'SYNCING' : 'LIVE'}</span>
+                </div>
               </div>
-            ) : filteredEquipment.length === 0 ? (
-              <EmptyState
-                icon={Camera}
-                title="No gear available in this category"
-                description="Branch admins can add camera bodies, cinema lenses, and physical units in Inventory & SN."
-              />
-            ) : (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {filteredEquipment.map((eq) => {
-                  const availUnits = availabilityMap[eq.id] ?? [];
-                  const inCartQty = items.find((i) => i.equipmentId === eq.id)?.quantity ?? 0;
-                  const canAdd = isValidRange && availUnits.length > inCartQty;
-                  const coverImage = eq.images?.[0] && !brokenImageIds[eq.id] ? eq.images[0] : null;
+            </CardContent>
+          </Card>
 
-                  return (
-                    <Card
-                      key={eq.id}
-                      className="flex flex-col justify-between shadow-none transition-colors hover:border-foreground/20"
+          {availabilityError ? (
+            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-900">
+              <div className="flex items-center gap-2 font-semibold">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} />
+                <span>Availability Check Error</span>
+              </div>
+              <p className="mt-1 break-all font-mono text-[11px] text-red-800">
+                {(availabilityError as Error).message}
+              </p>
+            </div>
+          ) : null}
+
+          <Tabs
+            value={catalogTab}
+            onValueChange={(v) => setCatalogTab(v as 'gear' | 'bundles')}
+            className="space-y-4"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <TabsList>
+                <TabsTrigger value="gear">Gear Satuan ({filteredEquipment.length})</TabsTrigger>
+                <TabsTrigger value="bundles">Paket Kit ({filteredBundles.length})</TabsTrigger>
+              </TabsList>
+
+              {catalogTab === 'gear' ? (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {CATALOG_CATEGORIES.map((cat) => (
+                    <button
+                      key={cat.value}
+                      type="button"
+                      onClick={() => setCategory(cat.value)}
+                      className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                        category === cat.value
+                          ? 'bg-primary text-primary-foreground'
+                          : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'
+                      }`}
                     >
-                      <CardHeader className="pb-2">
-                        <div className="flex items-start justify-between gap-2.5">
-                          <div className="flex min-w-0 items-start gap-2.5">
-                            <div className="relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-white">
-                              {coverImage ? (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setPreviewTitle(eq.name);
-                                    setPreviewImages(
-                                      (eq.images ?? []).map((url, idx) => ({
-                                        url,
-                                        label: `${eq.brand} ${eq.name}${
-                                          (eq.images?.length ?? 0) > 1 ? ` #${idx + 1}` : ''
-                                        }`,
-                                      }))
-                                    );
-                                  }}
-                                  className="group relative block h-full w-full focus:outline-none"
-                                  title="Klik untuk memperbesar foto"
-                                >
-                                  <img
-                                    src={coverImage}
-                                    alt={eq.name}
-                                    loading="lazy"
-                                    onError={() =>
-                                      setBrokenImageIds((prev) => ({ ...prev, [eq.id]: true }))
-                                    }
-                                    className="h-full w-full object-contain p-0.5"
-                                  />
-                                  <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
-                                    <ZoomIn className="h-3.5 w-3.5 text-white" strokeWidth={1.75} />
-                                  </span>
-                                </button>
-                              ) : (
-                                <Camera
-                                  className="h-5 w-5 text-muted-foreground/45"
-                                  strokeWidth={1.5}
-                                />
-                              )}
-                            </div>
+                      {cat.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
 
-                            <div className="min-w-0">
-                              <p className="font-mono text-[10px] uppercase text-muted-foreground">
-                                {eq.brand} // {eq.category}
-                              </p>
-                              <CardTitle className="mt-0.5 line-clamp-2 text-sm leading-snug">
-                                {eq.name}
-                              </CardTitle>
-                            </div>
-                          </div>
+            <TabsContent value="gear" className="mt-0">
+              {loadingEq ? (
+                <div className="rounded-md border border-zinc-200 bg-white p-10 text-center text-xs text-muted-foreground">
+                  Memeriksa ketersediaan stok real-time...
+                </div>
+              ) : filteredEquipment.length === 0 ? (
+                <EmptyState
+                  icon={Camera}
+                  title="Belum ada gear yang sesuai"
+                  description="Coba ubah filter kategori, cabang, atau kata kunci pencarian."
+                />
+              ) : (
+                <div
+                  className={`grid grid-cols-1 gap-4 sm:grid-cols-2 ${
+                    isGuest ? 'xl:grid-cols-3' : '2xl:grid-cols-3'
+                  }`}
+                >
+                  {filteredEquipment.map((eq) => {
+                    const availUnits = availabilityMap[eq.id] ?? [];
+                    const inCartQty = items.find((i) => i.equipmentId === eq.id)?.quantity ?? 0;
+                    const canAdd = isValidRange && availUnits.length > inCartQty;
+                    const coverImage =
+                      eq.images?.[0] && !brokenImageIds[eq.id] ? eq.images[0] : null;
+                    const specEntries = Object.entries(eq.specs ?? {}).slice(0, 3);
 
-                          <StatusBadge
-                            status={
-                              availUnits.length > 0
-                                ? 'available'
-                                : eq.totalUnits === 0
-                                  ? 'maintenance'
-                                  : 'rented'
-                            }
-                            label={
-                              availUnits.length > 0
-                                ? `${availUnits.length} free`
-                                : eq.totalUnits === 0
-                                  ? 'No SN Units'
-                                  : '0 free'
-                            }
-                          />
-                        </div>
-                      </CardHeader>
-                      <CardContent className="space-y-3">
-                        {Object.keys(eq.specs || {}).length > 0 ? (
-                          <div className="space-y-0.5 border-t border-zinc-100 pt-2 text-[11px]">
-                            {Object.entries(eq.specs)
-                              .slice(0, 3)
-                              .map(([k, v]) => (
-                                <div key={k} className="flex justify-between gap-2">
-                                  <span className="text-zinc-400">{k}</span>
-                                  <span className="truncate font-mono text-zinc-700">{v}</span>
-                                </div>
-                              ))}
-                          </div>
-                        ) : null}
-
-                        <div className="flex items-center justify-between border-t border-zinc-100 pt-2.5">
-                          <div>
-                            <div className="text-xs font-semibold text-zinc-950">
-                              <CurrencyText amount={eq.dailyRate} suffix="/day" />
-                            </div>
-                            <div className="text-[10px] text-zinc-400">
-                              Deposit <CurrencyText amount={eq.depositAmount} />
-                            </div>
-                          </div>
-
-                          {inCartQty > 0 ? (
-                            <div className="inline-flex items-center gap-1 rounded-md border border-zinc-200 p-0.5">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6"
-                                onClick={() => decrementEquipment(eq.id)}
-                              >
-                                <Minus className="h-3 w-3" strokeWidth={1.5} />
-                              </Button>
-                              <span className="w-5 text-center font-mono text-xs font-medium">
-                                {inCartQty}
+                    return (
+                      <Card
+                        key={eq.id}
+                        className="flex flex-col overflow-hidden shadow-none transition-colors hover:border-foreground/20"
+                      >
+                        <div className="relative aspect-[4/3] w-full overflow-hidden border-b bg-white">
+                          {coverImage ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPreviewTitle(eq.name);
+                                setPreviewImages(
+                                  (eq.images ?? []).map((url, idx) => ({
+                                    url,
+                                    label: `${eq.brand} ${eq.name}${
+                                      (eq.images?.length ?? 0) > 1 ? ` #${idx + 1}` : ''
+                                    }`,
+                                  }))
+                                );
+                              }}
+                              className="group relative block h-full w-full focus:outline-none"
+                              title="Klik untuk memperbesar foto"
+                            >
+                              <img
+                                src={coverImage}
+                                alt={eq.name}
+                                loading="lazy"
+                                onError={() =>
+                                  setBrokenImageIds((prev) => ({ ...prev, [eq.id]: true }))
+                                }
+                                className="h-full w-full object-contain p-3 transition-transform duration-200 group-hover:scale-[1.03]"
+                              />
+                              <span className="pointer-events-none absolute bottom-2 right-2 inline-flex items-center gap-1 rounded-md border bg-background/90 px-1.5 py-0.5 text-[10px] font-medium text-foreground opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
+                                <ZoomIn className="h-3 w-3" strokeWidth={1.5} />
+                                Preview
                               </span>
+                            </button>
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center bg-muted/40 text-muted-foreground/40">
+                              <Camera className="h-10 w-10" strokeWidth={1.25} />
+                            </div>
+                          )}
+
+                          <span className="pointer-events-none absolute left-2.5 top-2.5 rounded-md border bg-background/95 px-2 py-0.5 text-[11px] font-medium capitalize text-foreground shadow-sm">
+                            {eq.category}
+                          </span>
+                          <div className="absolute right-2.5 top-2.5">
+                            <StatusBadge
+                              status={
+                                availUnits.length > 0
+                                  ? 'available'
+                                  : eq.totalUnits === 0
+                                    ? 'maintenance'
+                                    : 'rented'
+                              }
+                              label={
+                                availUnits.length > 0
+                                  ? `${availUnits.length} free`
+                                  : eq.totalUnits === 0
+                                    ? 'No SN'
+                                    : '0 free'
+                              }
+                            />
+                          </div>
+                        </div>
+
+                        <CardContent className="flex flex-1 flex-col justify-between gap-4 p-4">
+                          <div className="space-y-2">
+                            <div>
+                              <p className="text-xs text-muted-foreground">
+                                {eq.brand} · {activeTenant.name}
+                              </p>
+                              <h2 className="mt-0.5 line-clamp-2 text-sm font-semibold text-foreground">
+                                {eq.name}
+                              </h2>
+                            </div>
+
+                            {specEntries.length > 0 ? (
+                              <div className="flex flex-wrap gap-1.5 pt-0.5">
+                                {specEntries.map(([k, v]) => (
+                                  <span
+                                    key={k}
+                                    className="rounded bg-secondary px-2 py-0.5 text-[11px] text-secondary-foreground"
+                                  >
+                                    {v}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+
+                          <div className="space-y-3 border-t pt-3">
+                            <div className="flex flex-wrap items-baseline justify-between gap-1.5">
+                              <div>
+                                <CurrencyText
+                                  amount={eq.dailyRate}
+                                  className="text-sm font-semibold text-foreground"
+                                />
+                                <span className="text-xs text-muted-foreground"> / hari</span>
+                              </div>
+                              <span className="text-[11px] text-muted-foreground">
+                                Deposit <CurrencyText amount={eq.depositAmount} />
+                              </span>
+                            </div>
+
+                            {inCartQty > 0 ? (
+                              <div className="flex h-8 w-full items-center justify-between rounded-md border bg-muted/30 px-1">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6"
+                                  onClick={() => decrementEquipment(eq.id)}
+                                >
+                                  <Minus className="h-3.5 w-3.5" strokeWidth={1.5} />
+                                </Button>
+                                <span className="font-mono text-xs font-semibold text-foreground">
+                                  {inCartQty} di Booking Draft
+                                </span>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6"
+                                  disabled={!canAdd}
+                                  onClick={() =>
+                                    addEquipment({
+                                      equipmentId: eq.id,
+                                      name: eq.name,
+                                      brand: eq.brand,
+                                      dailyRate: eq.dailyRate,
+                                      depositAmount: eq.depositAmount,
+                                    })
+                                  }
+                                >
+                                  <Plus className="h-3.5 w-3.5" strokeWidth={1.5} />
+                                </Button>
+                              </div>
+                            ) : (
                               <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6"
+                                size="sm"
+                                className="w-full"
                                 disabled={!canAdd}
                                 onClick={() =>
                                   addEquipment({
@@ -722,137 +795,164 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
                                   })
                                 }
                               >
-                                <Plus className="h-3 w-3" strokeWidth={1.5} />
+                                <Plus className="h-3.5 w-3.5" strokeWidth={1.5} />
+                                Tambah ke Booking
                               </Button>
+                            )}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="bundles" className="mt-0">
+              {filteredBundles.length === 0 ? (
+                <EmptyState
+                  icon={Package}
+                  title="Belum ada paket kit tersedia"
+                  description="Paket produksi untuk cabang terpilih belum tersedia saat ini."
+                />
+              ) : (
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  {filteredBundles.map((bundle) => {
+                    const minAvailable = bundle.equipmentIds.reduce(
+                      (min, id) => Math.min(min, (availabilityMap[id] ?? []).length),
+                      Infinity
+                    );
+                    const kitReady = isValidRange && minAvailable > 0 && minAvailable !== Infinity;
+                    const alreadyInCart = cartBundles.some((b) => b.bundleId === bundle.id);
+                    const includedGear = bundle.equipmentIds
+                      .map((id) => equipmentById[id])
+                      .filter((eq): eq is Equipment => Boolean(eq));
+                    const bundleThumbnails = includedGear.filter(
+                      (eq) => Boolean(eq.images?.[0] && !brokenImageIds[eq.id])
+                    );
+
+                    return (
+                      <Card
+                        key={bundle.id}
+                        className="flex flex-col justify-between shadow-none transition-colors hover:border-foreground/20"
+                      >
+                        <CardContent className="flex flex-1 flex-col justify-between gap-4 p-5">
+                          <div className="space-y-2.5">
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <p className="text-xs text-muted-foreground">
+                                  {activeTenant.name} · {bundle.equipmentIds.length} item
+                                </p>
+                                <h2 className="mt-0.5 text-base font-semibold text-foreground">
+                                  {bundle.name}
+                                </h2>
+                              </div>
+                              <StatusBadge
+                                status={kitReady ? 'available' : 'rented'}
+                                label={kitReady ? `${minAvailable} kit free` : 'Unavailable'}
+                              />
                             </div>
-                          ) : (
+
+                            {bundle.description ? (
+                              <p className="text-xs leading-relaxed text-muted-foreground">
+                                {bundle.description}
+                              </p>
+                            ) : null}
+
+                            {bundleThumbnails.length > 0 ? (
+                              <div className="flex items-center gap-2 overflow-x-auto pt-0.5">
+                                {bundleThumbnails.map((eq) => (
+                                  <button
+                                    key={eq.id}
+                                    type="button"
+                                    onClick={() => {
+                                      setPreviewTitle(bundle.name);
+                                      setPreviewImages(
+                                        bundleThumbnails.map((item) => ({
+                                          url: item.images[0],
+                                          label: `${item.brand} ${item.name}`,
+                                        }))
+                                      );
+                                    }}
+                                    className="h-10 w-10 shrink-0 overflow-hidden rounded border bg-white p-0.5 transition-opacity hover:opacity-85"
+                                    title={eq.name}
+                                  >
+                                    <img
+                                      src={eq.images[0]}
+                                      alt={eq.name}
+                                      className="h-full w-full object-contain"
+                                    />
+                                  </button>
+                                ))}
+                              </div>
+                            ) : null}
+
+                            {includedGear.length > 0 ? (
+                              <div className="flex flex-wrap gap-1.5 pt-0.5">
+                                {includedGear.map((eq) => (
+                                  <span
+                                    key={eq.id}
+                                    className="rounded border bg-muted/40 px-2 py-0.5 text-[11px] text-foreground"
+                                  >
+                                    {eq.name}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+
+                          <div className="space-y-3 border-t pt-3">
+                            <div className="flex flex-wrap items-baseline justify-between gap-2">
+                              <div>
+                                <CurrencyText
+                                  amount={bundle.bundleDailyRate}
+                                  className="text-sm font-semibold text-foreground"
+                                />
+                                <span className="text-xs text-muted-foreground"> / hari</span>
+                              </div>
+                              <span className="text-xs text-muted-foreground">
+                                Deposit <CurrencyText amount={bundle.bundleDeposit} />
+                              </span>
+                            </div>
+
                             <Button
                               size="sm"
-                              variant="outline"
-                              disabled={!canAdd}
+                              variant={alreadyInCart ? 'secondary' : 'default'}
+                              className="w-full"
+                              disabled={!kitReady || alreadyInCart}
                               onClick={() =>
-                                addEquipment({
-                                  equipmentId: eq.id,
-                                  name: eq.name,
-                                  brand: eq.brand,
-                                  dailyRate: eq.dailyRate,
-                                  depositAmount: eq.depositAmount,
+                                addBundle({
+                                  bundleId: bundle.id,
+                                  name: bundle.name,
+                                  equipmentIds: bundle.equipmentIds,
+                                  bundleDailyRate: bundle.bundleDailyRate,
+                                  bundleDeposit: bundle.bundleDeposit,
                                 })
                               }
                             >
-                              <Plus className="h-3.5 w-3.5" strokeWidth={1.5} />
-                              Add
+                              {alreadyInCart ? (
+                                'Sudah di Booking Draft'
+                              ) : (
+                                <>
+                                  <Plus className="h-3.5 w-3.5" strokeWidth={1.5} />
+                                  Book Paket Ini
+                                </>
+                              )}
                             </Button>
-                          )}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
-            )}
-          </TabsContent>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
+        </div>
 
-          <TabsContent value="bundles" className="space-y-3">
-            {bundleList.length === 0 ? (
-              <EmptyState
-                icon={Package}
-                title="No production bundles in this branch"
-                description="Branch admins can assemble multi-item kits under Kit Bundles."
-              />
-            ) : (
-              <div className="grid grid-cols-1 gap-3">
-                {bundleList.map((bundle) => {
-                  const minAvailable = bundle.equipmentIds.reduce(
-                    (min, id) => Math.min(min, (availabilityMap[id] ?? []).length),
-                    Infinity
-                  );
-                  const kitReady = isValidRange && minAvailable > 0 && minAvailable !== Infinity;
-                  const alreadyInCart = cartBundles.some((b) => b.bundleId === bundle.id);
-                  const bundleThumbnails = bundle.equipmentIds
-                    .map((id) => equipmentById[id])
-                    .filter((eq): eq is Equipment => Boolean(eq?.images?.[0] && !brokenImageIds[eq.id]));
-
-                  return (
-                    <Card key={bundle.id} className="shadow-none">
-                      <CardHeader className="pb-2">
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <CardTitle className="text-sm">{bundle.name}</CardTitle>
-                            <CardDescription className="mt-0.5">{bundle.description}</CardDescription>
-                          </div>
-                          <StatusBadge
-                            status={kitReady ? 'available' : 'rented'}
-                            label={kitReady ? `${minAvailable} kit(s) free` : 'Unavailable'}
-                          />
-                        </div>
-                        {bundleThumbnails.length > 0 ? (
-                          <div className="mt-2 flex items-center gap-1.5 overflow-x-auto">
-                            {bundleThumbnails.map((eq) => (
-                              <button
-                                key={eq.id}
-                                type="button"
-                                onClick={() => {
-                                  setPreviewTitle(bundle.name);
-                                  setPreviewImages(
-                                    bundleThumbnails.map((item) => ({
-                                      url: item.images[0],
-                                      label: `${item.brand} ${item.name}`,
-                                    }))
-                                  );
-                                }}
-                                className="h-9 w-9 shrink-0 overflow-hidden rounded border bg-muted/40 transition-opacity hover:opacity-85"
-                                title={eq.name}
-                              >
-                                <img
-                                  src={eq.images[0]}
-                                  alt={eq.name}
-                                  className="h-full w-full object-cover"
-                                />
-                              </button>
-                            ))}
-                          </div>
-                        ) : null}
-                      </CardHeader>
-                      <CardContent className="flex flex-wrap items-center justify-between gap-3 pt-1">
-                        <div>
-                          <div className="text-sm font-semibold text-zinc-950">
-                            <CurrencyText amount={bundle.bundleDailyRate} suffix="/day" />
-                          </div>
-                          <div className="text-[11px] text-zinc-500">
-                            {bundle.equipmentIds.length} items · Deposit{' '}
-                            <CurrencyText amount={bundle.bundleDeposit} />
-                          </div>
-                        </div>
-                        <Button
-                          size="sm"
-                          variant={alreadyInCart ? 'secondary' : 'outline'}
-                          disabled={!kitReady || alreadyInCart}
-                          onClick={() =>
-                            addBundle({
-                              bundleId: bundle.id,
-                              name: bundle.name,
-                              equipmentIds: bundle.equipmentIds,
-                              bundleDailyRate: bundle.bundleDailyRate,
-                              bundleDeposit: bundle.bundleDeposit,
-                            })
-                          }
-                        >
-                          {alreadyInCart ? 'In Draft' : 'Add Kit to Draft'}
-                        </Button>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
-            )}
-          </TabsContent>
-        </Tabs>
-      </div>
-
-      {/* Right 4 cols: Booking Draft & KYC-Gated Checkout */}
-      <div className="lg:col-span-4">
-        <Card className="sticky top-4 shadow-none">
+        {/* Right 4 cols: Booking Draft & Checkout */}
+        <div className="lg:col-span-4">
+          <Card className="sticky top-16 shadow-none">
           <CardHeader className="border-b border-zinc-100 pb-3">
             <CardTitle className="flex items-center justify-between text-sm">
               <span className="flex items-center gap-2">
@@ -1375,6 +1475,7 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
         images={previewImages}
         title={previewTitle}
       />
+      </div>
     </div>
   );
 }
