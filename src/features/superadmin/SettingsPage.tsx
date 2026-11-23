@@ -1,6 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Building2, Check, RotateCcw, Save, SlidersHorizontal, Sparkles } from 'lucide-react';
+import {
+  Building2,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  RotateCcw,
+  Save,
+  Search,
+  SlidersHorizontal,
+  Sparkles,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import {
   DEFAULT_PLATFORM_SETTINGS,
@@ -21,6 +31,13 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import type { MembershipTier } from '@/types/schema';
 
@@ -35,13 +52,40 @@ export function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [applyingBranches, setApplyingBranches] = useState(false);
 
-  // Branch target scope for Ongkir, Buffer, Grace & Denda
+  // Branch target scope, search & pagination for Ongkir, Buffer, Grace & Denda
   const [applyScope, setApplyScope] = useState<ApplyScope>('all');
   const [selectedTenantIds, setSelectedTenantIds] = useState<string[]>([]);
+  const [branchSearch, setBranchSearch] = useState('');
+  const [branchPage, setBranchPage] = useState(1);
+  const [branchPageSize, setBranchPageSize] = useState(5);
 
   useEffect(() => {
     setDraft(settings);
   }, [settings]);
+
+  const filteredTenants = useMemo(() => {
+    const q = branchSearch.trim().toLowerCase();
+    if (!q) return allTenants;
+    return allTenants.filter(
+      (t) =>
+        t.name.toLowerCase().includes(q) ||
+        t.slug.toLowerCase().includes(q) ||
+        t.address.toLowerCase().includes(q)
+    );
+  }, [allTenants, branchSearch]);
+
+  const totalBranchPages = Math.max(1, Math.ceil(filteredTenants.length / branchPageSize));
+  const safeBranchPage = Math.min(branchPage, totalBranchPages);
+  const paginatedTenants = useMemo(() => {
+    const start = (safeBranchPage - 1) * branchPageSize;
+    return filteredTenants.slice(start, start + branchPageSize);
+  }, [filteredTenants, safeBranchPage, branchPageSize]);
+
+  useEffect(() => {
+    if (branchPage > totalBranchPages) {
+      setBranchPage(totalBranchPages);
+    }
+  }, [branchPage, totalBranchPages]);
 
   const updateTierField = <K extends keyof MembershipBenefitConfig>(
     tier: MembershipTier,
@@ -471,54 +515,138 @@ export function SettingsPage() {
                 </div>
               </div>
 
-              {/* Branch status overview & selectable checkboxes when scope === 'selected' */}
+              {/* Search & Per-Page Bar */}
               {allTenants.length > 0 ? (
-                <div className="divide-y divide-border rounded-md border">
-                  {allTenants.map((tenant) => {
-                    const checked =
-                      applyScope === 'all' || selectedTenantIds.includes(tenant.id);
-                    const isSelectable = applyScope === 'selected';
-
-                    return (
-                      <div
-                        key={tenant.id}
-                        onClick={() => isSelectable && toggleTenantSelection(tenant.id)}
-                        className={`flex flex-wrap items-center justify-between gap-3 px-3.5 py-2.5 text-xs transition-colors ${
-                          isSelectable ? 'cursor-pointer hover:bg-muted/50' : 'bg-muted/20'
-                        }`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div
-                            className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
-                              checked
-                                ? 'border-primary bg-primary text-primary-foreground'
-                                : 'border-input bg-background'
-                            }`}
-                          >
-                            {checked ? <Check className="h-3 w-3" strokeWidth={2} /> : null}
-                          </div>
-                          <div>
-                            <p className="font-medium text-foreground">{tenant.name}</p>
-                            <p className="text-[11px] text-muted-foreground">{tenant.slug}</p>
-                          </div>
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-3 tabular-nums text-[11px] text-muted-foreground">
-                          <span className="font-medium text-foreground">
-                            <CurrencyText amount={tenant.deliveryRatePerKm} suffix="/km" />
-                          </span>
-                          <span>· {tenant.bufferHours}h buffer</span>
-                          <span>· {tenant.overdueGraceMinutes}m grace</span>
-                          <span>· {tenant.overdueHourlyRatePercent}%/jam</span>
-                        </div>
-                      </div>
-                    );
-                  })}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="relative w-full max-w-xs">
+                    <Search
+                      className="pointer-events-none absolute left-3 top-2.5 h-3.5 w-3.5 text-muted-foreground"
+                      strokeWidth={1.5}
+                    />
+                    <Input
+                      placeholder="Cari cabang..."
+                      value={branchSearch}
+                      onChange={(e) => {
+                        setBranchSearch(e.target.value);
+                        setBranchPage(1);
+                      }}
+                      className="h-8 pl-8 text-xs"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>Tampilkan</span>
+                    <Select
+                      value={String(branchPageSize)}
+                      onValueChange={(v) => {
+                        setBranchPageSize(Number(v));
+                        setBranchPage(1);
+                      }}
+                    >
+                      <SelectTrigger className="h-8 w-16 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="5">5</SelectItem>
+                        <SelectItem value="10">10</SelectItem>
+                        <SelectItem value="20">20</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <span>/ halaman</span>
+                  </div>
                 </div>
-              ) : (
+              ) : null}
+
+              {/* Branch status overview & selectable checkboxes when scope === 'selected' */}
+              {allTenants.length === 0 ? (
                 <div className="flex items-center gap-2 rounded-md border border-dashed px-3.5 py-3 text-xs text-muted-foreground">
                   <Building2 className="h-4 w-4" strokeWidth={1.5} />
                   Belum ada cabang terdaftar.
+                </div>
+              ) : filteredTenants.length === 0 ? (
+                <div className="rounded-md border border-dashed px-3.5 py-4 text-center text-xs text-muted-foreground">
+                  Tidak ada cabang yang cocok dengan pencarian &ldquo;{branchSearch}&rdquo;.
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  <div className="divide-y divide-border rounded-md border">
+                    {paginatedTenants.map((tenant) => {
+                      const checked =
+                        applyScope === 'all' || selectedTenantIds.includes(tenant.id);
+                      const isSelectable = applyScope === 'selected';
+
+                      return (
+                        <div
+                          key={tenant.id}
+                          onClick={() => isSelectable && toggleTenantSelection(tenant.id)}
+                          className={`flex flex-wrap items-center justify-between gap-3 px-3.5 py-2.5 text-xs transition-colors ${
+                            isSelectable ? 'cursor-pointer hover:bg-muted/50' : 'bg-muted/20'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div
+                              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                                checked
+                                  ? 'border-primary bg-primary text-primary-foreground'
+                                  : 'border-input bg-background'
+                              }`}
+                            >
+                              {checked ? <Check className="h-3 w-3" strokeWidth={2} /> : null}
+                            </div>
+                            <div>
+                              <p className="font-medium text-foreground">{tenant.name}</p>
+                              <p className="text-[11px] text-muted-foreground">{tenant.slug}</p>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-3 tabular-nums text-[11px] text-muted-foreground">
+                            <span className="font-medium text-foreground">
+                              <CurrencyText amount={tenant.deliveryRatePerKm} suffix="/km" />
+                            </span>
+                            <span>· {tenant.bufferHours}h buffer</span>
+                            <span>· {tenant.overdueGraceMinutes}m grace</span>
+                            <span>· {tenant.overdueHourlyRatePercent}%/jam</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Pagination Footer */}
+                  <div className="flex flex-wrap items-center justify-between gap-3 pt-0.5 text-xs text-muted-foreground">
+                    <span className="tabular-nums">
+                      Menampilkan {(safeBranchPage - 1) * branchPageSize + 1}–
+                      {Math.min(safeBranchPage * branchPageSize, filteredTenants.length)} dari{' '}
+                      {filteredTenants.length} cabang
+                    </span>
+
+                    <div className="flex items-center gap-1.5">
+                      <span className="mr-1 tabular-nums">
+                        Halaman {safeBranchPage} / {totalBranchPages}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2"
+                        disabled={safeBranchPage <= 1}
+                        onClick={() => setBranchPage((p) => Math.max(1, p - 1))}
+                      >
+                        <ChevronLeft className="h-3.5 w-3.5" strokeWidth={1.5} />
+                        Prev
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2"
+                        disabled={safeBranchPage >= totalBranchPages}
+                        onClick={() => setBranchPage((p) => Math.min(totalBranchPages, p + 1))}
+                      >
+                        Next
+                        <ChevronRight className="h-3.5 w-3.5" strokeWidth={1.5} />
+                      </Button>
+                    </div>
+                  </div>
                 </div>
               )}
 
