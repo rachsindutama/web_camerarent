@@ -21,6 +21,7 @@ import {
   Trash2,
   Truck,
   UserCheck,
+  ZoomIn,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { db } from '@/lib/firebase';
@@ -37,6 +38,7 @@ import { useTenant } from '@/hooks/useTenant';
 import { useAvailability } from '@/hooks/useAvailability';
 import { useBookingDraftStore } from '@/store/useBookingDraftStore';
 import { CurrencyText } from '@/components/shared/CurrencyText';
+import { ImagePreviewModal, type PreviewImageItem } from '@/components/shared/ImagePreviewModal';
 import { LocationPickerModal } from '@/components/shared/LocationPickerModal';
 import { MembershipBadge } from '@/components/shared/MembershipBadge';
 import { StatusBadge } from '@/components/shared/StatusBadge';
@@ -77,6 +79,9 @@ export function CatalogPage() {
   const [submitting, setSubmitting] = useState(false);
   const [mapPickerOpen, setMapPickerOpen] = useState(false);
   const [locatingShareloc, setLocatingShareloc] = useState(false);
+  const [previewImages, setPreviewImages] = useState<PreviewImageItem[]>([]);
+  const [previewTitle, setPreviewTitle] = useState('Foto Alat');
+  const [brokenImageIds, setBrokenImageIds] = useState<Record<string, boolean>>({});
 
   // Assisted / Walk-in Booking: Admin & Superadmin pick target Member
   const [selectedRenterUid, setSelectedRenterUid] = useState('');
@@ -197,6 +202,14 @@ export function CatalogPage() {
     Boolean(startDate && endDate) && (endDate?.getTime() ?? 0) > (startDate?.getTime() ?? 0);
 
   const allEquipmentIds = useMemo(() => equipmentList.map((e) => e.id), [equipmentList]);
+  const equipmentById = useMemo(
+    () =>
+      equipmentList.reduce<Record<string, Equipment>>((acc, eq) => {
+        acc[eq.id] = eq;
+        return acc;
+      }, {}),
+    [equipmentList]
+  );
 
   const {
     data: availabilityMap = {},
@@ -556,17 +569,65 @@ export function CatalogPage() {
                   const availUnits = availabilityMap[eq.id] ?? [];
                   const inCartQty = items.find((i) => i.equipmentId === eq.id)?.quantity ?? 0;
                   const canAdd = isValidRange && availUnits.length > inCartQty;
+                  const coverImage = eq.images?.[0] && !brokenImageIds[eq.id] ? eq.images[0] : null;
 
                   return (
-                    <Card key={eq.id} className="flex flex-col justify-between shadow-none">
+                    <Card
+                      key={eq.id}
+                      className="flex flex-col justify-between shadow-none transition-colors hover:border-foreground/20"
+                    >
                       <CardHeader className="pb-2">
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <p className="font-mono text-[10px] uppercase text-zinc-400">
-                              {eq.brand} // {eq.category}
-                            </p>
-                            <CardTitle className="mt-0.5 text-sm">{eq.name}</CardTitle>
+                        <div className="flex items-start justify-between gap-2.5">
+                          <div className="flex min-w-0 items-start gap-2.5">
+                            <div className="relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted/40">
+                              {coverImage ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setPreviewTitle(eq.name);
+                                    setPreviewImages(
+                                      (eq.images ?? []).map((url, idx) => ({
+                                        url,
+                                        label: `${eq.brand} ${eq.name}${
+                                          (eq.images?.length ?? 0) > 1 ? ` #${idx + 1}` : ''
+                                        }`,
+                                      }))
+                                    );
+                                  }}
+                                  className="group relative block h-full w-full focus:outline-none"
+                                  title="Klik untuk memperbesar foto"
+                                >
+                                  <img
+                                    src={coverImage}
+                                    alt={eq.name}
+                                    loading="lazy"
+                                    onError={() =>
+                                      setBrokenImageIds((prev) => ({ ...prev, [eq.id]: true }))
+                                    }
+                                    className="h-full w-full object-cover"
+                                  />
+                                  <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
+                                    <ZoomIn className="h-3.5 w-3.5 text-white" strokeWidth={1.75} />
+                                  </span>
+                                </button>
+                              ) : (
+                                <Camera
+                                  className="h-5 w-5 text-muted-foreground/45"
+                                  strokeWidth={1.5}
+                                />
+                              )}
+                            </div>
+
+                            <div className="min-w-0">
+                              <p className="font-mono text-[10px] uppercase text-muted-foreground">
+                                {eq.brand} // {eq.category}
+                              </p>
+                              <CardTitle className="mt-0.5 line-clamp-2 text-sm leading-snug">
+                                {eq.name}
+                              </CardTitle>
+                            </div>
                           </div>
+
                           <StatusBadge
                             status={
                               availUnits.length > 0
@@ -684,6 +745,9 @@ export function CatalogPage() {
                   );
                   const kitReady = isValidRange && minAvailable > 0 && minAvailable !== Infinity;
                   const alreadyInCart = cartBundles.some((b) => b.bundleId === bundle.id);
+                  const bundleThumbnails = bundle.equipmentIds
+                    .map((id) => equipmentById[id])
+                    .filter((eq): eq is Equipment => Boolean(eq?.images?.[0] && !brokenImageIds[eq.id]));
 
                   return (
                     <Card key={bundle.id} className="shadow-none">
@@ -698,6 +762,33 @@ export function CatalogPage() {
                             label={kitReady ? `${minAvailable} kit(s) free` : 'Unavailable'}
                           />
                         </div>
+                        {bundleThumbnails.length > 0 ? (
+                          <div className="mt-2 flex items-center gap-1.5 overflow-x-auto">
+                            {bundleThumbnails.map((eq) => (
+                              <button
+                                key={eq.id}
+                                type="button"
+                                onClick={() => {
+                                  setPreviewTitle(bundle.name);
+                                  setPreviewImages(
+                                    bundleThumbnails.map((item) => ({
+                                      url: item.images[0],
+                                      label: `${item.brand} ${item.name}`,
+                                    }))
+                                  );
+                                }}
+                                className="h-9 w-9 shrink-0 overflow-hidden rounded border bg-muted/40 transition-opacity hover:opacity-85"
+                                title={eq.name}
+                              >
+                                <img
+                                  src={eq.images[0]}
+                                  alt={eq.name}
+                                  className="h-full w-full object-cover"
+                                />
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
                       </CardHeader>
                       <CardContent className="flex flex-wrap items-center justify-between gap-3 pt-1">
                         <div>
@@ -985,29 +1076,49 @@ export function CatalogPage() {
               </p>
             ) : (
               <div className="space-y-2">
-                {items.map((item) => (
-                  <div
-                    key={item.equipmentId}
-                    className="flex items-center justify-between gap-2 rounded border border-zinc-200 px-2.5 py-2 text-xs"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate font-medium text-zinc-900">
-                        {item.quantity}x {item.name}
-                      </p>
-                      <p className="font-mono text-[10px] text-zinc-500">
-                        <CurrencyText amount={item.dailyRate * item.quantity * rentalDays} />
-                      </p>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 shrink-0"
-                      onClick={() => removeEquipment(item.equipmentId)}
+                {items.map((item) => {
+                  const thumb =
+                    equipmentById[item.equipmentId]?.images?.[0] &&
+                    !brokenImageIds[item.equipmentId]
+                      ? equipmentById[item.equipmentId].images[0]
+                      : null;
+                  return (
+                    <div
+                      key={item.equipmentId}
+                      className="flex items-center justify-between gap-2.5 rounded border border-zinc-200 px-2.5 py-2 text-xs"
                     >
-                      <Trash2 className="h-3 w-3 text-zinc-400" strokeWidth={1.5} />
-                    </Button>
-                  </div>
-                ))}
+                      <div className="flex min-w-0 items-center gap-2">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded border bg-muted/40">
+                          {thumb ? (
+                            <img
+                              src={thumb}
+                              alt={item.name}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <Camera className="h-3.5 w-3.5 text-muted-foreground/50" strokeWidth={1.5} />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-zinc-900">
+                            {item.quantity}x {item.name}
+                          </p>
+                          <p className="font-mono text-[10px] text-zinc-500">
+                            <CurrencyText amount={item.dailyRate * item.quantity * rentalDays} />
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 shrink-0"
+                        onClick={() => removeEquipment(item.equipmentId)}
+                      >
+                        <Trash2 className="h-3 w-3 text-zinc-400" strokeWidth={1.5} />
+                      </Button>
+                    </div>
+                  );
+                })}
 
                 {cartBundles.map((bundle) => (
                   <div
@@ -1227,6 +1338,15 @@ export function CatalogPage() {
           setDeliveryLocation({ coordinates, address, distanceKm });
           toast.success(`Lokasi pengiriman dikunci (${distanceKm} km dari cabang).`);
         }}
+      />
+
+      <ImagePreviewModal
+        open={previewImages.length > 0}
+        onOpenChange={(open) => {
+          if (!open) setPreviewImages([]);
+        }}
+        images={previewImages}
+        title={previewTitle}
       />
     </div>
   );

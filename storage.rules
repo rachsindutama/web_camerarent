@@ -33,6 +33,12 @@ service firebase.storage {
       allow read: if isSignedIn();
       allow write: if isSignedIn() && isImageUnder5MB();
     }
+
+    // Equipment catalog thumbnails & product photos (public-read for storefront & catalog)
+    match /equipment/{tenantId}/{allPaths=**} {
+      allow read: if true;
+      allow write: if isSignedIn() && isImageUnder5MB();
+    }
   }
 }
 

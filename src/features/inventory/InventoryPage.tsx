@@ -12,12 +12,14 @@ import {
   where,
   writeBatch,
 } from 'firebase/firestore';
-import { Camera, ChevronRight, Plus, Search, Trash2 } from 'lucide-react';
+import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import { Camera, ChevronRight, Loader2, Plus, Search, Trash2, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { db } from '@/lib/firebase';
+import { db, storage } from '@/lib/firebase';
 import { useTenant } from '@/hooks/useTenant';
 import { CurrencyText } from '@/components/shared/CurrencyText';
 import { EmptyState } from '@/components/shared/EmptyState';
+import { ImagePreviewModal, type PreviewImageItem } from '@/components/shared/ImagePreviewModal';
 import { SerialNumberTag } from '@/components/shared/SerialNumberTag';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
@@ -82,6 +84,10 @@ export function InventoryPage() {
   const [detailTab, setDetailTab] = useState<'units' | 'edit'>('units');
   const [confirmDeleteModel, setConfirmDeleteModel] = useState(false);
   const [deletingModel, setDeletingModel] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [previewImages, setPreviewImages] = useState<PreviewImageItem[]>([]);
+  const [previewTitle, setPreviewTitle] = useState('Foto Alat');
+  const [brokenImageIds, setBrokenImageIds] = useState<Record<string, boolean>>({});
 
   const [unitForm, setUnitForm] = useState({
     serialNumber: '',
@@ -178,6 +184,43 @@ export function InventoryPage() {
     });
   };
 
+  const handleUploadThumbnail = async (file: File | undefined) => {
+    if (!file) return;
+    if (!storage) {
+      toast.error('Firebase Storage belum terkonfigurasi.');
+      return;
+    }
+    if (!file.type.startsWith('image/')) {
+      toast.error('File harus berupa gambar (JPG, PNG, WebP).');
+      return;
+    }
+    if (file.size >= 5 * 1024 * 1024) {
+      toast.error('Ukuran foto maksimal 5 MB.');
+      return;
+    }
+    const targetTenantId =
+      eqForm.tenantId || selectedEquipment?.tenantId || activeTenantId || allTenants[0]?.id;
+    if (!targetTenantId) {
+      toast.error('Pilih cabang terlebih dahulu sebelum mengunggah foto.');
+      return;
+    }
+
+    setUploadingImage(true);
+    try {
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const storageRef = ref(storage, `equipment/${targetTenantId}/${Date.now()}_${safeName}`);
+      await uploadBytes(storageRef, file, { contentType: file.type });
+      const downloadUrl = await getDownloadURL(storageRef);
+      setEqForm((prev) => ({ ...prev, imageUrl: downloadUrl }));
+      toast.success('Foto thumbnail berhasil diunggah. Klik Simpan untuk menerapkan.');
+    } catch (error) {
+      console.error('Thumbnail upload error:', error);
+      toast.error('Gagal mengunggah foto ke Firebase Storage.');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
   const handleCreateEquipment = async (e: React.FormEvent) => {
     e.preventDefault();
     const targetTenantId = eqForm.tenantId || activeTenantId;
@@ -204,6 +247,7 @@ export function InventoryPage() {
         isActive: true,
       });
       await queryClient.invalidateQueries({ queryKey: ['equipment'] });
+      await queryClient.invalidateQueries({ queryKey: ['public', 'equipment'] });
       toast.success(`${eqForm.name.trim()} ditambahkan ke katalog.`);
       setCreateDialogOpen(false);
     } catch (error) {
@@ -230,7 +274,13 @@ export function InventoryPage() {
         specs: parseSpecsText(eqForm.specsText),
         images: eqForm.imageUrl.trim() ? [eqForm.imageUrl.trim()] : [],
       });
+      setBrokenImageIds((prev) => {
+        const next = { ...prev };
+        delete next[selectedEquipment.id];
+        return next;
+      });
       await queryClient.invalidateQueries({ queryKey: ['equipment'] });
+      await queryClient.invalidateQueries({ queryKey: ['public', 'equipment'] });
       toast.success(`Data ${eqForm.name.trim()} diperbarui.`);
       setDetailTab('units');
     } catch (error) {
@@ -456,13 +506,75 @@ export function InventoryPage() {
         />
       </div>
 
-      <div className="space-y-1.5">
-        <Label>Image URL (opsional)</Label>
-        <Input
-          placeholder="https://..."
-          value={eqForm.imageUrl}
-          onChange={(e) => setEqForm({ ...eqForm, imageUrl: e.target.value })}
-        />
+      <div className="space-y-2">
+        <Label>Foto Thumbnail Alat</Label>
+        <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center">
+          <div className="relative flex h-20 w-28 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted/40">
+            {eqForm.imageUrl.trim() ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setPreviewTitle(eqForm.name.trim() || 'Preview Thumbnail');
+                  setPreviewImages([
+                    { url: eqForm.imageUrl.trim(), label: eqForm.name.trim() || 'Thumbnail Alat' },
+                  ]);
+                }}
+                className="block h-full w-full"
+                title="Klik untuk memperbesar"
+              >
+                <img
+                  src={eqForm.imageUrl.trim()}
+                  alt={eqForm.name || 'Preview'}
+                  className="h-full w-full object-cover"
+                />
+              </button>
+            ) : (
+              <Camera className="h-6 w-6 text-muted-foreground/45" strokeWidth={1.5} />
+            )}
+          </div>
+
+          <div className="min-w-0 flex-1 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-accent">
+                {uploadingImage ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.5} />
+                ) : (
+                  <Upload className="h-3.5 w-3.5" strokeWidth={1.5} />
+                )}
+                <span>{uploadingImage ? 'Mengunggah...' : 'Upload Foto'}</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  disabled={uploadingImage}
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    void handleUploadThumbnail(file);
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+              {eqForm.imageUrl.trim() ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive"
+                  onClick={() => setEqForm((prev) => ({ ...prev, imageUrl: '' }))}
+                >
+                  <X className="h-3.5 w-3.5" strokeWidth={1.5} />
+                  Hapus Foto
+                </Button>
+              ) : null}
+            </div>
+            <Input
+              placeholder="Atau tempel URL gambar langsung (https://...)"
+              value={eqForm.imageUrl}
+              onChange={(e) => setEqForm({ ...eqForm, imageUrl: e.target.value })}
+              className="h-8 bg-background text-xs"
+            />
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -556,6 +668,7 @@ export function InventoryPage() {
                 (u) => u.status === 'available' && u.condition !== 'damaged'
               ).length;
               const maintCount = units.filter((u) => u.status === 'maintenance').length;
+              const coverImage = eq.images?.[0] && !brokenImageIds[eq.id] ? eq.images[0] : null;
               return (
                 <TableRow
                   key={eq.id}
@@ -563,11 +676,35 @@ export function InventoryPage() {
                   className="group cursor-pointer"
                 >
                   <TableCell>
-                    <p className="font-medium text-foreground">{eq.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {eq.brand}
-                      {isAllTenants ? ` · ${tenantById[eq.tenantId]?.name ?? eq.tenantId}` : ''}
-                    </p>
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted/40">
+                        {coverImage ? (
+                          <img
+                            src={coverImage}
+                            alt={eq.name}
+                            loading="lazy"
+                            onError={() =>
+                              setBrokenImageIds((prev) => ({ ...prev, [eq.id]: true }))
+                            }
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <Camera
+                            className="h-4 w-4 text-muted-foreground/45"
+                            strokeWidth={1.5}
+                          />
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-foreground">{eq.name}</p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {eq.brand}
+                          {isAllTenants
+                            ? ` · ${tenantById[eq.tenantId]?.name ?? eq.tenantId}`
+                            : ''}
+                        </p>
+                      </div>
+                    </div>
                   </TableCell>
                   <TableCell>
                     <span className="inline-flex items-center rounded-md bg-secondary px-2 py-0.5 text-xs font-medium capitalize text-secondary-foreground">
@@ -640,17 +777,50 @@ export function InventoryPage() {
             <>
               <DialogHeader>
                 <div className="flex items-start justify-between gap-3 pr-6">
-                  <div>
-                    <DialogTitle>{selectedEquipment.name}</DialogTitle>
-                    <DialogDescription className="mt-1">
-                      {selectedEquipment.brand} ·{' '}
-                      <span className="capitalize">{selectedEquipment.category}</span> ·{' '}
-                      {tenantById[selectedEquipment.tenantId]?.name ??
-                        activeTenant?.name ??
-                        'Cabang'}
-                    </DialogDescription>
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-12 w-16 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted/40">
+                      {selectedEquipment.images?.[0] && !brokenImageIds[selectedEquipment.id] ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPreviewTitle(selectedEquipment.name);
+                            setPreviewImages(
+                              selectedEquipment.images.map((url, idx) => ({
+                                url,
+                                label: `${selectedEquipment.brand} ${selectedEquipment.name}${
+                                  selectedEquipment.images.length > 1 ? ` #${idx + 1}` : ''
+                                }`,
+                              }))
+                            );
+                          }}
+                          className="block h-full w-full"
+                          title="Klik untuk memperbesar foto"
+                        >
+                          <img
+                            src={selectedEquipment.images[0]}
+                            alt={selectedEquipment.name}
+                            className="h-full w-full object-cover"
+                          />
+                        </button>
+                      ) : (
+                        <Camera
+                          className="h-5 w-5 text-muted-foreground/45"
+                          strokeWidth={1.5}
+                        />
+                      )}
+                    </div>
+                    <div>
+                      <DialogTitle>{selectedEquipment.name}</DialogTitle>
+                      <DialogDescription className="mt-1">
+                        {selectedEquipment.brand} ·{' '}
+                        <span className="capitalize">{selectedEquipment.category}</span> ·{' '}
+                        {tenantById[selectedEquipment.tenantId]?.name ??
+                          activeTenant?.name ??
+                          'Cabang'}
+                      </DialogDescription>
+                    </div>
                   </div>
-                  <div className="text-right text-xs">
+                  <div className="shrink-0 text-right text-xs">
                     <div className="font-semibold text-foreground">
                       <CurrencyText amount={selectedEquipment.dailyRate} suffix="/hari" />
                     </div>
@@ -855,6 +1025,15 @@ export function InventoryPage() {
           ) : null}
         </DialogContent>
       </Dialog>
+
+      <ImagePreviewModal
+        open={previewImages.length > 0}
+        onOpenChange={(open) => {
+          if (!open) setPreviewImages([]);
+        }}
+        images={previewImages}
+        title={previewTitle}
+      />
     </div>
   );
 }
