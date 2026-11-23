@@ -4,7 +4,6 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
-  Aperture,
   AlertTriangle,
   ArrowLeft,
   CheckCircle2,
@@ -13,6 +12,8 @@ import {
   UserPlus,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { usePlatformSettings } from '@/hooks/usePlatformSettings';
+import { BrandMark } from '@/components/shared/BrandMark';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -45,6 +46,7 @@ export function RegisterPage() {
     completeRegistration,
     signOut,
   } = useAuth();
+  const { settings } = usePlatformSettings();
   const [verifyingGoogle, setVerifyingGoogle] = useState(false);
 
   const form = useForm<RegistrationFormValues>({
@@ -93,15 +95,7 @@ export function RegisterPage() {
       {/* Left onboarding policy panel */}
       <div className="flex flex-col justify-between border-b border-zinc-200 bg-zinc-50 p-8 lg:col-span-5 lg:border-b-0 lg:border-r lg:p-12">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-7 w-7 items-center justify-center rounded border border-zinc-900 bg-zinc-950 text-white">
-              <Aperture className="h-4 w-4" strokeWidth={1.5} />
-            </div>
-            <div>
-              <p className="text-sm font-semibold tracking-tight text-zinc-950">CameraRent</p>
-              <p className="text-xs text-zinc-500">Renter Onboarding</p>
-            </div>
-          </div>
+          <BrandMark size="md" subtitle="Renter Onboarding" />
           <span className="rounded border border-zinc-200 bg-white px-2 py-0.5 font-mono text-[10px] text-zinc-600">
             MANDATORY GATE
           </span>
@@ -169,7 +163,7 @@ export function RegisterPage() {
         </div>
 
         <div className="border-t border-zinc-200 pt-4 text-xs text-zinc-500">
-          Copyright © {new Date().getFullYear()} PT Pratamavisual Media Kreatif
+          {settings.seo.footerText}
         </div>
       </div>
 

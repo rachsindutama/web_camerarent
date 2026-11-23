@@ -1,6 +1,40 @@
-import type { MembershipBenefitConfig, MembershipTier, Tenant } from '@/types/schema';
+import type { MembershipTier } from '@/types/schema';
 
-export type { MembershipBenefitConfig };
+export interface MembershipBenefitConfig {
+  tier: MembershipTier;
+  label: string;
+  rentalDiscountPercent: number;      // e.g., 0% vs 10%
+  depositDiscountPercent: number;     // e.g., 0% vs 50%
+  extraOverdueGraceMinutes: number;   // e.g., 0m vs +60m
+  freeDeliveryKm: number;             // e.g., 0km vs 5km
+  maxUnitsPerBooking: number | null;  // e.g., 3 vs unlimited (null)
+  prioritySupport: boolean;           // Priority badge & ops handling
+}
+
+export type RobotsDirective =
+  | 'index,follow'
+  | 'noindex,nofollow'
+  | 'index,nofollow'
+  | 'noindex,follow';
+
+export interface SiteSeoConfig {
+  siteName: string;
+  siteTitle: string;
+  catalogHeading: string;
+  catalogSubtitle: string;
+  footerText: string;
+  logoUrl: string;
+  faviconUrl: string;
+  metaDescription: string;
+  metaKeywords: string;
+  canonicalUrl: string;
+  robots: RobotsDirective;
+  themeColor: string;
+  ogImageUrl: string;
+  twitterCard: 'summary_large_image' | 'summary';
+  twitterHandle: string;
+  locale: string;
+}
 
 export interface PlatformSettings {
   tiers: Record<MembershipTier, MembershipBenefitConfig>;
@@ -8,7 +42,29 @@ export interface PlatformSettings {
   defaultBufferHours: number;
   defaultOverdueGraceMinutes: number;
   defaultOverdueHourlyRatePercent: number;
+  seo: SiteSeoConfig;
 }
+
+export const DEFAULT_SITE_SEO: SiteSeoConfig = {
+  siteName: 'CameraRent',
+  siteTitle: 'CameraRent — Production Gear & Camera Rental Operations',
+  catalogHeading: 'Katalog Kamera & Gear Produksi',
+  catalogSubtitle:
+    'Jelajahi kamera, lensa, lighting, dan paket produksi yang tersedia di cabang resmi.',
+  footerText: `Copyright © ${new Date().getFullYear()} PT Pratamavisual Media Kreatif`,
+  logoUrl: '',
+  faviconUrl: '/favicon.svg',
+  metaDescription:
+    'Sewa kamera cinema, lensa profesional, lighting, dan paket produksi secara real-time dengan stok serial number terverifikasi di CameraRent.',
+  metaKeywords: 'sewa kamera, rental kamera, sewa lensa, rental lighting, gear produksi, CameraRent',
+  canonicalUrl: 'https://project-camerarent.web.app',
+  robots: 'index,follow',
+  themeColor: '#18181b',
+  ogImageUrl: '',
+  twitterCard: 'summary_large_image',
+  twitterHandle: '',
+  locale: 'id_ID',
+};
 
 export const DEFAULT_MEMBERSHIP_BENEFITS: Record<MembershipTier, MembershipBenefitConfig> = {
   basic: {
@@ -39,6 +95,7 @@ export const DEFAULT_PLATFORM_SETTINGS: PlatformSettings = {
   defaultBufferHours: 3,
   defaultOverdueGraceMinutes: 60,
   defaultOverdueHourlyRatePercent: 10,
+  seo: DEFAULT_SITE_SEO,
 };
 
 // Backwards-compatible constant reference
@@ -55,26 +112,24 @@ export function getLivePlatformSettings(): PlatformSettings {
   return livePlatformSettings;
 }
 
-function clampNum(val: unknown, min: number, max: number, fallback: number): number {
-  const num = Number(val);
-  if (val === undefined || val === null || Number.isNaN(num)) return fallback;
-  return Math.min(max, Math.max(min, num));
-}
+export function normalizePlatformSettings(
+  raw?: Partial<PlatformSettings> | Record<string, unknown> | null
+): PlatformSettings {
+  if (!raw || typeof raw !== 'object') return DEFAULT_PLATFORM_SETTINGS;
+  const r = raw as Record<string, unknown>;
+  const rawTiers = (r.tiers ?? {}) as Record<string, Partial<MembershipBenefitConfig> | undefined>;
 
-export function normalizeTierMap(
-  rawTiers?: Record<string, Partial<MembershipBenefitConfig> | undefined> | null
-): Record<MembershipTier, MembershipBenefitConfig> {
   const parseTier = (tier: MembershipTier): MembershipBenefitConfig => {
     const def = DEFAULT_MEMBERSHIP_BENEFITS[tier];
-    const t = rawTiers?.[tier];
+    const t = rawTiers[tier];
     if (!t) return { ...def };
     const rawMax = t.maxUnitsPerBooking;
     const maxUnitsPerBooking =
-      rawMax === null
-        ? null
-        : rawMax === undefined || Number(rawMax) <= 0
-          ? def.maxUnitsPerBooking
-          : Math.max(1, Math.floor(Number(rawMax)));
+      rawMax === null || rawMax === undefined || Number(rawMax) <= 0
+        ? rawMax === null
+          ? null
+          : def.maxUnitsPerBooking
+        : Math.max(1, Math.floor(Number(rawMax)));
 
     return {
       tier,
@@ -99,21 +154,25 @@ export function normalizeTierMap(
     };
   };
 
-  return {
-    basic: parseTier('basic'),
-    premium: parseTier('premium'),
+  const rawSeo = (r.seo ?? {}) as Partial<SiteSeoConfig>;
+  const validRobots: RobotsDirective[] = [
+    'index,follow',
+    'noindex,nofollow',
+    'index,nofollow',
+    'noindex,follow',
+  ];
+  const pickStr = (val: unknown, fallback: string, allowEmpty = false): string => {
+    if (typeof val !== 'string') return fallback;
+    const trimmed = val.trim();
+    if (!trimmed && !allowEmpty) return fallback;
+    return trimmed;
   };
-}
-
-export function normalizePlatformSettings(
-  raw?: Partial<PlatformSettings> | Record<string, unknown> | null
-): PlatformSettings {
-  if (!raw || typeof raw !== 'object') return DEFAULT_PLATFORM_SETTINGS;
-  const r = raw as Record<string, unknown>;
-  const rawTiers = (r.tiers ?? {}) as Record<string, Partial<MembershipBenefitConfig> | undefined>;
 
   return {
-    tiers: normalizeTierMap(rawTiers),
+    tiers: {
+      basic: parseTier('basic'),
+      premium: parseTier('premium'),
+    },
     defaultDeliveryRatePerKm: clampNum(
       r.defaultDeliveryRatePerKm,
       0,
@@ -138,17 +197,36 @@ export function normalizePlatformSettings(
       100,
       DEFAULT_PLATFORM_SETTINGS.defaultOverdueHourlyRatePercent
     ),
+    seo: {
+      siteName: pickStr(rawSeo.siteName, DEFAULT_SITE_SEO.siteName),
+      siteTitle: pickStr(rawSeo.siteTitle, DEFAULT_SITE_SEO.siteTitle),
+      catalogHeading: pickStr(rawSeo.catalogHeading, DEFAULT_SITE_SEO.catalogHeading),
+      catalogSubtitle: pickStr(rawSeo.catalogSubtitle, DEFAULT_SITE_SEO.catalogSubtitle),
+      footerText: pickStr(rawSeo.footerText, DEFAULT_SITE_SEO.footerText),
+      logoUrl: pickStr(rawSeo.logoUrl, DEFAULT_SITE_SEO.logoUrl, true),
+      faviconUrl: pickStr(rawSeo.faviconUrl, DEFAULT_SITE_SEO.faviconUrl),
+      metaDescription: pickStr(rawSeo.metaDescription, DEFAULT_SITE_SEO.metaDescription, true),
+      metaKeywords: pickStr(rawSeo.metaKeywords, DEFAULT_SITE_SEO.metaKeywords, true),
+      canonicalUrl: pickStr(rawSeo.canonicalUrl, DEFAULT_SITE_SEO.canonicalUrl, true),
+      robots: validRobots.includes(rawSeo.robots as RobotsDirective)
+        ? (rawSeo.robots as RobotsDirective)
+        : DEFAULT_SITE_SEO.robots,
+      themeColor: pickStr(rawSeo.themeColor, DEFAULT_SITE_SEO.themeColor),
+      ogImageUrl: pickStr(rawSeo.ogImageUrl, DEFAULT_SITE_SEO.ogImageUrl, true),
+      twitterCard:
+        rawSeo.twitterCard === 'summary' || rawSeo.twitterCard === 'summary_large_image'
+          ? rawSeo.twitterCard
+          : DEFAULT_SITE_SEO.twitterCard,
+      twitterHandle: pickStr(rawSeo.twitterHandle, DEFAULT_SITE_SEO.twitterHandle, true),
+      locale: pickStr(rawSeo.locale, DEFAULT_SITE_SEO.locale),
+    },
   };
 }
 
-export function resolveTenantMembershipTiers(
-  tenant?: Pick<Tenant, 'membershipTiers'> | null,
-  fallbackTiers?: Record<MembershipTier, MembershipBenefitConfig>
-): Record<MembershipTier, MembershipBenefitConfig> {
-  if (tenant?.membershipTiers) {
-    return normalizeTierMap(tenant.membershipTiers);
-  }
-  return fallbackTiers ?? livePlatformSettings.tiers;
+function clampNum(val: unknown, min: number, max: number, fallback: number): number {
+  const num = Number(val);
+  if (val === undefined || val === null || Number.isNaN(num)) return fallback;
+  return Math.min(max, Math.max(min, num));
 }
 
 export function getMembershipBenefits(

@@ -1,6 +1,5 @@
 import { NavLink } from 'react-router-dom';
 import {
-  Aperture,
   Building2,
   Camera,
   Package,
@@ -18,6 +17,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
+import { BrandMark } from '@/components/shared/BrandMark';
 import type { UserRole } from '@/types/auth';
 
 interface NavItem {
@@ -77,11 +77,8 @@ export function Sidebar() {
 
   return (
     <aside className="flex h-screen w-60 shrink-0 flex-col border-r border-zinc-200 bg-white">
-      <div className="flex h-12 items-center gap-2.5 border-b border-zinc-200 px-4">
-        <div className="flex h-6 w-6 items-center justify-center rounded border border-zinc-900 bg-zinc-950 text-white">
-          <Aperture className="h-3.5 w-3.5" strokeWidth={1.5} />
-        </div>
-        <span className="text-sm font-semibold tracking-tight text-zinc-950">CameraRent</span>
+      <div className="flex h-12 items-center border-b border-zinc-200 px-4">
+        <BrandMark size="sm" />
       </div>
 
       <nav className="flex-1 space-y-5 overflow-y-auto px-2.5 py-4">

@@ -39,6 +39,12 @@ service firebase.storage {
       allow read: if true;
       allow write: if isSignedIn() && isImageUnder5MB();
     }
+
+    // Site branding & SEO assets (favicon, logo, Open Graph share image)
+    match /branding/{allPaths=**} {
+      allow read: if true;
+      allow write: if isSignedIn() && isImageUnder5MB();
+    }
   }
 }
 

@@ -1,22 +1,32 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import {
   Building2,
   Check,
   ChevronLeft,
   ChevronRight,
+  Globe,
+  Image as ImageIcon,
+  Loader2,
   RotateCcw,
   Save,
   Search,
   SlidersHorizontal,
   Sparkles,
+  Upload,
+  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { storage } from '@/lib/firebase';
 import {
   DEFAULT_PLATFORM_SETTINGS,
+  DEFAULT_SITE_SEO,
   formatTierSummaryParts,
   type MembershipBenefitConfig,
   type PlatformSettings,
+  type RobotsDirective,
+  type SiteSeoConfig,
 } from '@/lib/membership';
 import {
   applyOperationalDefaultsToTenants,
@@ -43,17 +53,19 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { MembershipTier } from '@/types/schema';
 
 type ApplyScope = 'all' | 'selected';
-type SettingsSectionTab = 'tiers' | 'operations';
+type SettingsSectionTab = 'seo' | 'tiers' | 'operations';
+type BrandingAssetField = 'faviconUrl' | 'logoUrl' | 'ogImageUrl';
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
   const { settings } = usePlatformSettings();
   const { allTenants } = useTenant();
 
-  const [activeTab, setActiveTab] = useState<SettingsSectionTab>('tiers');
+  const [activeTab, setActiveTab] = useState<SettingsSectionTab>('seo');
   const [draft, setDraft] = useState<PlatformSettings>(settings);
   const [saving, setSaving] = useState(false);
   const [applyingBranches, setApplyingBranches] = useState(false);
+  const [uploadingField, setUploadingField] = useState<BrandingAssetField | null>(null);
 
   // Branch target scope, search & pagination for Ongkir, Buffer, Grace & Denda
   const [applyScope, setApplyScope] = useState<ApplyScope>('all');
@@ -107,6 +119,52 @@ export function SettingsPage() {
     }));
   };
 
+  const updateSeoField = <K extends keyof SiteSeoConfig>(field: K, value: SiteSeoConfig[K]) => {
+    setDraft((prev) => ({
+      ...prev,
+      seo: {
+        ...prev.seo,
+        [field]: value,
+      },
+    }));
+  };
+
+  const handleUploadBrandingAsset = async (
+    field: BrandingAssetField,
+    file: File | undefined
+  ) => {
+    if (!file) return;
+    if (!storage) {
+      toast.error('Firebase Storage belum terkonfigurasi.');
+      return;
+    }
+    if (!file.type.startsWith('image/')) {
+      toast.error('File harus berupa gambar (PNG, JPG, WebP, SVG, atau ICO).');
+      return;
+    }
+    if (file.size >= 5 * 1024 * 1024) {
+      toast.error('Ukuran file maksimal 5 MB.');
+      return;
+    }
+
+    setUploadingField(field);
+    try {
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const folder =
+        field === 'faviconUrl' ? 'favicon' : field === 'logoUrl' ? 'logo' : 'og-image';
+      const storageRef = ref(storage, `branding/${folder}_${Date.now()}_${safeName}`);
+      await uploadBytes(storageRef, file, { contentType: file.type });
+      const url = await getDownloadURL(storageRef);
+      updateSeoField(field, url);
+      toast.success('Gambar berhasil diunggah. Klik Simpan untuk menerapkan ke seluruh situs.');
+    } catch (error) {
+      console.error('Upload branding asset error:', error);
+      toast.error('Gagal mengunggah gambar ke Firebase Storage.');
+    } finally {
+      setUploadingField(null);
+    }
+  };
+
   const toggleTenantSelection = (tenantId: string) => {
     setSelectedTenantIds((prev) =>
       prev.includes(tenantId) ? prev.filter((id) => id !== tenantId) : [...prev, tenantId]
@@ -141,6 +199,10 @@ export function SettingsPage() {
           applyScope === 'all'
             ? `Pengaturan disimpan & diterapkan ke semua (${updatedCount}) cabang.`
             : `Pengaturan disimpan & diterapkan ke ${updatedCount} cabang terpilih.`
+        );
+      } else if (activeTab === 'seo') {
+        toast.success(
+          'Pengaturan SEO, judul, favicon & branding berhasil disimpan dan langsung aktif.'
         );
       } else {
         toast.success('Pengaturan Benefit Tier Member berhasil disimpan dan langsung aktif.');
@@ -187,8 +249,24 @@ export function SettingsPage() {
   };
 
   const handleResetDefaults = () => {
-    setDraft(DEFAULT_PLATFORM_SETTINGS);
-    toast.info('Form dikembalikan ke nilai default. Klik Simpan untuk menerapkan.');
+    if (activeTab === 'seo') {
+      setDraft((prev) => ({ ...prev, seo: DEFAULT_SITE_SEO }));
+      toast.info('SEO & Branding dikembalikan ke default. Klik Simpan untuk menerapkan.');
+      return;
+    }
+    if (activeTab === 'tiers') {
+      setDraft((prev) => ({ ...prev, tiers: DEFAULT_PLATFORM_SETTINGS.tiers }));
+      toast.info('Benefit Tier dikembalikan ke default. Klik Simpan untuk menerapkan.');
+      return;
+    }
+    setDraft((prev) => ({
+      ...prev,
+      defaultDeliveryRatePerKm: DEFAULT_PLATFORM_SETTINGS.defaultDeliveryRatePerKm,
+      defaultBufferHours: DEFAULT_PLATFORM_SETTINGS.defaultBufferHours,
+      defaultOverdueGraceMinutes: DEFAULT_PLATFORM_SETTINGS.defaultOverdueGraceMinutes,
+      defaultOverdueHourlyRatePercent: DEFAULT_PLATFORM_SETTINGS.defaultOverdueHourlyRatePercent,
+    }));
+    toast.info('Ongkir & aturan cabang dikembalikan ke default. Klik Simpan untuk menerapkan.');
   };
 
   const renderTierCard = (tier: MembershipTier) => {
@@ -356,8 +434,8 @@ export function SettingsPage() {
         <div className="space-y-1">
           <h2 className="text-xl font-semibold tracking-tight text-foreground">Settings</h2>
           <p className="text-sm text-muted-foreground">
-            Pusat pengaturan benefit tier Basic &amp; Premium, tarif ongkir, buffer, grace period,
-            dan denda keterlambatan untuk semua cabang maupun cabang tertentu.
+            Pusat pengaturan SEO, judul, favicon &amp; branding website, benefit tier member, serta
+            aturan operasional cabang.
           </p>
         </div>
 
@@ -370,9 +448,11 @@ export function SettingsPage() {
             <Save className="h-3.5 w-3.5" strokeWidth={1.5} />
             {saving
               ? 'Menyimpan...'
-              : activeTab === 'tiers'
-                ? 'Simpan Benefit Tier'
-                : 'Simpan & Terapkan'}
+              : activeTab === 'seo'
+                ? 'Simpan SEO & Branding'
+                : activeTab === 'tiers'
+                  ? 'Simpan Benefit Tier'
+                  : 'Simpan & Terapkan'}
           </Button>
         </div>
       </div>
@@ -383,6 +463,10 @@ export function SettingsPage() {
         className="space-y-4"
       >
         <TabsList>
+          <TabsTrigger value="seo" className="gap-1.5">
+            <Globe className="h-3.5 w-3.5" strokeWidth={1.5} />
+            SEO &amp; Branding
+          </TabsTrigger>
           <TabsTrigger value="tiers" className="gap-1.5">
             <Sparkles className="h-3.5 w-3.5" strokeWidth={1.5} />
             Benefit Tier Member
@@ -393,7 +477,528 @@ export function SettingsPage() {
           </TabsTrigger>
         </TabsList>
 
-        {/* Sub-tab 1: Membership Tier Benefits */}
+        {/* Sub-tab 1: Global SEO, Title, Favicon & Branding */}
+        <TabsContent value="seo" className="mt-0 space-y-4">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+            {/* Left 7 cols: Form Controls */}
+            <div className="space-y-4 lg:col-span-7">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Identitas Website &amp; Branding</CardTitle>
+                  <CardDescription>
+                    Mengubah nama brand, judul tab browser, logo, favicon, judul katalog, dan footer
+                    secara menyeluruh.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="seo-site-name">Nama Brand / Website</Label>
+                      <Input
+                        id="seo-site-name"
+                        placeholder="CameraRent"
+                        value={draft.seo.siteName}
+                        onChange={(e) => updateSeoField('siteName', e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="seo-theme-color">Warna Tema Browser</Label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          aria-label="Theme color picker"
+                          value={
+                            /^#[0-9a-fA-F]{6}$/.test(draft.seo.themeColor)
+                              ? draft.seo.themeColor
+                              : '#18181b'
+                          }
+                          onChange={(e) => updateSeoField('themeColor', e.target.value)}
+                          className="h-9 w-11 cursor-pointer rounded-md border border-input bg-background p-1"
+                        />
+                        <Input
+                          id="seo-theme-color"
+                          className="font-mono text-xs"
+                          value={draft.seo.themeColor}
+                          onChange={(e) => updateSeoField('themeColor', e.target.value)}
+                          placeholder="#18181b"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="seo-site-title">Judul Browser (&lt;title&gt;)</Label>
+                      <span
+                        className={`text-[11px] tabular-nums ${
+                          draft.seo.siteTitle.length > 60
+                            ? 'text-amber-600'
+                            : 'text-muted-foreground'
+                        }`}
+                      >
+                        {draft.seo.siteTitle.length} / 60 karakter
+                      </span>
+                    </div>
+                    <Input
+                      id="seo-site-title"
+                      placeholder="CameraRent — Sewa Kamera & Gear Produksi"
+                      value={draft.seo.siteTitle}
+                      onChange={(e) => updateSeoField('siteTitle', e.target.value)}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="seo-catalog-heading">Judul Utama Katalog (H1)</Label>
+                      <Input
+                        id="seo-catalog-heading"
+                        placeholder="Katalog Kamera & Gear Produksi"
+                        value={draft.seo.catalogHeading}
+                        onChange={(e) => updateSeoField('catalogHeading', e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="seo-footer-text">Teks Copyright Footer</Label>
+                      <Input
+                        id="seo-footer-text"
+                        placeholder="Copyright © 2026 PT Pratamavisual Media Kreatif"
+                        value={draft.seo.footerText}
+                        onChange={(e) => updateSeoField('footerText', e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="seo-catalog-subtitle">Subjudul Katalog</Label>
+                    <Input
+                      id="seo-catalog-subtitle"
+                      placeholder="Jelajahi kamera, lensa, lighting, dan paket produksi..."
+                      value={draft.seo.catalogSubtitle}
+                      onChange={(e) => updateSeoField('catalogSubtitle', e.target.value)}
+                    />
+                  </div>
+
+                  <Separator />
+
+                  {/* Favicon & Brand Logo Uploads */}
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Favicon (Ikon Tab Browser)</Label>
+                      <div className="space-y-2 rounded-md border bg-muted/20 p-3">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-white">
+                            {draft.seo.faviconUrl ? (
+                              <img
+                                src={draft.seo.faviconUrl}
+                                alt="Favicon"
+                                className="h-7 w-7 object-contain"
+                              />
+                            ) : (
+                              <Globe className="h-4 w-4 text-muted-foreground" strokeWidth={1.5} />
+                            )}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-input bg-background px-2.5 py-1.5 text-xs font-medium shadow-sm transition-colors hover:bg-accent">
+                              {uploadingField === 'faviconUrl' ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.5} />
+                              ) : (
+                                <Upload className="h-3.5 w-3.5" strokeWidth={1.5} />
+                              )}
+                              <span>Upload</span>
+                              <input
+                                type="file"
+                                accept="image/png,image/svg+xml,image/x-icon,image/webp,image/jpeg"
+                                disabled={uploadingField !== null}
+                                className="hidden"
+                                onChange={(e) => {
+                                  void handleUploadBrandingAsset('faviconUrl', e.target.files?.[0]);
+                                  e.target.value = '';
+                                }}
+                              />
+                            </label>
+                            {draft.seo.faviconUrl !== '/favicon.svg' ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-2 text-xs text-muted-foreground"
+                                onClick={() => updateSeoField('faviconUrl', '/favicon.svg')}
+                              >
+                                <X className="h-3.5 w-3.5" strokeWidth={1.5} />
+                                Default
+                              </Button>
+                            ) : null}
+                          </div>
+                        </div>
+                        <Input
+                          placeholder="/favicon.svg atau https://..."
+                          value={draft.seo.faviconUrl}
+                          onChange={(e) => updateSeoField('faviconUrl', e.target.value)}
+                          className="h-8 bg-background text-xs"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Logo Brand (Opsional)</Label>
+                      <div className="space-y-2 rounded-md border bg-muted/20 p-3">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-white">
+                            {draft.seo.logoUrl ? (
+                              <img
+                                src={draft.seo.logoUrl}
+                                alt="Logo"
+                                className="h-8 w-8 object-contain"
+                              />
+                            ) : (
+                              <ImageIcon
+                                className="h-4 w-4 text-muted-foreground/50"
+                                strokeWidth={1.5}
+                              />
+                            )}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-input bg-background px-2.5 py-1.5 text-xs font-medium shadow-sm transition-colors hover:bg-accent">
+                              {uploadingField === 'logoUrl' ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.5} />
+                              ) : (
+                                <Upload className="h-3.5 w-3.5" strokeWidth={1.5} />
+                              )}
+                              <span>Upload</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                disabled={uploadingField !== null}
+                                className="hidden"
+                                onChange={(e) => {
+                                  void handleUploadBrandingAsset('logoUrl', e.target.files?.[0]);
+                                  e.target.value = '';
+                                }}
+                              />
+                            </label>
+                            {draft.seo.logoUrl ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive"
+                                onClick={() => updateSeoField('logoUrl', '')}
+                              >
+                                <X className="h-3.5 w-3.5" strokeWidth={1.5} />
+                                Hapus
+                              </Button>
+                            ) : null}
+                          </div>
+                        </div>
+                        <Input
+                          placeholder="Kosongkan untuk ikon default atau tempel URL"
+                          value={draft.seo.logoUrl}
+                          onChange={(e) => updateSeoField('logoUrl', e.target.value)}
+                          className="h-8 bg-background text-xs"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Meta SEO &amp; Mesin Pencari</CardTitle>
+                  <CardDescription>
+                    Mengatur deskripsi, kata kunci, canonical URL, dan aturan indeks Google.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="seo-description">Meta Description</Label>
+                      <span
+                        className={`text-[11px] tabular-nums ${
+                          draft.seo.metaDescription.length > 160
+                            ? 'text-amber-600'
+                            : 'text-muted-foreground'
+                        }`}
+                      >
+                        {draft.seo.metaDescription.length} / 160 karakter
+                      </span>
+                    </div>
+                    <textarea
+                      id="seo-description"
+                      rows={3}
+                      placeholder="Ringkasan layanan sewa kamera untuk tampil di hasil pencarian Google..."
+                      value={draft.seo.metaDescription}
+                      onChange={(e) => updateSeoField('metaDescription', e.target.value)}
+                      className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-xs leading-relaxed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="seo-keywords">Meta Keywords (pisah koma)</Label>
+                    <Input
+                      id="seo-keywords"
+                      placeholder="sewa kamera, rental kamera, sewa lensa, lighting..."
+                      value={draft.seo.metaKeywords}
+                      onChange={(e) => updateSeoField('metaKeywords', e.target.value)}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="seo-canonical">Canonical URL (Domain Utama)</Label>
+                      <Input
+                        id="seo-canonical"
+                        placeholder="https://project-camerarent.web.app"
+                        value={draft.seo.canonicalUrl}
+                        onChange={(e) => updateSeoField('canonicalUrl', e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Indexing Robots</Label>
+                      <Select
+                        value={draft.seo.robots}
+                        onValueChange={(v) => updateSeoField('robots', v as RobotsDirective)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="index,follow">index, follow (Direkomendasikan)</SelectItem>
+                          <SelectItem value="index,nofollow">index, nofollow</SelectItem>
+                          <SelectItem value="noindex,follow">noindex, follow</SelectItem>
+                          <SelectItem value="noindex,nofollow">
+                            noindex, nofollow (Sembunyikan dari Google)
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Open Graph &amp; Social Share</CardTitle>
+                  <CardDescription>
+                    Tampilan kartu pratinjau saat tautan website dibagikan ke WhatsApp, Facebook,
+                    atau X / Twitter.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>OG Share Image (Rekomendasi 1200 × 630 px)</Label>
+                    <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center">
+                      <div className="flex h-20 w-36 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-white">
+                        {draft.seo.ogImageUrl ? (
+                          <img
+                            src={draft.seo.ogImageUrl}
+                            alt="OG Preview"
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <ImageIcon
+                            className="h-6 w-6 text-muted-foreground/40"
+                            strokeWidth={1.5}
+                          />
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-xs font-medium shadow-sm transition-colors hover:bg-accent">
+                            {uploadingField === 'ogImageUrl' ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.5} />
+                            ) : (
+                              <Upload className="h-3.5 w-3.5" strokeWidth={1.5} />
+                            )}
+                            <span>
+                              {uploadingField === 'ogImageUrl' ? 'Mengunggah...' : 'Upload Banner'}
+                            </span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              disabled={uploadingField !== null}
+                              className="hidden"
+                              onChange={(e) => {
+                                void handleUploadBrandingAsset('ogImageUrl', e.target.files?.[0]);
+                                e.target.value = '';
+                              }}
+                            />
+                          </label>
+                          {draft.seo.ogImageUrl ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive"
+                              onClick={() => updateSeoField('ogImageUrl', '')}
+                            >
+                              <X className="h-3.5 w-3.5" strokeWidth={1.5} />
+                              Hapus
+                            </Button>
+                          ) : null}
+                        </div>
+                        <Input
+                          placeholder="Atau tempel URL banner (https://...)"
+                          value={draft.seo.ogImageUrl}
+                          onChange={(e) => updateSeoField('ogImageUrl', e.target.value)}
+                          className="h-8 bg-background text-xs"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                    <div className="space-y-1.5">
+                      <Label>Tipe Kartu X / Twitter</Label>
+                      <Select
+                        value={draft.seo.twitterCard}
+                        onValueChange={(v) =>
+                          updateSeoField('twitterCard', v as 'summary_large_image' | 'summary')
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="summary_large_image">Large Image</SelectItem>
+                          <SelectItem value="summary">Summary Kecil</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="seo-twitter-handle">Twitter / X Handle</Label>
+                      <Input
+                        id="seo-twitter-handle"
+                        placeholder="@camerarent_id"
+                        value={draft.seo.twitterHandle}
+                        onChange={(e) => updateSeoField('twitterHandle', e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="seo-locale">Locale</Label>
+                      <Input
+                        id="seo-locale"
+                        placeholder="id_ID"
+                        value={draft.seo.locale}
+                        onChange={(e) => updateSeoField('locale', e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Right 5 cols: Live Browser Tab, Google Search & Social Card Previews */}
+            <div className="space-y-4 lg:col-span-5">
+              <Card className="sticky top-4">
+                <CardHeader>
+                  <CardTitle className="text-base">Pratinjau Langsung</CardTitle>
+                  <CardDescription>
+                    Simulasi tampilan di tab browser, hasil pencarian Google, dan kartu share media
+                    sosial.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  {/* Browser Tab Preview */}
+                  <div className="space-y-1.5">
+                    <p className="text-[11px] font-medium text-muted-foreground">Tab Browser</p>
+                    <div className="rounded-md border bg-muted/50 p-2 pb-0">
+                      <div className="inline-flex max-w-[260px] items-center gap-2 rounded-t-md border border-b-0 bg-background px-3 py-1.5 text-xs">
+                        {draft.seo.faviconUrl ? (
+                          <img
+                            src={draft.seo.faviconUrl}
+                            alt="Favicon"
+                            className="h-3.5 w-3.5 shrink-0 object-contain"
+                          />
+                        ) : (
+                          <Globe className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        )}
+                        <span className="truncate font-medium text-foreground">
+                          {draft.seo.siteTitle || draft.seo.siteName}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Google Search Result Preview */}
+                  <div className="space-y-1.5">
+                    <p className="text-[11px] font-medium text-muted-foreground">
+                      Hasil Pencarian Google
+                    </p>
+                    <div className="space-y-1 rounded-md border bg-background p-3.5">
+                      <div className="flex items-center gap-2">
+                        <div className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-muted/30">
+                          {draft.seo.faviconUrl ? (
+                            <img
+                              src={draft.seo.faviconUrl}
+                              alt=""
+                              className="h-4 w-4 object-contain"
+                            />
+                          ) : (
+                            <Globe className="h-3.5 w-3.5 text-muted-foreground" />
+                          )}
+                        </div>
+                        <div className="min-w-0 leading-tight">
+                          <p className="truncate text-xs font-medium text-foreground">
+                            {draft.seo.siteName || 'CameraRent'}
+                          </p>
+                          <p className="truncate text-[11px] text-muted-foreground">
+                            {draft.seo.canonicalUrl || 'https://project-camerarent.web.app'}
+                          </p>
+                        </div>
+                      </div>
+                      <p className="line-clamp-1 pt-0.5 text-sm font-medium text-blue-700">
+                        {draft.seo.siteTitle || draft.seo.siteName}
+                      </p>
+                      <p className="line-clamp-3 text-xs leading-relaxed text-muted-foreground">
+                        {draft.seo.metaDescription || 'Belum ada meta description.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Social / WhatsApp Share Card Preview */}
+                  <div className="space-y-1.5">
+                    <p className="text-[11px] font-medium text-muted-foreground">
+                      Kartu Share (WhatsApp / Facebook / X)
+                    </p>
+                    <div className="overflow-hidden rounded-md border bg-background">
+                      <div className="flex aspect-[1.91/1] w-full items-center justify-center border-b bg-muted/40">
+                        {draft.seo.ogImageUrl ? (
+                          <img
+                            src={draft.seo.ogImageUrl}
+                            alt="OG Share"
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <div className="flex flex-col items-center gap-1 text-muted-foreground/50">
+                            <ImageIcon className="h-6 w-6" strokeWidth={1.5} />
+                            <span className="text-[11px]">Belum ada OG Image (1200×630)</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="space-y-0.5 p-3">
+                        <p className="truncate text-[10px] uppercase tracking-wide text-muted-foreground">
+                          {(draft.seo.canonicalUrl || 'project-camerarent.web.app').replace(
+                            /^https?:\/\//,
+                            ''
+                          )}
+                        </p>
+                        <p className="line-clamp-1 text-xs font-semibold text-foreground">
+                          {draft.seo.siteTitle || draft.seo.siteName}
+                        </p>
+                        <p className="line-clamp-2 text-[11px] text-muted-foreground">
+                          {draft.seo.metaDescription || 'Tambahkan deskripsi singkat website.'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </TabsContent>
+
+        {/* Sub-tab 2: Membership Tier Benefits */}
         <TabsContent value="tiers" className="mt-0">
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {renderTierCard('basic')}

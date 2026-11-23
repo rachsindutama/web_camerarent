@@ -509,11 +509,11 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div className="space-y-1">
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-            Katalog Kamera &amp; Gear Produksi
+            {settings.seo.catalogHeading}
           </h1>
           <p className="text-sm text-muted-foreground">
-            Jelajahi kamera, lensa, lighting, dan paket produksi yang tersedia di{' '}
-            <span className="font-medium text-foreground">{activeTenant.name}</span>.
+            {settings.seo.catalogSubtitle}{' '}
+            <span className="font-medium text-foreground">({activeTenant.name})</span>
           </p>
         </div>
 

@@ -14,18 +14,26 @@ import {
   DEFAULT_PLATFORM_SETTINGS,
   normalizePlatformSettings,
   setLivePlatformSettings,
-  type MembershipBenefitConfig,
   type PlatformSettings,
 } from '@/lib/membership';
-import type { MembershipTier } from '@/types/schema';
+import { applySiteSeoToDocument, getCachedSiteSeo } from '@/lib/seo';
 
 export const PLATFORM_SETTINGS_QUERY_KEY = ['platform_settings', 'global'] as const;
+
+function getInitialPlatformSettings(): PlatformSettings {
+  const cachedSeo = getCachedSiteSeo();
+  if (!cachedSeo) return DEFAULT_PLATFORM_SETTINGS;
+  return {
+    ...DEFAULT_PLATFORM_SETTINGS,
+    seo: cachedSeo,
+  };
+}
 
 export function usePlatformSettings() {
   const query = useQuery<PlatformSettings>({
     queryKey: PLATFORM_SETTINGS_QUERY_KEY,
     enabled: isFirebaseConfigured && Boolean(db),
-    initialData: DEFAULT_PLATFORM_SETTINGS,
+    initialData: getInitialPlatformSettings,
     staleTime: 1000 * 60,
     queryFn: async () => {
       if (!db) return DEFAULT_PLATFORM_SETTINGS;
@@ -43,6 +51,7 @@ export function usePlatformSettings() {
   useEffect(() => {
     if (query.data) {
       setLivePlatformSettings(query.data);
+      applySiteSeoToDocument(query.data.seo);
     }
   }, [query.data]);
 
@@ -65,16 +74,16 @@ export async function savePlatformSettings(next: PlatformSettings): Promise<Plat
     { merge: true }
   );
   setLivePlatformSettings(normalized);
+  applySiteSeoToDocument(normalized.seo);
   return normalized;
 }
 
-export async function applySettingsToTenants(
-  payload: {
+export async function applyOperationalDefaultsToTenants(
+  defaults: {
     deliveryRatePerKm: number;
     bufferHours: number;
     overdueGraceMinutes: number;
     overdueHourlyRatePercent: number;
-    membershipTiers: Record<MembershipTier, MembershipBenefitConfig>;
   },
   targetTenantIds?: string[]
 ): Promise<number> {
@@ -93,13 +102,13 @@ export async function applySettingsToTenants(
   const batch = writeBatch(db);
   matchedDocs.forEach((tenantDoc) => {
     batch.update(tenantDoc.ref, {
-      deliveryRatePerKm: payload.deliveryRatePerKm,
-      bufferHours: payload.bufferHours,
-      overdueGraceMinutes: payload.overdueGraceMinutes,
-      overdueHourlyRatePercent: payload.overdueHourlyRatePercent,
-      membershipTiers: payload.membershipTiers,
+      deliveryRatePerKm: defaults.deliveryRatePerKm,
+      bufferHours: defaults.bufferHours,
+      overdueGraceMinutes: defaults.overdueGraceMinutes,
+      overdueHourlyRatePercent: defaults.overdueHourlyRatePercent,
     });
   });
   await batch.commit();
   return matchedDocs.length;
 }
+

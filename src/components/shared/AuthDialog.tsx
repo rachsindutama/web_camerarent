@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, CheckCircle2, ShieldCheck, UserPlus } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { usePlatformSettings } from '@/hooks/usePlatformSettings';
 import { missingFirebaseKeys } from '@/lib/firebase';
 import { CurrencyText } from '@/components/shared/CurrencyText';
 import { Button } from '@/components/ui/button';
@@ -35,6 +36,7 @@ export function AuthDialog({
   checkoutSummary = null,
 }: AuthDialogProps) {
   const { authError, unregisteredEmail, isConfigured, signInWithGoogle } = useAuth();
+  const { settings } = usePlatformSettings();
   const [submitting, setSubmitting] = useState(false);
 
   const handleGoogleSignIn = async () => {
@@ -51,7 +53,9 @@ export function AuthDialog({
       <DialogContent className="max-w-sm gap-4">
         <DialogHeader>
           <DialogTitle>
-            {checkoutSummary ? 'Masuk untuk Menyelesaikan Booking' : 'Masuk ke CameraRent'}
+            {checkoutSummary
+              ? 'Masuk untuk Menyelesaikan Booking'
+              : `Masuk ke ${settings.seo.siteName}`}
           </DialogTitle>
           <DialogDescription>
             {checkoutSummary
