@@ -19,6 +19,7 @@ import { calculateRentalDays } from '@/lib/availability';
 import { buildGoogleMapsDirectionUrl } from '@/lib/geo';
 import { generateInvoicePdf } from '@/lib/invoicePdf';
 import { formatDateTime } from '@/lib/utils';
+import { calculateOverdueFine } from '@/hooks/useOverdueCalc';
 import { CurrencyText } from '@/components/shared/CurrencyText';
 import {
   ImagePreviewModal,
@@ -70,6 +71,11 @@ export function BookingDetailModal({
   const handoverPhotos = booking.preRentalChecklist?.photos ?? [];
   const discountAmount = booking.discountAmount ?? 0;
   const grossSubtotal = booking.subtotal + discountAmount;
+  const liveOverdue = calculateOverdueFine(
+    booking,
+    tenant,
+    booking.returnedAt ? booking.returnedAt.toDate() : new Date()
+  );
 
   return (
     <>
@@ -528,6 +534,11 @@ export function BookingDetailModal({
                       <div className="flex justify-between text-red-700">
                         <span>Denda Keterlambatan</span>
                         <CurrencyText amount={booking.overdueFine} />
+                      </div>
+                    ) : liveOverdue.isOverdue ? (
+                      <div className="flex justify-between text-red-700">
+                        <span>Estimasi Denda Telat (+{liveOverdue.billableLateHours} jam)</span>
+                        <CurrencyText amount={liveOverdue.estimatedFine} />
                       </div>
                     ) : null}
                     {booking.damageFine > 0 ? (

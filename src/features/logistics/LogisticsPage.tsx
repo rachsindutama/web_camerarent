@@ -1,11 +1,22 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { collection, doc, getDocs, query, Timestamp, updateDoc, where } from 'firebase/firestore';
+import {
+  addDoc,
+  collection,
+  doc,
+  getDocs,
+  query,
+  Timestamp,
+  updateDoc,
+  where,
+} from 'firebase/firestore';
 import { ArrowRight, ExternalLink, MapPin, Navigation, Truck, UserCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { db } from '@/lib/firebase';
 import { buildGoogleMapsDirectionUrl } from '@/lib/geo';
 import { formatDateTime } from '@/lib/utils';
+import { useAuth } from '@/hooks/useAuth';
+import { calculateOverdueFine } from '@/hooks/useOverdueCalc';
 import { useTenant } from '@/hooks/useTenant';
 import { CurrencyText } from '@/components/shared/CurrencyText';
 import { LocationPickerModal } from '@/components/shared/LocationPickerModal';
@@ -28,6 +39,7 @@ const COURIER_STEPS: { key: CourierStatus; label: string }[] = [
 
 export function LogisticsPage() {
   const queryClient = useQueryClient();
+  const { userProfile } = useAuth();
   const { activeTenantId, activeTenant } = useTenant();
   const [courierDrafts, setCourierDrafts] = useState<Record<string, string>>({});
   const [mapBooking, setMapBooking] = useState<Booking | null>(null);
@@ -83,15 +95,59 @@ export function LogisticsPage() {
 
   const handleAdvanceStatus = async (booking: Booking, nextStatus: CourierStatus) => {
     if (!db) return;
+    if (booking.bookingStatus === 'completed') {
+      toast.info('Booking ini sudah selesai (Completed). Checkpoint logistik terkunci.');
+      return;
+    }
+
     try {
-      const now = Timestamp.now();
+      const nowDate = new Date();
+      const now = Timestamp.fromDate(nowDate);
+      let overduePatch: Partial<Booking> = {};
+
+      if (nextStatus === 'returned') {
+        const overdue = calculateOverdueFine(booking, activeTenant, nowDate);
+        if (overdue.isOverdue && booking.overdueFine === 0) {
+          overduePatch = {
+            bookingStatus: 'overdue',
+            overdueFine: overdue.estimatedFine,
+            totalAmount:
+              booking.subtotal +
+              booking.deliveryFee +
+              booking.deposit +
+              booking.damageFine +
+              overdue.estimatedFine,
+          };
+
+          if (userProfile) {
+            await addDoc(collection(db, 'transactions'), {
+              tenantId: booking.tenantId,
+              bookingId: booking.id,
+              type: 'overdue_fine',
+              category: 'revenue',
+              amount: overdue.estimatedFine,
+              paymentMethod: 'bank_transfer',
+              notes: `Auto overdue fine on courier return (${overdue.billableLateHours}h late) for ${booking.invoiceNumber}`,
+              verifiedBy: userProfile.uid,
+              createdAt: now,
+            });
+          }
+          toast.warning(
+            `Unit kembali terlambat +${overdue.billableLateHours} jam. Denda Rp ${overdue.estimatedFine.toLocaleString('id-ID')} otomatis dicatat ke Cash Flow.`
+          );
+        }
+      }
+
       await updateDoc(doc(db, 'bookings', booking.id), {
         courierStatus: nextStatus,
         [`courierTimestamps.${nextStatus}`]: now,
         ...(nextStatus === 'returned' ? { returnedAt: now } : {}),
+        ...overduePatch,
       });
       await queryClient.invalidateQueries({ queryKey: ['logistics', activeTenantId] });
       await queryClient.invalidateQueries({ queryKey: ['bookings'] });
+      await queryClient.invalidateQueries({ queryKey: ['inspections'] });
+      await queryClient.invalidateQueries({ queryKey: ['transactions'] });
       toast.success(`Dispatch status updated to ${nextStatus.replace(/_/g, ' ')}.`);
     } catch (error) {
       console.error('Advance courier status error:', error);

@@ -195,13 +195,36 @@ export function InspectionsPage() {
   };
 
   const handleCleanReturn = async (booking: Booking) => {
-    if (!db || !userProfile) return;
+    if (!db || !userProfile || !activeTenant) return;
     try {
+      const now = new Date();
+      const overdueCalc = calculateOverdueFine(booking, activeTenant, now);
+      // Auto-assess overdue fine on return if past grace period and not already posted
+      const newlyAssessedOverdue =
+        overdueCalc.isOverdue && booking.overdueFine === 0 ? overdueCalc.estimatedFine : 0;
+      const finalOverdueFine = Math.max(booking.overdueFine, newlyAssessedOverdue);
+
+      const deductedForOverdue = Math.min(finalOverdueFine, booking.deposit);
+      const extraOverdueDue = Math.max(0, finalOverdueFine - booking.deposit);
+      const netDepositRefund = Math.max(0, booking.deposit - deductedForOverdue);
+
+      const returnNote =
+        finalOverdueFine > 0
+          ? `Dikembalikan terlambat (${overdueCalc.billableLateHours} jam lewat grace period) — denda overdue Rp ${finalOverdueFine.toLocaleString('id-ID')} (potong deposit Rp ${deductedForOverdue.toLocaleString('id-ID')}, refund sisa Rp ${netDepositRefund.toLocaleString('id-ID')}).`
+          : 'Clean return verified — unit kembali tepat waktu dalam kondisi baik & deposit direfund penuh.';
+
       await updateDoc(doc(db, 'bookings', booking.id), {
         bookingStatus: 'completed',
-        paymentStatus: 'refunded',
-        returnedAt: Timestamp.now(),
-        returnNotes: 'Clean return verified — unit kembali dalam kondisi baik & deposit direfund.',
+        paymentStatus: netDepositRefund > 0 ? 'refunded' : 'paid',
+        overdueFine: finalOverdueFine,
+        totalAmount:
+          booking.subtotal +
+          booking.deliveryFee +
+          booking.deposit +
+          booking.damageFine +
+          extraOverdueDue,
+        returnedAt: Timestamp.fromDate(now),
+        returnNotes: returnNote,
       });
       await syncAvailabilitySlotStatus(booking.id, 'completed');
 
@@ -212,16 +235,48 @@ export function InspectionsPage() {
         });
       }
 
-      // Refund full security deposit from Liability account
-      if (booking.deposit > 0) {
+      // Post newly assessed overdue fine to Revenue ledger if not already posted
+      if (newlyAssessedOverdue > 0) {
+        await addDoc(collection(db, 'transactions'), {
+          tenantId: booking.tenantId,
+          bookingId: booking.id,
+          type: 'overdue_fine',
+          category: 'revenue',
+          amount: newlyAssessedOverdue,
+          paymentMethod: 'bank_transfer',
+          notes: `Auto overdue fine on return (${overdueCalc.billableLateHours}h late) for ${booking.invoiceNumber}`,
+          verifiedBy: userProfile.uid,
+          createdAt: Timestamp.now(),
+        });
+      }
+
+      // Clear full deposit liability (forfeited toward overdue + remaining refunded)
+      if (deductedForOverdue > 0) {
         await addDoc(collection(db, 'transactions'), {
           tenantId: booking.tenantId,
           bookingId: booking.id,
           type: 'deposit_refund',
           category: 'liability',
-          amount: booking.deposit,
+          amount: deductedForOverdue,
           paymentMethod: 'bank_transfer',
-          notes: `Clean return deposit refund for ${booking.invoiceNumber}`,
+          notes: `Deposit applied to overdue fine (${booking.invoiceNumber})`,
+          verifiedBy: userProfile.uid,
+          createdAt: Timestamp.now(),
+        });
+      }
+
+      if (netDepositRefund > 0) {
+        await addDoc(collection(db, 'transactions'), {
+          tenantId: booking.tenantId,
+          bookingId: booking.id,
+          type: 'deposit_refund',
+          category: 'liability',
+          amount: netDepositRefund,
+          paymentMethod: 'bank_transfer',
+          notes:
+            deductedForOverdue > 0
+              ? `Remaining deposit refund after overdue deduction (${booking.invoiceNumber})`
+              : `Clean return deposit refund for ${booking.invoiceNumber}`,
           verifiedBy: userProfile.uid,
           createdAt: Timestamp.now(),
         });
@@ -232,7 +287,9 @@ export function InspectionsPage() {
       await queryClient.invalidateQueries({ queryKey: ['transactions'] });
       await queryClient.invalidateQueries({ queryKey: ['equipment_units'] });
       toast.success(
-        `${booking.invoiceNumber} completed. Units returned to available & deposit refunded.`
+        finalOverdueFine > 0
+          ? `${booking.invoiceNumber} selesai dengan denda telat Rp ${finalOverdueFine.toLocaleString('id-ID')} & tercatat ke Cash Flow.`
+          : `${booking.invoiceNumber} completed. Units returned to available & deposit refunded.`
       );
     } catch (error) {
       console.error('Clean return error:', error);
@@ -496,7 +553,9 @@ export function InspectionsPage() {
                         </Button>
                         <Button size="sm" onClick={() => void handleCleanReturn(booking)}>
                           <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={1.5} />
-                          Clean Return &amp; Refund
+                          {overdue.isOverdue && booking.overdueFine === 0
+                            ? `Return + Denda Telat`
+                            : 'Clean Return & Refund'}
                         </Button>
                       </div>
                     </div>

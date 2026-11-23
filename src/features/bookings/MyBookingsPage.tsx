@@ -23,6 +23,7 @@ import { db, storage } from '@/lib/firebase';
 import { formatDateTime } from '@/lib/utils';
 import { generateInvoicePdf } from '@/lib/invoicePdf';
 import { useAuth } from '@/hooks/useAuth';
+import { calculateOverdueFine } from '@/hooks/useOverdueCalc';
 import { useTenant } from '@/hooks/useTenant';
 import { BookingDetailModal } from '@/features/bookings/BookingDetailModal';
 import { CurrencyText } from '@/components/shared/CurrencyText';
@@ -150,6 +151,7 @@ export function MyBookingsPage() {
         <div className="space-y-4">
           {bookings.map((booking) => {
             const tenant = allTenants.find((t) => t.id === booking.tenantId) ?? null;
+            const overdue = calculateOverdueFine(booking, tenant);
             const needsHandoverConfirm =
               Boolean(booking.preRentalChecklist) &&
               !booking.preRentalChecklist?.confirmedByUserAt;
@@ -256,6 +258,11 @@ export function MyBookingsPage() {
                       {booking.returnedAt ? (
                         <p className="mt-0.5 font-mono text-[10px] font-medium text-emerald-700">
                           Dikembalikan: {formatDateTime(booking.returnedAt)}
+                        </p>
+                      ) : overdue.isOverdue ? (
+                        <p className="mt-0.5 font-mono text-[10px] font-semibold text-red-700">
+                          OVERDUE +{overdue.billableLateHours}h · Est. Denda{' '}
+                          <CurrencyText amount={overdue.estimatedFine} />
                         </p>
                       ) : null}
                     </div>
