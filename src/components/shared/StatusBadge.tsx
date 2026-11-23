@@ -26,97 +26,28 @@ interface StatusStyle {
   dotClass: string;
 }
 
+const NEUTRAL_BADGE = 'border-border bg-background text-foreground';
+const DESTRUCTIVE_BADGE = 'border-destructive/30 bg-destructive/10 text-destructive';
+
 const STATUS_MAP: Record<StatusVariant, StatusStyle> = {
-  available: {
-    label: 'Available',
-    badgeClass: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-    dotClass: 'bg-emerald-500',
-  },
-  rented: {
-    label: 'Rented',
-    badgeClass: 'border-blue-200 bg-blue-50 text-blue-700',
-    dotClass: 'bg-blue-500',
-  },
-  maintenance: {
-    label: 'Maintenance',
-    badgeClass: 'border-amber-200 bg-amber-50 text-amber-800',
-    dotClass: 'bg-amber-500',
-  },
-  damaged: {
-    label: 'Damaged',
-    badgeClass: 'border-red-200 bg-red-50 text-red-700',
-    dotClass: 'bg-red-500',
-  },
-  overdue: {
-    label: 'Overdue',
-    badgeClass: 'border-red-300 bg-red-50 text-red-800',
-    dotClass: 'bg-red-600',
-  },
-  unverified: {
-    label: 'KYC Unverified',
-    badgeClass: 'border-zinc-200 bg-zinc-100 text-zinc-700',
-    dotClass: 'bg-zinc-400',
-  },
-  pending: {
-    label: 'KYC Pending',
-    badgeClass: 'border-amber-200 bg-amber-50 text-amber-800',
-    dotClass: 'bg-amber-500',
-  },
-  verified: {
-    label: 'KYC Verified',
-    badgeClass: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-    dotClass: 'bg-emerald-500',
-  },
-  rejected: {
-    label: 'KYC Rejected',
-    badgeClass: 'border-red-200 bg-red-50 text-red-700',
-    dotClass: 'bg-red-500',
-  },
-  pending_payment: {
-    label: 'Pending Payment',
-    badgeClass: 'border-zinc-200 bg-zinc-100 text-zinc-700',
-    dotClass: 'bg-zinc-400',
-  },
-  waiting_verification: {
-    label: 'Waiting Verification',
-    badgeClass: 'border-amber-200 bg-amber-50 text-amber-800',
-    dotClass: 'bg-amber-500',
-  },
-  confirmed: {
-    label: 'Confirmed',
-    badgeClass: 'border-blue-200 bg-blue-50 text-blue-700',
-    dotClass: 'bg-blue-500',
-  },
-  active_rent: {
-    label: 'Active Rent',
-    badgeClass: 'border-blue-300 bg-blue-50 text-blue-800',
-    dotClass: 'bg-blue-600',
-  },
-  completed: {
-    label: 'Completed',
-    badgeClass: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-    dotClass: 'bg-emerald-500',
-  },
-  cancelled: {
-    label: 'Cancelled',
-    badgeClass: 'border-zinc-200 bg-zinc-100 text-zinc-500',
-    dotClass: 'bg-zinc-400',
-  },
-  active: {
-    label: 'Active',
-    badgeClass: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-    dotClass: 'bg-emerald-500',
-  },
-  suspended: {
-    label: 'Suspended',
-    badgeClass: 'border-red-200 bg-red-50 text-red-700',
-    dotClass: 'bg-red-500',
-  },
-  blacklisted: {
-    label: 'Blacklisted',
-    badgeClass: 'border-red-300 bg-red-50 text-red-800',
-    dotClass: 'bg-red-600',
-  },
+  available: { label: 'Available', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-emerald-500' },
+  rented: { label: 'Rented', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-zinc-900' },
+  maintenance: { label: 'Maintenance', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-amber-500' },
+  damaged: { label: 'Damaged', badgeClass: DESTRUCTIVE_BADGE, dotClass: 'bg-red-500' },
+  overdue: { label: 'Overdue', badgeClass: DESTRUCTIVE_BADGE, dotClass: 'bg-red-500' },
+  unverified: { label: 'Unverified', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-zinc-300' },
+  pending: { label: 'KYC Pending', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-amber-500' },
+  verified: { label: 'KYC Verified', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-emerald-500' },
+  rejected: { label: 'KYC Rejected', badgeClass: DESTRUCTIVE_BADGE, dotClass: 'bg-red-500' },
+  pending_payment: { label: 'Pending Payment', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-zinc-300' },
+  waiting_verification: { label: 'Waiting Verification', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-amber-500' },
+  confirmed: { label: 'Confirmed', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-zinc-900' },
+  active_rent: { label: 'Active Rent', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-zinc-900' },
+  completed: { label: 'Completed', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-emerald-500' },
+  cancelled: { label: 'Cancelled', badgeClass: 'border-border bg-muted text-muted-foreground', dotClass: 'bg-zinc-400' },
+  active: { label: 'Active', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-emerald-500' },
+  suspended: { label: 'Suspended', badgeClass: DESTRUCTIVE_BADGE, dotClass: 'bg-red-500' },
+  blacklisted: { label: 'Blacklisted', badgeClass: DESTRUCTIVE_BADGE, dotClass: 'bg-red-500' },
 };
 
 interface StatusBadgeProps {
@@ -130,7 +61,7 @@ export function StatusBadge({ status, label, className }: StatusBadgeProps) {
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 rounded border px-1.5 py-0.5 text-[11px] font-medium leading-tight',
+        'inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-medium leading-tight',
         config.badgeClass,
         className
       )}
@@ -140,4 +71,3 @@ export function StatusBadge({ status, label, className }: StatusBadgeProps) {
     </span>
   );
 }
-

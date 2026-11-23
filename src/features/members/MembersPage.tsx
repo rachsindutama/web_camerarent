@@ -1,21 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { collection, doc, getDocs, query, Timestamp, updateDoc, where } from 'firebase/firestore';
-import {
-  Award,
-  CalendarClock,
-  CheckCircle2,
-  ChevronRight,
-  Eye,
-  Pencil,
-  Phone,
-  Save,
-  Search,
-  ShieldBan,
-  ShieldCheck,
-  Users,
-  XCircle,
-} from 'lucide-react';
+import { ChevronRight, Eye, Search, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { db } from '@/lib/firebase';
 import { MEMBERSHIP_BENEFITS } from '@/lib/membership';
@@ -30,16 +16,14 @@ import { MembershipBadge } from '@/components/shared/MembershipBadge';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -61,6 +45,16 @@ import {
 import type { Booking, KycStatus, MembershipTier, UserProfile } from '@/types/schema';
 
 type FilterTab = 'all' | 'basic' | 'premium' | 'pending_kyc' | 'blacklisted';
+type DetailTab = 'overview' | 'edit' | 'access';
+
+function getInitials(name: string): string {
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase() ?? '')
+    .join('') || 'M';
+}
 
 export function MembersPage() {
   const queryClient = useQueryClient();
@@ -71,9 +65,9 @@ export function MembersPage() {
   const [tab, setTab] = useState<FilterTab>('all');
   const [updatingUid, setUpdatingUid] = useState<string | null>(null);
 
-  // Governance modals (Superadmin) & Member Detail / Edit modal
+  // Unified Member Detail Dialog
   const [detailMemberUid, setDetailMemberUid] = useState<string | null>(null);
-  const [isEditingMember, setIsEditingMember] = useState(false);
+  const [detailTab, setDetailTab] = useState<DetailTab>('overview');
   const [savingMemberEdit, setSavingMemberEdit] = useState(false);
   const [memberEditForm, setMemberEditForm] = useState({
     displayName: '',
@@ -82,8 +76,6 @@ export function MembersPage() {
     membershipTier: 'basic' as MembershipTier,
     kycStatus: 'unverified' as KycStatus,
   });
-  const [kycTarget, setKycTarget] = useState<UserProfile | null>(null);
-  const [blacklistTarget, setBlacklistTarget] = useState<UserProfile | null>(null);
   const [blacklistReason, setBlacklistReason] = useState('');
   const [previewState, setPreviewState] = useState<{
     open: boolean;
@@ -124,8 +116,9 @@ export function MembersPage() {
 
   const detailMember = members.find((m) => m.uid === detailMemberUid) ?? null;
 
-  const openMemberDetail = (member: UserProfile, startEdit = false) => {
+  const openMemberDetail = (member: UserProfile) => {
     setDetailMemberUid(member.uid);
+    setDetailTab('overview');
     setMemberEditForm({
       displayName: member.displayName,
       phone: member.phone || '',
@@ -133,8 +126,22 @@ export function MembersPage() {
       membershipTier: member.membershipTier,
       kycStatus: member.kycStatus,
     });
-    setIsEditingMember(startEdit && isSuperAdmin);
+    setBlacklistReason(member.blacklistReason ?? '');
   };
+
+  const { data: detailMemberBookings = [] } = useQuery<Booking[]>({
+    queryKey: ['member-bookings', detailMemberUid],
+    enabled: Boolean(db && detailMemberUid),
+    queryFn: async () => {
+      if (!db || !detailMemberUid) return [];
+      const snap = await getDocs(
+        query(collection(db, 'bookings'), where('userId', '==', detailMemberUid))
+      );
+      return snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }) as Booking)
+        .sort((a, b) => b.createdAt.toMillis() - a.createdAt.toMillis());
+    },
+  });
 
   const handleSaveMemberEdit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -164,8 +171,8 @@ export function MembersPage() {
       });
       await queryClient.invalidateQueries({ queryKey: ['members'] });
       await queryClient.invalidateQueries({ queryKey: ['staff-users'] });
-      toast.success(`Profil member ${cleanName} berhasil diperbarui.`);
-      setIsEditingMember(false);
+      toast.success(`Profil ${cleanName} disimpan.`);
+      setDetailTab('overview');
     } catch (error) {
       console.error('Update member profile error:', error);
       toast.error('Gagal menyimpan perubahan profil member.');
@@ -174,29 +181,14 @@ export function MembersPage() {
     }
   };
 
-  const { data: detailMemberBookings = [] } = useQuery<Booking[]>({
-    queryKey: ['member-bookings', detailMemberUid],
-    enabled: Boolean(db && detailMemberUid),
-    queryFn: async () => {
-      if (!db || !detailMemberUid) return [];
-      const snap = await getDocs(
-        query(collection(db, 'bookings'), where('userId', '==', detailMemberUid))
-      );
-      return snap.docs
-        .map((d) => ({ id: d.id, ...d.data() }) as Booking)
-        .sort((a, b) => b.createdAt.toMillis() - a.createdAt.toMillis());
-    },
-  });
-
   const handleSetTier = async (user: UserProfile, nextTier: MembershipTier) => {
     if (!db || user.membershipTier === nextTier) return;
     setUpdatingUid(user.uid);
     try {
       await updateDoc(doc(db, 'users', user.uid), { membershipTier: nextTier });
       await queryClient.invalidateQueries({ queryKey: ['members'] });
-      toast.success(
-        `${user.displayName} diubah ke ${nextTier === 'premium' ? 'PREMIUM' : 'BASIC'}.`
-      );
+      setMemberEditForm((prev) => ({ ...prev, membershipTier: nextTier }));
+      toast.success(`${user.displayName} diubah ke ${nextTier === 'premium' ? 'Premium' : 'Basic'}.`);
     } catch (error) {
       console.error('Update tier error:', error);
       toast.error('Gagal mengubah tier member.');
@@ -207,40 +199,45 @@ export function MembersPage() {
 
   const handleKycDecision = async (user: UserProfile, decision: 'verified' | 'rejected') => {
     if (!db) return;
+    setUpdatingUid(user.uid);
     try {
       await updateDoc(doc(db, 'users', user.uid), { kycStatus: decision });
       await queryClient.invalidateQueries({ queryKey: ['members'] });
+      setMemberEditForm((prev) => ({ ...prev, kycStatus: decision }));
       toast.success(`KYC ${user.displayName} ditandai ${decision}.`);
-      setKycTarget(null);
     } catch (error) {
       console.error('KYC decision error:', error);
       toast.error('Gagal memperbarui status KYC.');
+    } finally {
+      setUpdatingUid(null);
     }
   };
 
-  const handleConfirmBlacklist = async () => {
-    if (!db || !blacklistTarget) return;
-    if (!blacklistTarget.isBlacklisted && blacklistReason.trim().length < 5) {
+  const handleToggleBlacklist = async (user: UserProfile) => {
+    if (!db) return;
+    const nextState = !user.isBlacklisted;
+    if (nextState && blacklistReason.trim().length < 5) {
       toast.error('Isi alasan blacklist minimal 5 karakter.');
       return;
     }
+    setUpdatingUid(user.uid);
     try {
-      const nextState = !blacklistTarget.isBlacklisted;
-      await updateDoc(doc(db, 'users', blacklistTarget.uid), {
+      await updateDoc(doc(db, 'users', user.uid), {
         isBlacklisted: nextState,
         blacklistReason: nextState ? blacklistReason.trim() : '',
       });
       await queryClient.invalidateQueries({ queryKey: ['members'] });
+      if (!nextState) setBlacklistReason('');
       toast.success(
         nextState
-          ? `${blacklistTarget.email} dimasukkan ke Global Blacklist.`
-          : `${blacklistTarget.email} dicabut dari Global Blacklist.`
+          ? `${user.displayName} dimasukkan ke Global Blacklist.`
+          : `${user.displayName} dicabut dari Global Blacklist.`
       );
-      setBlacklistTarget(null);
-      setBlacklistReason('');
     } catch (error) {
       console.error('Blacklist error:', error);
       toast.error('Gagal memperbarui status blacklist.');
+    } finally {
+      setUpdatingUid(null);
     }
   };
 
@@ -259,51 +256,51 @@ export function MembersPage() {
     );
   });
 
+  const totalSpend = detailMemberBookings
+    .filter((b) => b.bookingStatus !== 'cancelled')
+    .reduce((sum, b) => sum + b.subtotal + b.deliveryFee, 0);
+
   return (
-    <div className="space-y-5">
-      <div className="border-b border-zinc-200 pb-4">
-        <h2 className="text-base font-semibold tracking-tight text-zinc-950">Member</h2>
-        <p className="mt-0.5 text-xs text-zinc-500">
-          Daftar penyewa terdaftar — kelola tier (<span className="font-mono">BASIC</span> /{' '}
-          <span className="font-mono">PREMIUM</span>), verifikasi KYC, dan status Global Blacklist.
-          Akun Admin &amp; Superadmin dikelola terpisah di menu Staff &amp; Karyawan.
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="space-y-1">
+        <h2 className="text-xl font-semibold tracking-tight text-foreground">Member</h2>
+        <p className="text-sm text-muted-foreground">
+          Kelola data penyewa, tier Basic &amp; Premium, verifikasi KYC, dan status Global Blacklist.
         </p>
       </div>
 
-      {/* Compact Benefit Comparison Reference */}
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <Card className="shadow-none">
-          <CardHeader className="flex flex-row items-center justify-between py-2.5">
-            <CardTitle className="text-xs font-semibold">Basic Member (Default)</CardTitle>
+      {/* Tier Benefit Reference Strip */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="rounded-lg border bg-card p-4 shadow-sm">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-foreground">Basic</p>
             <MembershipBadge tier="basic" />
-          </CardHeader>
-          <CardContent className="pb-3 text-[11px] text-zinc-600">
-            Diskon 0% · Deposit 100% · Grace standar cabang · Ongkir penuh · Maks.{' '}
-            <span className="font-mono font-medium text-zinc-900">
+          </div>
+          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+            Tarif standar · Deposit 100% · Grace standar cabang · Ongkir penuh · Maks.{' '}
+            <span className="font-medium text-foreground">
               {MEMBERSHIP_BENEFITS.basic.maxUnitsPerBooking} unit
-            </span>
-            /booking.
-          </CardContent>
-        </Card>
+            </span>{' '}
+            per booking.
+          </p>
+        </div>
 
-        <Card className="border-zinc-900/20 bg-zinc-50/70 shadow-none">
-          <CardHeader className="flex flex-row items-center justify-between py-2.5">
-            <CardTitle className="flex items-center gap-1.5 text-xs font-semibold">
-              <Award className="h-3.5 w-3.5 text-zinc-900" strokeWidth={1.5} />
-              Premium Member
-            </CardTitle>
+        <div className="rounded-lg border bg-card p-4 shadow-sm">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-foreground">Premium</p>
             <MembershipBadge tier="premium" />
-          </CardHeader>
-          <CardContent className="pb-3 text-[11px] text-zinc-700">
-            Diskon <span className="font-mono font-semibold text-emerald-700">10%</span> · Deposit{' '}
-            <span className="font-mono font-semibold text-emerald-700">-50%</span> · Grace{' '}
-            <span className="font-mono font-semibold text-emerald-700">+60m</span> · Gratis ongkir{' '}
-            <span className="font-mono font-semibold text-emerald-700">5 km</span> · Unlimited unit
-            · Priority Badge.
-          </CardContent>
-        </Card>
+          </div>
+          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+            Diskon <span className="font-medium text-foreground">10%</span> · Deposit{' '}
+            <span className="font-medium text-foreground">-50%</span> · Grace{' '}
+            <span className="font-medium text-foreground">+60 menit</span> · Gratis ongkir{' '}
+            <span className="font-medium text-foreground">5 km</span> · Unlimited unit · Priority.
+          </p>
+        </div>
       </div>
 
+      {/* Filters & Search */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Tabs value={tab} onValueChange={(v) => setTab(v as FilterTab)}>
           <TabsList className="h-auto flex-wrap">
@@ -325,53 +322,61 @@ export function MembersPage() {
 
         <div className="relative w-full max-w-xs">
           <Search
-            className="pointer-events-none absolute left-2.5 top-2 h-3.5 w-3.5 text-zinc-400"
+            className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground"
             strokeWidth={1.5}
           />
           <Input
-            placeholder="Cari nama, email, atau NIK 16 digit..."
+            placeholder="Cari nama, email, atau NIK..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-8"
+            className="pl-9"
           />
         </div>
       </div>
 
+      {/* Member Table */}
       {isLoading ? (
-        <div className="rounded-md border border-zinc-200 bg-white p-8 text-center font-mono text-xs text-zinc-400">
-          LOADING MEMBER DIRECTORY...
+        <div className="rounded-lg border bg-card p-10 text-center text-sm text-muted-foreground">
+          Memuat daftar member...
         </div>
       ) : filtered.length === 0 ? (
         <EmptyState
           icon={Users}
-          title="Tidak ada member yang cocok"
-          description="Penyewa yang mendaftar via /register akan otomatis tampil di sini dengan tier Basic."
+          title="Tidak ada member ditemukan"
+          description="Penyewa yang mendaftar melalui halaman registrasi akan tampil di sini."
         />
       ) : (
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Member</TableHead>
-              <TableHead>NIK / Phone</TableHead>
+              <TableHead>NIK &amp; WhatsApp</TableHead>
               <TableHead>Tier</TableHead>
-              <TableHead>KYC &amp; Blacklist</TableHead>
-              <TableHead className="w-8" />
+              <TableHead>Status</TableHead>
+              <TableHead className="w-10" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {filtered.map((user) => (
               <TableRow
                 key={user.uid}
-                onClick={() => openMemberDetail(user, false)}
+                onClick={() => openMemberDetail(user)}
                 className="group cursor-pointer"
               >
                 <TableCell>
-                  <p className="font-medium text-zinc-950">{user.displayName}</p>
-                  <p className="font-mono text-[11px] text-zinc-500">{user.email}</p>
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
+                      {getInitials(user.displayName)}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-foreground">{user.displayName}</p>
+                      <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+                    </div>
+                  </div>
                 </TableCell>
-                <TableCell className="font-mono text-[11px]">
-                  <div>{user.nik || 'No NIK'}</div>
-                  <div className="text-zinc-500">{user.phone || '—'}</div>
+                <TableCell className="tabular-nums">
+                  <div className="text-xs font-medium text-foreground">{user.nik || '—'}</div>
+                  <div className="text-xs text-muted-foreground">{user.phone || '—'}</div>
                 </TableCell>
                 <TableCell>
                   <MembershipBadge tier={user.membershipTier} />
@@ -381,15 +386,10 @@ export function MembersPage() {
                     <StatusBadge status={user.kycStatus} />
                     {user.isBlacklisted ? <StatusBadge status="blacklisted" /> : null}
                   </div>
-                  {user.isBlacklisted && user.blacklistReason ? (
-                    <p className="mt-0.5 max-w-[200px] truncate text-[10px] text-red-700">
-                      {user.blacklistReason}
-                    </p>
-                  ) : null}
                 </TableCell>
                 <TableCell className="text-right">
                   <ChevronRight
-                    className="ml-auto h-4 w-4 text-zinc-300 transition-all group-hover:translate-x-0.5 group-hover:text-zinc-700"
+                    className="ml-auto h-4 w-4 text-muted-foreground/50 transition-transform group-hover:translate-x-0.5 group-hover:text-foreground"
                     strokeWidth={1.5}
                   />
                 </TableCell>
@@ -399,517 +399,374 @@ export function MembersPage() {
         </Table>
       )}
 
-      {/* Blacklist Dialog */}
-      <Dialog open={Boolean(blacklistTarget)} onOpenChange={(o) => !o && setBlacklistTarget(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {blacklistTarget?.isBlacklisted
-                ? 'Cabut Status Global Blacklist'
-                : 'Masukkan ke Global Blacklist'}
-            </DialogTitle>
-            <DialogDescription>
-              {blacklistTarget?.displayName} ({blacklistTarget?.email})
-            </DialogDescription>
-          </DialogHeader>
-
-          {blacklistTarget && !blacklistTarget.isBlacklisted ? (
-            <div className="space-y-1.5">
-              <Label htmlFor="ban-reason">Alasan Blacklist / Insiden</Label>
-              <Textarea
-                id="ban-reason"
-                placeholder="mis. Unit Sony FX3 tidak dikembalikan / denda kerusakan belum dibayar."
-                value={blacklistReason}
-                onChange={(e) => setBlacklistReason(e.target.value)}
-              />
-            </div>
-          ) : (
-            <p className="text-xs text-zinc-600">
-              Mencabut status blacklist akan mengembalikan akses booking akun ini di semua cabang.
-            </p>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setBlacklistTarget(null)}>
-              Batal
-            </Button>
-            <Button
-              variant={blacklistTarget?.isBlacklisted ? 'default' : 'destructive'}
-              onClick={() => void handleConfirmBlacklist()}
-            >
-              {blacklistTarget?.isBlacklisted ? 'Pulihkan Akses' : 'Terapkan Global Ban'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* KYC Identity Review Dialog */}
-      <Dialog open={Boolean(kycTarget)} onOpenChange={(o) => !o && setKycTarget(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>KYC Identity Review</DialogTitle>
-            <DialogDescription>
-              Verifikasi NIK 16 digit dan dokumen KTP/Selfie sebelum membuka akses checkout.
-            </DialogDescription>
-          </DialogHeader>
-
-          {kycTarget ? (
-            <div className="space-y-3 text-xs">
-              <div className="grid grid-cols-2 gap-2 rounded-md border border-zinc-200 bg-zinc-50 p-3 font-mono text-[11px]">
-                <div>
-                  <span className="text-zinc-400">NAME: </span>
-                  <span className="text-zinc-900">{kycTarget.displayName}</span>
-                </div>
-                <div>
-                  <span className="text-zinc-400">STATUS: </span>
-                  <span className="uppercase text-zinc-900">{kycTarget.kycStatus}</span>
-                </div>
-                <div>
-                  <span className="text-zinc-400">NIK: </span>
-                  <span className="text-zinc-900">{kycTarget.nik ?? 'Not submitted'}</span>
-                </div>
-                <div>
-                  <span className="text-zinc-400">PHONE: </span>
-                  <span className="text-zinc-900">{kycTarget.phone || '—'}</span>
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label>Uploaded Documents ({kycTarget.kycDocs?.length ?? 0})</Label>
-                {kycTarget.kycDocs && kycTarget.kycDocs.length > 0 ? (
-                  <div className="grid grid-cols-2 gap-2.5">
-                    {kycTarget.kycDocs.map((url, idx) => (
-                      <button
-                        key={url}
-                        type="button"
-                        onClick={() =>
-                          setPreviewState({
-                            open: true,
-                            images: (kycTarget.kycDocs ?? []).map((u, i) => ({
-                              url: u,
-                              label: `KYC_DOC_${i + 1} — ${kycTarget.displayName}`,
-                            })),
-                            index: idx,
-                          })
-                        }
-                        className="group overflow-hidden rounded-md border border-zinc-200 bg-zinc-50 text-left transition-colors hover:border-zinc-400"
-                      >
-                        <div className="relative h-28 w-full overflow-hidden bg-zinc-100">
-                          <img
-                            src={url}
-                            alt={`KYC_DOC_${idx + 1}`}
-                            className="h-full w-full object-cover transition-transform duration-150 group-hover:scale-105"
-                          />
-                          <div className="absolute inset-0 flex items-center justify-center bg-zinc-950/0 transition-colors group-hover:bg-zinc-950/35">
-                            <span className="inline-flex items-center gap-1 rounded bg-white/95 px-2 py-1 font-mono text-[10px] font-medium text-zinc-900 opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
-                              <Eye className="h-3 w-3" strokeWidth={1.5} />
-                              Preview
-                            </span>
-                          </div>
-                        </div>
-                        <div className="flex items-center justify-between px-2.5 py-1.5 font-mono text-[10px] text-zinc-600">
-                          <span>KYC_DOC_{idx + 1}</span>
-                          <Eye className="h-3 w-3 text-zinc-400" strokeWidth={1.5} />
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-[11px] text-zinc-500">Belum ada dokumen KTP yang diunggah.</p>
-                )}
-              </div>
-            </div>
-          ) : null}
-
-          <DialogFooter className="items-center sm:justify-between">
-            <div>{kycTarget ? <StatusBadge status={kycTarget.kycStatus} /> : null}</div>
-            <div className="flex items-center gap-2">
-              {kycTarget?.kycStatus !== 'rejected' ? (
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => kycTarget && void handleKycDecision(kycTarget, 'rejected')}
-                >
-                  <XCircle className="h-3.5 w-3.5" strokeWidth={1.5} />
-                  {kycTarget?.kycStatus === 'verified' ? 'Revoke / Reject' : 'Reject'}
-                </Button>
-              ) : null}
-
-              {kycTarget?.kycStatus !== 'verified' ? (
-                <Button
-                  size="sm"
-                  onClick={() => kycTarget && void handleKycDecision(kycTarget, 'verified')}
-                >
-                  <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={1.5} />
-                  Approve &amp; Verify KYC
-                </Button>
-              ) : (
-                <Button variant="outline" size="sm" onClick={() => setKycTarget(null)}>
-                  Close
-                </Button>
-              )}
-            </div>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Member Detail & Edit Modal */}
+      {/* Clean shadcn/ui Member Detail & Management Dialog */}
       <Dialog
         open={Boolean(detailMember)}
         onOpenChange={(open) => {
-          if (!open) {
-            setDetailMemberUid(null);
-            setIsEditingMember(false);
-          }
+          if (!open) setDetailMemberUid(null);
         }}
       >
-        <DialogContent className="flex max-h-[88vh] max-w-2xl flex-col gap-0 overflow-hidden p-0">
-          <DialogHeader className="shrink-0 border-b border-zinc-200 bg-zinc-50/80 px-6 py-4 pr-12">
-            <div className="flex flex-wrap items-center gap-2">
-              <DialogTitle className="text-base font-semibold text-zinc-950">
-                {isEditingMember ? `Edit Profil — ${detailMember?.displayName}` : detailMember?.displayName}
-              </DialogTitle>
-              {detailMember ? <MembershipBadge tier={detailMember.membershipTier} /> : null}
-              {detailMember ? <StatusBadge status={detailMember.kycStatus} /> : null}
-              {detailMember?.isBlacklisted ? <StatusBadge status="blacklisted" /> : null}
-            </div>
-            <DialogDescription className="mt-1 font-mono text-[11px] text-zinc-500">
-              {detailMember?.email} · Terdaftar {formatDateTime(detailMember?.createdAt)}
-            </DialogDescription>
-          </DialogHeader>
-
+        <DialogContent className="max-w-lg gap-5">
           {detailMember ? (
-            isEditingMember && isSuperAdmin ? (
-              <form
-                id="edit-member-form"
-                onSubmit={handleSaveMemberEdit}
-                className="flex-1 space-y-4 overflow-y-auto px-6 py-5 text-xs"
-              >
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div className="space-y-1.5 sm:col-span-2">
-                    <Label htmlFor="member-edit-name">Nama Lengkap</Label>
-                    <Input
-                      id="member-edit-name"
-                      value={memberEditForm.displayName}
-                      onChange={(e) =>
-                        setMemberEditForm((prev) => ({ ...prev, displayName: e.target.value }))
-                      }
-                      placeholder="Nama sesuai KTP"
-                    />
+            <>
+              <DialogHeader>
+                <div className="flex items-start gap-3 pr-6">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium text-foreground">
+                    {getInitials(detailMember.displayName)}
                   </div>
-
-                  <div className="space-y-1.5">
-                    <Label htmlFor="member-edit-nik">NIK (16 Digit)</Label>
-                    <Input
-                      id="member-edit-nik"
-                      className="font-mono"
-                      maxLength={16}
-                      value={memberEditForm.nik}
-                      onChange={(e) =>
-                        setMemberEditForm((prev) => ({
-                          ...prev,
-                          nik: e.target.value.replace(/\D/g, '').slice(0, 16),
-                        }))
-                      }
-                      placeholder="3174xxxxxxxxxxxx"
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label htmlFor="member-edit-phone">No. HP / WhatsApp</Label>
-                    <Input
-                      id="member-edit-phone"
-                      className="font-mono"
-                      value={memberEditForm.phone}
-                      onChange={(e) =>
-                        setMemberEditForm((prev) => ({ ...prev, phone: e.target.value }))
-                      }
-                      placeholder="0812xxxxxxxx"
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label>Membership Tier</Label>
-                    <Select
-                      value={memberEditForm.membershipTier}
-                      onValueChange={(v) =>
-                        setMemberEditForm((prev) => ({
-                          ...prev,
-                          membershipTier: v as MembershipTier,
-                        }))
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="basic">Basic (Default)</SelectItem>
-                        <SelectItem value="premium">Premium</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label>Status KYC</Label>
-                    <Select
-                      value={memberEditForm.kycStatus}
-                      onValueChange={(v) =>
-                        setMemberEditForm((prev) => ({ ...prev, kycStatus: v as KycStatus }))
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="unverified">Unverified</SelectItem>
-                        <SelectItem value="pending">Pending Review</SelectItem>
-                        <SelectItem value="verified">KYC Verified</SelectItem>
-                        <SelectItem value="rejected">Rejected</SelectItem>
-                      </SelectContent>
-                    </Select>
+                  <div className="min-w-0 flex-1">
+                    <DialogTitle className="truncate">{detailMember.displayName}</DialogTitle>
+                    <DialogDescription className="mt-1 truncate">
+                      {detailMember.email}
+                    </DialogDescription>
+                    <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                      <MembershipBadge tier={detailMember.membershipTier} />
+                      <StatusBadge status={detailMember.kycStatus} />
+                      {detailMember.isBlacklisted ? <StatusBadge status="blacklisted" /> : null}
+                    </div>
                   </div>
                 </div>
+              </DialogHeader>
 
-                <div className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-[10px] text-zinc-500">
-                  EMAIL AKUN (GOOGLE AUTH): {detailMember.email} · UID: {detailMember.uid}
-                </div>
-              </form>
-            ) : (
-              <div className="flex-1 space-y-4 overflow-y-auto px-6 py-5 text-xs">
-                {detailMember.isBlacklisted ? (
-                  <div className="rounded-md border border-red-200 bg-red-50 p-3 text-red-900">
-                    <p className="font-mono text-[10px] font-semibold uppercase text-red-700">
-                      Global Blacklist Active
-                    </p>
-                    <p className="mt-1 text-xs">
-                      {detailMember.blacklistReason || 'Akun diblokir oleh governance platform.'}
-                    </p>
-                  </div>
-                ) : null}
+              <Tabs value={detailTab} onValueChange={(v) => setDetailTab(v as DetailTab)}>
+                <TabsList className="grid w-full grid-cols-3">
+                  <TabsTrigger value="overview">Ringkasan</TabsTrigger>
+                  {isSuperAdmin ? <TabsTrigger value="edit">Edit Profil</TabsTrigger> : null}
+                  <TabsTrigger value="access">
+                    {isSuperAdmin ? 'KYC & Akses' : 'Tier'}
+                  </TabsTrigger>
+                </TabsList>
 
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div className="space-y-1.5 rounded-md border border-zinc-200 bg-white p-3.5 font-mono text-[11px]">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="font-sans text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
-                        Identitas Member
+                {/* Tab 1: Overview */}
+                <TabsContent value="overview" className="mt-4 space-y-5">
+                  {detailMember.isBlacklisted ? (
+                    <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3.5 py-2.5 text-xs text-destructive">
+                      <p className="font-medium">Akun diblokir (Global Blacklist)</p>
+                      <p className="mt-0.5 text-destructive/80">
+                        {detailMember.blacklistReason || 'Diblokir oleh administrator platform.'}
                       </p>
-                      {isSuperAdmin ? (
-                        <button
-                          type="button"
-                          onClick={() => openMemberDetail(detailMember, true)}
-                          className="inline-flex items-center gap-1 font-sans text-[11px] font-medium text-primary hover:underline"
-                        >
-                          <Pencil className="h-3 w-3" strokeWidth={1.5} />
-                          Edit
-                        </button>
-                      ) : null}
                     </div>
-                    <div className="flex justify-between gap-2">
-                      <span className="text-zinc-400">NIK</span>
-                      <span className="text-zinc-950">{detailMember.nik || '—'}</span>
+                  ) : null}
+
+                  <dl className="divide-y divide-border text-sm">
+                    <div className="flex items-center justify-between py-2.5">
+                      <dt className="text-muted-foreground">NIK</dt>
+                      <dd className="font-mono text-xs font-medium text-foreground">
+                        {detailMember.nik || '—'}
+                      </dd>
                     </div>
-                    <div className="flex justify-between gap-2">
-                      <span className="text-zinc-400">WHATSAPP / HP</span>
-                      <span className="inline-flex items-center gap-1 text-zinc-950">
-                        <Phone className="h-3 w-3 text-zinc-400" strokeWidth={1.5} />
+                    <div className="flex items-center justify-between py-2.5">
+                      <dt className="text-muted-foreground">WhatsApp / HP</dt>
+                      <dd className="tabular-nums font-medium text-foreground">
                         {detailMember.phone || '—'}
-                      </span>
+                      </dd>
                     </div>
-                    <div className="flex justify-between gap-2">
-                      <span className="text-zinc-400">UID</span>
-                      <span className="truncate text-zinc-600">{detailMember.uid}</span>
+                    <div className="flex items-center justify-between py-2.5">
+                      <dt className="text-muted-foreground">Terdaftar</dt>
+                      <dd className="text-xs text-foreground">
+                        {formatDateTime(detailMember.createdAt)}
+                      </dd>
                     </div>
-                  </div>
+                    <div className="flex items-center justify-between py-2.5">
+                      <dt className="text-muted-foreground">Total Booking</dt>
+                      <dd className="tabular-nums font-medium text-foreground">
+                        {detailMemberBookings.length} transaksi
+                      </dd>
+                    </div>
+                    <div className="flex items-center justify-between py-2.5">
+                      <dt className="text-muted-foreground">Total Belanja</dt>
+                      <dd className="font-medium text-foreground">
+                        <CurrencyText amount={totalSpend} />
+                      </dd>
+                    </div>
+                  </dl>
 
-                  <div className="space-y-1.5 rounded-md border border-zinc-200 bg-white p-3.5">
-                    <p className="flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
-                      <CalendarClock className="h-3.5 w-3.5" strokeWidth={1.5} />
-                      Ringkasan Aktivitas Sewa
-                    </p>
-                    <div className="grid grid-cols-2 gap-2 pt-1">
-                      <div className="rounded border border-zinc-100 bg-zinc-50 p-2">
-                        <p className="font-mono text-[9px] uppercase text-zinc-400">Total Booking</p>
-                        <p className="mt-0.5 font-mono text-sm font-semibold text-zinc-950">
-                          {detailMemberBookings.length}
-                        </p>
-                      </div>
-                      <div className="rounded border border-zinc-100 bg-zinc-50 p-2">
-                        <p className="font-mono text-[9px] uppercase text-zinc-400">Total Transaksi</p>
-                        <p className="mt-0.5 text-sm font-semibold text-zinc-950">
-                          <CurrencyText
-                            amount={detailMemberBookings
-                              .filter((b) => b.bookingStatus !== 'cancelled')
-                              .reduce((s, b) => s + b.subtotal + b.deliveryFee, 0)}
-                          />
-                        </p>
+                  {detailMemberBookings.length > 0 ? (
+                    <div className="space-y-2 border-t pt-4">
+                      <p className="text-xs font-medium text-muted-foreground">
+                        Booking Terakhir
+                      </p>
+                      <div className="divide-y divide-border">
+                        {detailMemberBookings.slice(0, 4).map((b) => (
+                          <div
+                            key={b.id}
+                            className="flex items-center justify-between gap-2 py-2 text-xs"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-medium text-foreground">
+                                {b.invoiceNumber}
+                              </span>
+                              <StatusBadge status={b.bookingStatus} />
+                            </div>
+                            <CurrencyText
+                              amount={b.totalAmount}
+                              className="font-medium text-foreground"
+                            />
+                          </div>
+                        ))}
                       </div>
                     </div>
-                  </div>
-                </div>
+                  ) : null}
+                </TabsContent>
 
-                {/* Uploaded KYC Docs */}
-                <div className="space-y-2 rounded-md border border-zinc-200 bg-white p-3.5">
-                  <p className="font-mono text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
-                    Dokumen KYC ({detailMember.kycDocs?.length ?? 0})
-                  </p>
-                  {detailMember.kycDocs && detailMember.kycDocs.length > 0 ? (
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                      {detailMember.kycDocs.map((url, idx) => (
-                        <button
-                          key={url}
-                          type="button"
-                          onClick={() =>
-                            setPreviewState({
-                              open: true,
-                              images: (detailMember.kycDocs ?? []).map((u, i) => ({
-                                url: u,
-                                label: `KYC_DOC_${i + 1} — ${detailMember.displayName}`,
-                              })),
-                              index: idx,
-                            })
+                {/* Tab 2: Edit Profile (Superadmin) */}
+                {isSuperAdmin ? (
+                  <TabsContent value="edit" className="mt-4">
+                    <form onSubmit={handleSaveMemberEdit} className="space-y-4">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="member-edit-name">Nama Lengkap</Label>
+                        <Input
+                          id="member-edit-name"
+                          value={memberEditForm.displayName}
+                          onChange={(e) =>
+                            setMemberEditForm((prev) => ({
+                              ...prev,
+                              displayName: e.target.value,
+                            }))
                           }
-                          className="group overflow-hidden rounded border border-zinc-200 bg-zinc-50 text-left hover:border-zinc-400"
-                        >
-                          <img
-                            src={url}
-                            alt={`KYC_${idx + 1}`}
-                            className="h-24 w-full object-cover transition-transform group-hover:scale-105"
-                          />
-                          <div className="flex items-center justify-between px-2 py-1 font-mono text-[10px] text-zinc-600">
-                            <span>KYC_DOC_{idx + 1}</span>
-                            <Eye className="h-3 w-3 text-zinc-400" strokeWidth={1.5} />
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-[11px] text-zinc-400">Belum ada dokumen KYC yang diunggah.</p>
-                  )}
-                </div>
+                          placeholder="Nama sesuai KTP"
+                        />
+                      </div>
 
-                {/* Recent Bookings */}
-                {detailMemberBookings.length > 0 ? (
-                  <div className="space-y-2 rounded-md border border-zinc-200 bg-white p-3.5">
-                    <p className="font-mono text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
-                      Riwayat Booking Terakhir
-                    </p>
-                    <div className="divide-y divide-zinc-100">
-                      {detailMemberBookings.slice(0, 5).map((b) => (
-                        <div
-                          key={b.id}
-                          className="flex flex-wrap items-center justify-between gap-2 py-2"
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono font-semibold text-zinc-900">
-                              {b.invoiceNumber}
-                            </span>
-                            <StatusBadge status={b.bookingStatus} />
-                          </div>
-                          <div className="text-right font-mono text-[11px]">
-                            <CurrencyText amount={b.totalAmount} className="font-medium text-zinc-900" />
-                            <span className="ml-2 text-zinc-400">{formatDateTime(b.startDate)}</span>
-                          </div>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div className="space-y-1.5">
+                          <Label htmlFor="member-edit-nik">NIK (16 Digit)</Label>
+                          <Input
+                            id="member-edit-nik"
+                            className="font-mono text-xs"
+                            maxLength={16}
+                            value={memberEditForm.nik}
+                            onChange={(e) =>
+                              setMemberEditForm((prev) => ({
+                                ...prev,
+                                nik: e.target.value.replace(/\D/g, '').slice(0, 16),
+                              }))
+                            }
+                            placeholder="3174xxxxxxxxxxxx"
+                          />
                         </div>
-                      ))}
+                        <div className="space-y-1.5">
+                          <Label htmlFor="member-edit-phone">WhatsApp / HP</Label>
+                          <Input
+                            id="member-edit-phone"
+                            value={memberEditForm.phone}
+                            onChange={(e) =>
+                              setMemberEditForm((prev) => ({ ...prev, phone: e.target.value }))
+                            }
+                            placeholder="0812xxxxxxxx"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div className="space-y-1.5">
+                          <Label>Membership Tier</Label>
+                          <Select
+                            value={memberEditForm.membershipTier}
+                            onValueChange={(v) =>
+                              setMemberEditForm((prev) => ({
+                                ...prev,
+                                membershipTier: v as MembershipTier,
+                              }))
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="basic">Basic</SelectItem>
+                              <SelectItem value="premium">Premium</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Status KYC</Label>
+                          <Select
+                            value={memberEditForm.kycStatus}
+                            onValueChange={(v) =>
+                              setMemberEditForm((prev) => ({
+                                ...prev,
+                                kycStatus: v as KycStatus,
+                              }))
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="unverified">Unverified</SelectItem>
+                              <SelectItem value="pending">KYC Pending</SelectItem>
+                              <SelectItem value="verified">KYC Verified</SelectItem>
+                              <SelectItem value="rejected">KYC Rejected</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end gap-2 pt-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => setDetailTab('overview')}
+                        >
+                          Batal
+                        </Button>
+                        <Button type="submit" disabled={savingMemberEdit}>
+                          {savingMemberEdit ? 'Menyimpan...' : 'Simpan Perubahan'}
+                        </Button>
+                      </div>
+                    </form>
+                  </TabsContent>
+                ) : null}
+
+                {/* Tab 3: Tier, KYC & Blacklist */}
+                <TabsContent value="access" className="mt-4 space-y-5">
+                  {/* Membership Tier */}
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">Membership Tier</p>
+                      <p className="text-xs text-muted-foreground">
+                        Ubah level keanggotaan penyewa.
+                      </p>
+                    </div>
+                    <div className="inline-flex rounded-md border bg-muted p-0.5">
+                      <button
+                        type="button"
+                        disabled={updatingUid === detailMember.uid}
+                        onClick={() => void handleSetTier(detailMember, 'basic')}
+                        className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                          detailMember.membershipTier === 'basic'
+                            ? 'bg-background text-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        Basic
+                      </button>
+                      <button
+                        type="button"
+                        disabled={updatingUid === detailMember.uid}
+                        onClick={() => void handleSetTier(detailMember, 'premium')}
+                        className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                          detailMember.membershipTier === 'premium'
+                            ? 'bg-primary text-primary-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        Premium
+                      </button>
                     </div>
                   </div>
-                ) : null}
-              </div>
-            )
-          ) : null}
 
-          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-zinc-200 bg-zinc-50/80 px-6 py-3.5">
-            {detailMember ? (
-              isEditingMember && isSuperAdmin ? (
-                <>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="bg-white"
-                    onClick={() => setIsEditingMember(false)}
-                  >
-                    Batal
-                  </Button>
-                  <Button
-                    type="submit"
-                    form="edit-member-form"
-                    size="sm"
-                    disabled={savingMemberEdit}
-                  >
-                    <Save className="h-3.5 w-3.5" strokeWidth={1.5} />
-                    {savingMemberEdit ? 'Menyimpan...' : 'Simpan Perubahan'}
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {isSuperAdmin ? (
+                  {/* KYC Verification (Superadmin) */}
+                  {isSuperAdmin ? (
+                    <div className="space-y-3 border-t pt-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-foreground">Dokumen KYC</p>
+                          <p className="text-xs text-muted-foreground">
+                            {detailMember.kycDocs?.length ?? 0} berkas terunggah
+                          </p>
+                        </div>
+                        <StatusBadge status={detailMember.kycStatus} />
+                      </div>
+
+                      {detailMember.kycDocs && detailMember.kycDocs.length > 0 ? (
+                        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+                          {detailMember.kycDocs.map((url, idx) => (
+                            <button
+                              key={url}
+                              type="button"
+                              onClick={() =>
+                                setPreviewState({
+                                  open: true,
+                                  images: (detailMember.kycDocs ?? []).map((u, i) => ({
+                                    url: u,
+                                    label: `Dokumen KYC ${i + 1} — ${detailMember.displayName}`,
+                                  })),
+                                  index: idx,
+                                })
+                              }
+                              className="group overflow-hidden rounded-md border bg-muted/40 text-left transition-colors hover:border-foreground/30"
+                            >
+                              <img
+                                src={url}
+                                alt={`KYC ${idx + 1}`}
+                                className="h-20 w-full object-cover"
+                              />
+                              <div className="flex items-center justify-between px-2 py-1 text-[11px] text-muted-foreground">
+                                <span>Dokumen {idx + 1}</span>
+                                <Eye className="h-3 w-3" strokeWidth={1.5} />
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          Belum ada dokumen KTP / selfie yang diunggah.
+                        </p>
+                      )}
+
+                      <div className="flex items-center gap-2">
+                        {detailMember.kycStatus !== 'verified' ? (
+                          <Button
+                            size="sm"
+                            disabled={updatingUid === detailMember.uid}
+                            onClick={() => void handleKycDecision(detailMember, 'verified')}
+                          >
+                            Verifikasi KYC
+                          </Button>
+                        ) : null}
+                        {detailMember.kycStatus !== 'rejected' ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={updatingUid === detailMember.uid}
+                            onClick={() => void handleKycDecision(detailMember, 'rejected')}
+                          >
+                            {detailMember.kycStatus === 'verified' ? 'Cabut Verifikasi' : 'Tolak KYC'}
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {/* Global Blacklist Danger Zone (Superadmin) */}
+                  {isSuperAdmin ? (
+                    <div className="space-y-3 border-t pt-4">
+                      <div>
+                        <p className="text-sm font-medium text-foreground">Global Blacklist</p>
+                        <p className="text-xs text-muted-foreground">
+                          {detailMember.isBlacklisted
+                            ? 'Akun ini sedang diblokir di seluruh cabang.'
+                            : 'Blokir akses penyewa secara global jika terjadi pelanggaran berat.'}
+                        </p>
+                      </div>
+
+                      {!detailMember.isBlacklisted ? (
+                        <Textarea
+                          placeholder="Tulis alasan blacklist (min. 5 karakter)..."
+                          value={blacklistReason}
+                          onChange={(e) => setBlacklistReason(e.target.value)}
+                          rows={2}
+                        />
+                      ) : null}
+
                       <Button
                         size="sm"
-                        variant="outline"
-                        className="bg-white"
-                        onClick={() => openMemberDetail(detailMember, true)}
+                        variant={detailMember.isBlacklisted ? 'outline' : 'destructive'}
+                        disabled={updatingUid === detailMember.uid}
+                        onClick={() => void handleToggleBlacklist(detailMember)}
                       >
-                        <Pencil className="h-3.5 w-3.5" strokeWidth={1.5} />
-                        Edit Profil
+                        {detailMember.isBlacklisted
+                          ? 'Cabut dari Global Blacklist'
+                          : 'Terapkan Global Blacklist'}
                       </Button>
-                    ) : null}
-                    <Button
-                      size="sm"
-                      variant={detailMember.membershipTier === 'premium' ? 'outline' : 'default'}
-                      disabled={updatingUid === detailMember.uid}
-                      onClick={() =>
-                        void handleSetTier(
-                          detailMember,
-                          detailMember.membershipTier === 'premium' ? 'basic' : 'premium'
-                        )
-                      }
-                    >
-                      <Award className="h-3.5 w-3.5" strokeWidth={1.5} />
-                      {detailMember.membershipTier === 'premium' ? 'Set Basic' : 'Upgrade Premium'}
-                    </Button>
-                    {isSuperAdmin ? (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="bg-white"
-                          onClick={() => setKycTarget(detailMember)}
-                        >
-                          <ShieldCheck className="h-3.5 w-3.5" strokeWidth={1.5} />
-                          Review KYC
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant={detailMember.isBlacklisted ? 'outline' : 'destructive'}
-                          onClick={() => {
-                            setBlacklistTarget(detailMember);
-                            setBlacklistReason(detailMember.blacklistReason ?? '');
-                          }}
-                        >
-                          <ShieldBan className="h-3.5 w-3.5" strokeWidth={1.5} />
-                          {detailMember.isBlacklisted ? 'Cabut Ban' : 'Ban Member'}
-                        </Button>
-                      </>
-                    ) : null}
-                  </div>
-
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="bg-white"
-                    onClick={() => {
-                      setDetailMemberUid(null);
-                      setIsEditingMember(false);
-                    }}
-                  >
-                    Close
-                  </Button>
-                </>
-              )
-            ) : null}
-          </div>
+                    </div>
+                  ) : null}
+                </TabsContent>
+              </Tabs>
+            </>
+          ) : null}
         </DialogContent>
       </Dialog>
 
@@ -918,7 +775,7 @@ export function MembersPage() {
         onOpenChange={(open) => setPreviewState((prev) => ({ ...prev, open }))}
         images={previewState.images}
         initialIndex={previewState.index}
-        title="KYC Document Inspection"
+        title="Dokumen KYC"
       />
     </div>
   );

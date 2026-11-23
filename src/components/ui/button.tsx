@@ -8,19 +8,19 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: 'bg-primary text-primary-foreground shadow-sm hover:bg-primary/90',
+        default: 'bg-primary text-primary-foreground shadow hover:bg-primary/90',
         destructive: 'bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90',
         outline:
-          'border border-input bg-background shadow-sm hover:bg-zinc-50 hover:text-accent-foreground',
-        secondary: 'bg-secondary text-secondary-foreground hover:bg-zinc-200/80',
-        ghost: 'hover:bg-zinc-100 hover:text-zinc-900',
+          'border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground',
+        secondary: 'bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80',
+        ghost: 'hover:bg-accent hover:text-accent-foreground',
         link: 'text-primary underline-offset-4 hover:underline',
-        mono: 'bg-zinc-900 text-zinc-50 shadow-sm hover:bg-zinc-800',
+        mono: 'bg-primary text-primary-foreground shadow hover:bg-primary/90',
       },
       size: {
-        default: 'h-8 px-3 py-1.5',
-        sm: 'h-7 rounded-md px-2.5 text-xs',
-        lg: 'h-9 rounded-md px-4 text-sm',
+        default: 'h-9 px-3.5 py-2 text-[13px]',
+        sm: 'h-8 rounded-md px-3 text-xs',
+        lg: 'h-10 rounded-md px-5 text-sm',
         icon: 'h-8 w-8',
       },
     },
