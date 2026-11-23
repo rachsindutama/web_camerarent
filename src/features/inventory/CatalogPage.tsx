@@ -136,7 +136,7 @@ export function CatalogPage() {
     );
   }
 
-  const memberTier = userProfile?.membershipTier ?? 'general';
+  const memberTier = userProfile?.membershipTier ?? 'basic';
   const tierBenefits = getMembershipBenefits(memberTier);
   const totalDraftUnits =
     items.reduce((sum, i) => sum + i.quantity, 0) +
@@ -214,7 +214,7 @@ export function CatalogPage() {
     }
     if (exceedsUnitLimit) {
       toast.error(
-        `General members are limited to ${tierBenefits.maxUnitsPerBooking} units per booking. Upgrade to Premium for unlimited units.`
+        `Basic members are limited to ${tierBenefits.maxUnitsPerBooking} units per booking. Upgrade to Premium for unlimited units.`
       );
       return;
     }
@@ -659,7 +659,7 @@ export function CatalogPage() {
               </div>
             ) : (
               <div className="flex items-center justify-between rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-2 text-[11px] text-zinc-600">
-                <span>General Limit</span>
+                <span>Basic Limit</span>
                 <span className="font-mono font-medium text-zinc-900">
                   {totalDraftUnits} / {tierBenefits.maxUnitsPerBooking} units
                 </span>
@@ -673,8 +673,8 @@ export function CatalogPage() {
                   <span>Unit Limit Exceeded ({totalDraftUnits}/{tierBenefits.maxUnitsPerBooking})</span>
                 </div>
                 <p className="mt-1 text-[11px] text-red-800">
-                  General members may book up to {tierBenefits.maxUnitsPerBooking} physical units
-                  per reservation. Remove extra items or request Premium Member upgrade from Admin.
+                  Basic members may book up to {tierBenefits.maxUnitsPerBooking} physical units per
+                  reservation. Remove extra items or request Premium Member upgrade from Admin.
                 </p>
               </div>
             ) : null}

@@ -25,7 +25,7 @@ export function MembershipBadge({ tier, className }: MembershipBadgeProps) {
       ) : (
         <User className="h-3 w-3 shrink-0" strokeWidth={1.5} />
       )}
-      {isPremium ? 'PREMIUM' : 'GENERAL'}
+      {isPremium ? 'PREMIUM' : 'BASIC'}
     </span>
   );
 }

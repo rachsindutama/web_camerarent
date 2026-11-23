@@ -3,18 +3,18 @@ import type { MembershipTier } from '@/types/schema';
 export interface MembershipBenefitConfig {
   tier: MembershipTier;
   label: string;
-  rentalDiscountPercent: number;   // #1: 0% vs 10%
-  depositDiscountPercent: number;  // #2: 0% vs 50%
+  rentalDiscountPercent: number;    // #1: 0% vs 10%
+  depositDiscountPercent: number;   // #2: 0% vs 50%
   extraOverdueGraceMinutes: number; // #3: 0m vs +60m
-  freeDeliveryKm: number;          // #4: 0km vs 5km
+  freeDeliveryKm: number;           // #4: 0km vs 5km
   maxUnitsPerBooking: number | null; // #6: 3 vs unlimited (null)
-  prioritySupport: boolean;        // #7: Priority badge in ops & chat
+  prioritySupport: boolean;         // #7: Priority badge in ops & chat
 }
 
 export const MEMBERSHIP_BENEFITS: Record<MembershipTier, MembershipBenefitConfig> = {
-  general: {
-    tier: 'general',
-    label: 'General Member',
+  basic: {
+    tier: 'basic',
+    label: 'Basic Member',
     rentalDiscountPercent: 0,
     depositDiscountPercent: 0,
     extraOverdueGraceMinutes: 0,
@@ -34,8 +34,8 @@ export const MEMBERSHIP_BENEFITS: Record<MembershipTier, MembershipBenefitConfig
   },
 };
 
-export function getMembershipBenefits(tier?: MembershipTier | null): MembershipBenefitConfig {
-  return MEMBERSHIP_BENEFITS[tier === 'premium' ? 'premium' : 'general'];
+export function getMembershipBenefits(tier?: string | null): MembershipBenefitConfig {
+  return MEMBERSHIP_BENEFITS[tier === 'premium' ? 'premium' : 'basic'];
 }
 
 export interface TierPricingResult {
@@ -87,4 +87,3 @@ export function calculateTierPricing(params: {
     totalAmount,
   };
 }
-

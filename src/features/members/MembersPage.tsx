@@ -8,7 +8,6 @@ import {
   Search,
   ShieldBan,
   ShieldCheck,
-  UserCog,
   Users,
   XCircle,
 } from 'lucide-react';
@@ -16,7 +15,6 @@ import { toast } from 'sonner';
 import { db } from '@/lib/firebase';
 import { MEMBERSHIP_BENEFITS } from '@/lib/membership';
 import { useAuth } from '@/hooks/useAuth';
-import { useTenant } from '@/hooks/useTenant';
 import {
   ImagePreviewModal,
   type PreviewImageItem,
@@ -39,13 +37,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
   Table,
   TableBody,
   TableCell,
@@ -53,58 +44,57 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import type { MembershipTier, UserProfile, UserRole } from '@/types/schema';
+import type { MembershipTier, UserProfile } from '@/types/schema';
 
-type FilterTab = 'all' | 'general' | 'premium' | 'pending_kyc' | 'blacklisted';
+type FilterTab = 'all' | 'basic' | 'premium' | 'pending_kyc' | 'blacklisted';
 
 export function MembersPage() {
   const queryClient = useQueryClient();
   const { userProfile } = useAuth();
-  const { allTenants } = useTenant();
   const isSuperAdmin = userProfile?.role === 'superadmin';
 
   const [search, setSearch] = useState('');
   const [tab, setTab] = useState<FilterTab>('all');
   const [updatingUid, setUpdatingUid] = useState<string | null>(null);
 
-  // Superadmin governance modals
+  // Governance modals (Superadmin)
   const [kycTarget, setKycTarget] = useState<UserProfile | null>(null);
   const [blacklistTarget, setBlacklistTarget] = useState<UserProfile | null>(null);
   const [blacklistReason, setBlacklistReason] = useState('');
-  const [roleTarget, setRoleTarget] = useState<UserProfile | null>(null);
-  const [selectedRole, setSelectedRole] = useState<UserRole>('user');
-  const [selectedTenantId, setSelectedTenantId] = useState<string>('none');
   const [previewState, setPreviewState] = useState<{
     open: boolean;
     images: PreviewImageItem[];
     index: number;
   }>({ open: false, images: [], index: 0 });
 
-  const { data: users = [], isLoading } = useQuery<UserProfile[]>({
+  // Strictly renter accounts (role === 'user'); admin & superadmin live in Staff & Karyawan
+  const { data: members = [], isLoading } = useQuery<UserProfile[]>({
     queryKey: ['members', 'users'],
     enabled: Boolean(db),
     queryFn: async () => {
       if (!db) return [];
       const snap = await getDocs(collection(db, 'users'));
-      return snap.docs.map((d) => {
-        const data = d.data();
-        return {
-          uid: d.id,
-          email: data.email ?? '',
-          displayName: data.displayName ?? 'Unnamed User',
-          photoURL: data.photoURL,
-          role: data.role ?? 'user',
-          membershipTier: data.membershipTier === 'premium' ? 'premium' : 'general',
-          tenantId: data.tenantId ?? null,
-          phone: data.phone ?? '',
-          nik: data.nik,
-          kycStatus: data.kycStatus ?? 'unverified',
-          kycDocs: data.kycDocs ?? [],
-          isBlacklisted: Boolean(data.isBlacklisted),
-          blacklistReason: data.blacklistReason,
-          createdAt: (data.createdAt as Timestamp) ?? Timestamp.now(),
-        };
-      });
+      return snap.docs
+        .map((d) => {
+          const data = d.data();
+          return {
+            uid: d.id,
+            email: data.email ?? '',
+            displayName: data.displayName ?? 'Unnamed Member',
+            photoURL: data.photoURL,
+            role: data.role ?? 'user',
+            membershipTier: data.membershipTier === 'premium' ? 'premium' : 'basic',
+            tenantId: data.tenantId ?? null,
+            phone: data.phone ?? '',
+            nik: data.nik,
+            kycStatus: data.kycStatus ?? 'unverified',
+            kycDocs: data.kycDocs ?? [],
+            isBlacklisted: Boolean(data.isBlacklisted),
+            blacklistReason: data.blacklistReason,
+            createdAt: (data.createdAt as Timestamp) ?? Timestamp.now(),
+          } as UserProfile;
+        })
+        .filter((u) => u.role === 'user');
     },
   });
 
@@ -115,7 +105,7 @@ export function MembersPage() {
       await updateDoc(doc(db, 'users', user.uid), { membershipTier: nextTier });
       await queryClient.invalidateQueries({ queryKey: ['members'] });
       toast.success(
-        `${user.displayName} diubah ke ${nextTier === 'premium' ? 'PREMIUM' : 'GENERAL'}.`
+        `${user.displayName} diubah ke ${nextTier === 'premium' ? 'PREMIUM' : 'BASIC'}.`
       );
     } catch (error) {
       console.error('Update tier error:', error);
@@ -164,29 +154,8 @@ export function MembersPage() {
     }
   };
 
-  const handleSaveRole = async () => {
-    if (!db || !roleTarget) return;
-    if (selectedRole === 'admin' && selectedTenantId === 'none') {
-      toast.error('Pilih cabang untuk role Tenant Admin.');
-      return;
-    }
-    try {
-      await updateDoc(doc(db, 'users', roleTarget.uid), {
-        role: selectedRole,
-        tenantId: selectedRole === 'admin' ? selectedTenantId : null,
-      });
-      await queryClient.invalidateQueries({ queryKey: ['members'] });
-      await queryClient.invalidateQueries({ queryKey: ['staff-users'] });
-      toast.success(`Role ${roleTarget.email} diperbarui.`);
-      setRoleTarget(null);
-    } catch (error) {
-      console.error('Role update error:', error);
-      toast.error('Gagal mengubah role akun.');
-    }
-  };
-
-  const filtered = users.filter((u) => {
-    if (tab === 'general' && u.membershipTier !== 'general') return false;
+  const filtered = members.filter((u) => {
+    if (tab === 'basic' && u.membershipTier !== 'basic') return false;
     if (tab === 'premium' && u.membershipTier !== 'premium') return false;
     if (tab === 'pending_kyc' && u.kycStatus !== 'pending') return false;
     if (tab === 'blacklisted' && !u.isBlacklisted) return false;
@@ -203,13 +172,11 @@ export function MembersPage() {
   return (
     <div className="space-y-5">
       <div className="border-b border-zinc-200 pb-4">
-        <h2 className="text-base font-semibold tracking-tight text-zinc-950">
-          Members, Tiers, KYC &amp; Global Blacklist
-        </h2>
+        <h2 className="text-base font-semibold tracking-tight text-zinc-950">Member</h2>
         <p className="mt-0.5 text-xs text-zinc-500">
-          Satu pusat kendali untuk mengelola tier member (<span className="font-mono">GENERAL</span>{' '}
-          / <span className="font-mono">PREMIUM</span>), verifikasi KYC, role akun, dan status
-          Global Blacklist lintas cabang.
+          Daftar penyewa terdaftar — kelola tier (<span className="font-mono">BASIC</span> /{' '}
+          <span className="font-mono">PREMIUM</span>), verifikasi KYC, dan status Global Blacklist.
+          Akun Admin &amp; Superadmin dikelola terpisah di menu Staff &amp; Karyawan.
         </p>
       </div>
 
@@ -217,13 +184,13 @@ export function MembersPage() {
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <Card className="shadow-none">
           <CardHeader className="flex flex-row items-center justify-between py-2.5">
-            <CardTitle className="text-xs font-semibold">General Member (Default)</CardTitle>
-            <MembershipBadge tier="general" />
+            <CardTitle className="text-xs font-semibold">Basic Member (Default)</CardTitle>
+            <MembershipBadge tier="basic" />
           </CardHeader>
           <CardContent className="pb-3 text-[11px] text-zinc-600">
             Diskon 0% · Deposit 100% · Grace standar cabang · Ongkir penuh · Maks.{' '}
             <span className="font-mono font-medium text-zinc-900">
-              {MEMBERSHIP_BENEFITS.general.maxUnitsPerBooking} unit
+              {MEMBERSHIP_BENEFITS.basic.maxUnitsPerBooking} unit
             </span>
             /booking.
           </CardContent>
@@ -250,18 +217,18 @@ export function MembersPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Tabs value={tab} onValueChange={(v) => setTab(v as FilterTab)}>
           <TabsList className="h-auto flex-wrap">
-            <TabsTrigger value="all">Semua ({users.length})</TabsTrigger>
-            <TabsTrigger value="general">
-              General ({users.filter((u) => u.membershipTier === 'general').length})
+            <TabsTrigger value="all">Semua ({members.length})</TabsTrigger>
+            <TabsTrigger value="basic">
+              Basic ({members.filter((u) => u.membershipTier === 'basic').length})
             </TabsTrigger>
             <TabsTrigger value="premium">
-              Premium ({users.filter((u) => u.membershipTier === 'premium').length})
+              Premium ({members.filter((u) => u.membershipTier === 'premium').length})
             </TabsTrigger>
             <TabsTrigger value="pending_kyc">
-              Pending KYC ({users.filter((u) => u.kycStatus === 'pending').length})
+              Pending KYC ({members.filter((u) => u.kycStatus === 'pending').length})
             </TabsTrigger>
             <TabsTrigger value="blacklisted">
-              Blacklisted ({users.filter((u) => u.isBlacklisted).length})
+              Blacklisted ({members.filter((u) => u.isBlacklisted).length})
             </TabsTrigger>
           </TabsList>
         </Tabs>
@@ -282,134 +249,110 @@ export function MembersPage() {
 
       {isLoading ? (
         <div className="rounded-md border border-zinc-200 bg-white p-8 text-center font-mono text-xs text-zinc-400">
-          LOADING MEMBER &amp; GOVERNANCE REGISTRY...
+          LOADING MEMBER DIRECTORY...
         </div>
       ) : filtered.length === 0 ? (
         <EmptyState
           icon={Users}
-          title="Tidak ada akun yang cocok"
-          description="Ubah filter tab atau kata kunci pencarian."
+          title="Tidak ada member yang cocok"
+          description="Penyewa yang mendaftar via /register akan otomatis tampil di sini dengan tier Basic."
         />
       ) : (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>User</TableHead>
+              <TableHead>Member</TableHead>
               <TableHead>NIK / Phone</TableHead>
-              <TableHead>Role &amp; Cabang</TableHead>
-              <TableHead>Member Tier</TableHead>
+              <TableHead>Tier</TableHead>
               <TableHead>KYC &amp; Blacklist</TableHead>
               <TableHead className="text-right">Aksi</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filtered.map((user) => {
-              const tenantName = allTenants.find((t) => t.id === user.tenantId)?.name;
-              return (
-                <TableRow key={user.uid}>
-                  <TableCell>
-                    <p className="font-medium text-zinc-950">{user.displayName}</p>
-                    <p className="font-mono text-[11px] text-zinc-500">{user.email}</p>
-                  </TableCell>
-                  <TableCell className="font-mono text-[11px]">
-                    <div>{user.nik ?? 'No NIK'}</div>
-                    <div className="text-zinc-500">{user.phone || '—'}</div>
-                  </TableCell>
-                  <TableCell>
-                    <span className="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 font-mono text-[10px] uppercase text-zinc-700">
-                      {user.role}
-                    </span>
-                    {tenantName ? (
-                      <p className="mt-1 text-[11px] text-zinc-500">{tenantName}</p>
+            {filtered.map((user) => (
+              <TableRow key={user.uid}>
+                <TableCell>
+                  <p className="font-medium text-zinc-950">{user.displayName}</p>
+                  <p className="font-mono text-[11px] text-zinc-500">{user.email}</p>
+                </TableCell>
+                <TableCell className="font-mono text-[11px]">
+                  <div>{user.nik ?? 'No NIK'}</div>
+                  <div className="text-zinc-500">{user.phone || '—'}</div>
+                </TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-1.5">
+                    <MembershipBadge tier={user.membershipTier} />
+                    <button
+                      type="button"
+                      disabled={updatingUid === user.uid}
+                      onClick={() =>
+                        void handleSetTier(
+                          user,
+                          user.membershipTier === 'premium' ? 'basic' : 'premium'
+                        )
+                      }
+                      className="rounded border border-zinc-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-zinc-700 hover:bg-zinc-50"
+                      title="Ubah tier member"
+                    >
+                      {user.membershipTier === 'premium' ? 'Set Basic' : 'Set Premium'}
+                    </button>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="flex flex-col items-start gap-1">
+                    <StatusBadge status={user.kycStatus} />
+                    {user.isBlacklisted ? (
+                      <div>
+                        <StatusBadge status="blacklisted" />
+                        {user.blacklistReason ? (
+                          <p className="mt-0.5 max-w-[180px] truncate text-[10px] text-red-700">
+                            {user.blacklistReason}
+                          </p>
+                        ) : null}
+                      </div>
                     ) : null}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1.5">
-                      <MembershipBadge tier={user.membershipTier} />
-                      <button
-                        type="button"
+                  </div>
+                </TableCell>
+                <TableCell className="text-right">
+                  <div className="inline-flex items-center gap-1.5">
+                    {isSuperAdmin ? (
+                      <>
+                        <Button variant="outline" size="sm" onClick={() => setKycTarget(user)}>
+                          <ShieldCheck className="h-3 w-3" strokeWidth={1.5} />
+                          KYC
+                        </Button>
+                        <Button
+                          variant={user.isBlacklisted ? 'outline' : 'destructive'}
+                          size="sm"
+                          onClick={() => {
+                            setBlacklistTarget(user);
+                            setBlacklistReason(user.blacklistReason ?? '');
+                          }}
+                        >
+                          <ShieldBan className="h-3 w-3" strokeWidth={1.5} />
+                          {user.isBlacklisted ? 'Lift' : 'Ban'}
+                        </Button>
+                      </>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant={user.membershipTier === 'premium' ? 'outline' : 'default'}
                         disabled={updatingUid === user.uid}
                         onClick={() =>
                           void handleSetTier(
                             user,
-                            user.membershipTier === 'premium' ? 'general' : 'premium'
+                            user.membershipTier === 'premium' ? 'basic' : 'premium'
                           )
                         }
-                        className="rounded border border-zinc-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-zinc-700 hover:bg-zinc-50"
-                        title="Ubah tier member"
                       >
-                        {user.membershipTier === 'premium' ? 'Set General' : 'Set Premium'}
-                      </button>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-col items-start gap-1">
-                      <StatusBadge status={user.kycStatus} />
-                      {user.isBlacklisted ? (
-                        <div>
-                          <StatusBadge status="blacklisted" />
-                          {user.blacklistReason ? (
-                            <p className="mt-0.5 max-w-[160px] truncate text-[10px] text-red-700">
-                              {user.blacklistReason}
-                            </p>
-                          ) : null}
-                        </div>
-                      ) : null}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="inline-flex items-center gap-1.5">
-                      {isSuperAdmin ? (
-                        <>
-                          <Button variant="outline" size="sm" onClick={() => setKycTarget(user)}>
-                            <ShieldCheck className="h-3 w-3" strokeWidth={1.5} />
-                            KYC
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              setRoleTarget(user);
-                              setSelectedRole(user.role);
-                              setSelectedTenantId(user.tenantId ?? 'none');
-                            }}
-                          >
-                            <UserCog className="h-3 w-3" strokeWidth={1.5} />
-                            Role
-                          </Button>
-                          <Button
-                            variant={user.isBlacklisted ? 'outline' : 'destructive'}
-                            size="sm"
-                            onClick={() => {
-                              setBlacklistTarget(user);
-                              setBlacklistReason(user.blacklistReason ?? '');
-                            }}
-                          >
-                            <ShieldBan className="h-3 w-3" strokeWidth={1.5} />
-                            {user.isBlacklisted ? 'Lift' : 'Ban'}
-                          </Button>
-                        </>
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant={user.membershipTier === 'premium' ? 'outline' : 'default'}
-                          disabled={updatingUid === user.uid}
-                          onClick={() =>
-                            void handleSetTier(
-                              user,
-                              user.membershipTier === 'premium' ? 'general' : 'premium'
-                            )
-                          }
-                        >
-                          <Award className="h-3 w-3" strokeWidth={1.5} />
-                          {user.membershipTier === 'premium' ? 'Turunkan ke General' : 'Upgrade Premium'}
-                        </Button>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
+                        <Award className="h-3 w-3" strokeWidth={1.5} />
+                        {user.membershipTier === 'premium' ? 'Turunkan ke Basic' : 'Upgrade Premium'}
+                      </Button>
+                    )}
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
           </TableBody>
         </Table>
       )}
@@ -564,58 +507,6 @@ export function MembersPage() {
                 </Button>
               )}
             </div>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Role Assignment Dialog */}
-      <Dialog open={Boolean(roleTarget)} onOpenChange={(o) => !o && setRoleTarget(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Assign RBAC Role &amp; Cabang</DialogTitle>
-            <DialogDescription>{roleTarget?.email}</DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label>Role</Label>
-              <Select value={selectedRole} onValueChange={(v) => setSelectedRole(v as UserRole)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="user">Renter (user)</SelectItem>
-                  <SelectItem value="admin">Tenant Admin (admin)</SelectItem>
-                  <SelectItem value="superadmin">Platform Superadmin (superadmin)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {selectedRole === 'admin' ? (
-              <div className="space-y-1.5">
-                <Label>Cabang Rental</Label>
-                <Select value={selectedTenantId} onValueChange={setSelectedTenantId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Pilih cabang..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Unassigned</SelectItem>
-                    {allTenants.map((t) => (
-                      <SelectItem key={t.id} value={t.id}>
-                        {t.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            ) : null}
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRoleTarget(null)}>
-              Batal
-            </Button>
-            <Button onClick={() => void handleSaveRole()}>Simpan Role</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

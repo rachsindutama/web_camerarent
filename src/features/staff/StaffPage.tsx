@@ -121,7 +121,9 @@ export function StaffPage() {
   }
 
   const branchAdmins = allUsers.filter(
-    (u) => u.role === 'admin' && u.tenantId === activeTenantId
+    (u) =>
+      u.role === 'superadmin' ||
+      (u.role === 'admin' && u.tenantId === activeTenantId)
   );
   const assignableUsers = allUsers.filter(
     (u) => u.role === 'user' || (u.role === 'admin' && u.tenantId !== activeTenantId)
@@ -279,7 +281,7 @@ export function StaffPage() {
             Karyawan Operasional ({branchStaff.length})
           </TabsTrigger>
           <TabsTrigger value="admins">
-            Akun Admin Cabang ({branchAdmins.length})
+            Akun Admin &amp; Superadmin ({branchAdmins.length})
           </TabsTrigger>
         </TabsList>
 
@@ -446,19 +448,29 @@ export function StaffPage() {
                       <div className="text-zinc-500">{admin.nik ?? '—'}</div>
                     </TableCell>
                     <TableCell>
-                      <span className="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 font-mono text-[10px] uppercase text-zinc-800">
-                        BRANCH ADMIN
+                      <span
+                        className={`rounded border px-1.5 py-0.5 font-mono text-[10px] uppercase ${
+                          admin.role === 'superadmin'
+                            ? 'border-zinc-900 bg-zinc-900 text-white'
+                            : 'border-zinc-200 bg-zinc-50 text-zinc-800'
+                        }`}
+                      >
+                        {admin.role === 'superadmin' ? 'SUPERADMIN' : 'BRANCH ADMIN'}
                       </span>
                     </TableCell>
                     {isSuperAdmin ? (
                       <TableCell className="text-right">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => void handleRevokeBranchAdmin(admin)}
-                        >
-                          Cabut Akses Admin
-                        </Button>
+                        {admin.role === 'admin' ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void handleRevokeBranchAdmin(admin)}
+                          >
+                            Cabut Akses Admin
+                          </Button>
+                        ) : (
+                          <span className="font-mono text-[10px] text-zinc-400">PLATFORM OWNER</span>
+                        )}
                       </TableCell>
                     ) : null}
                   </TableRow>
@@ -577,3 +589,4 @@ export function StaffPage() {
     </div>
   );
 }
+

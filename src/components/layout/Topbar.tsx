@@ -26,7 +26,7 @@ const ROUTE_TITLES: Record<string, string> = {
   '/admin/inspections': 'Pre & Post-Rental Inspections',
   '/admin/finance': 'Cash Flow Ledger',
   '/admin/staff': 'Staff & Karyawan Cabang',
-  '/admin/members': 'Members, Tiers & Blacklist',
+  '/admin/members': 'Member',
   '/admin/chat': 'Client Support Threads',
   '/catalog': 'Equipment Catalog',
   '/bookings': 'My Rentals & Invoices',
@@ -49,11 +49,13 @@ export function Topbar() {
       </div>
 
       <div className="flex items-center gap-3">
-        {userProfile ? <MembershipBadge tier={userProfile.membershipTier} /> : null}
         {userProfile && userProfile.role === 'user' ? (
-          <Link to="/kyc" className="hover:opacity-80 transition-opacity">
-            <StatusBadge status={userProfile.kycStatus} />
-          </Link>
+          <>
+            <MembershipBadge tier={userProfile.membershipTier} />
+            <Link to="/kyc" className="hover:opacity-80 transition-opacity">
+              <StatusBadge status={userProfile.kycStatus} />
+            </Link>
+          </>
         ) : null}
 
         <DropdownMenu>

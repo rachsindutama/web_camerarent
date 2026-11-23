@@ -171,7 +171,7 @@ export function ChatPage({ mode }: ChatPageProps) {
           email: data.email ?? '',
           displayName: data.displayName ?? 'Renter',
           role: data.role ?? 'user',
-          membershipTier: data.membershipTier === 'premium' ? 'premium' : 'general',
+          membershipTier: data.membershipTier === 'premium' ? 'premium' : 'basic',
           tenantId: data.tenantId ?? null,
           phone: data.phone ?? '',
           kycStatus: data.kycStatus ?? 'unverified',

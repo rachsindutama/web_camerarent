@@ -2,7 +2,7 @@ import { Timestamp } from 'firebase/firestore';
 
 export type UserRole = 'superadmin' | 'admin' | 'user';
 export type StaffRole = 'courier' | 'technician' | 'admin_ops';
-export type MembershipTier = 'general' | 'premium';
+export type MembershipTier = 'basic' | 'premium';
 export type KycStatus = 'unverified' | 'pending' | 'verified' | 'rejected';
 export type UnitCondition = 'mint' | 'good' | 'fair' | 'damaged';
 export type UnitStatus = 'available' | 'rented' | 'maintenance';

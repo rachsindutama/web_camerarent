@@ -44,7 +44,7 @@ service cloud.firestore {
       );
       allow create: if isSignedIn() && request.auth.uid == uid
                     && request.resource.data.role == 'user'
-                    && request.resource.data.membershipTier == 'general'
+                    && request.resource.data.membershipTier in ['basic', 'general']
                     && request.resource.data.isBlacklisted == false
                     && request.resource.data.kycStatus == 'unverified'
                     && request.resource.data.displayName is string
@@ -57,13 +57,13 @@ service cloud.firestore {
         // Tenant Admin can promote/demote membershipTier only (no role/blacklist changes)
         hasUserDoc() && userDoc().role == 'admin'
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['membershipTier'])
-        && request.resource.data.membershipTier in ['general', 'premium']
+        && request.resource.data.membershipTier in ['basic', 'premium']
       ) || (
         request.auth.uid == uid
         && request.resource.data.role == resource.data.role
         && request.resource.data.isBlacklisted == resource.data.isBlacklisted
         && request.resource.data.tenantId == resource.data.tenantId
-        && request.resource.data.get('membershipTier', 'general') == resource.data.get('membershipTier', 'general')
+        && request.resource.data.get('membershipTier', 'basic') == resource.data.get('membershipTier', 'basic')
       );
     }
 

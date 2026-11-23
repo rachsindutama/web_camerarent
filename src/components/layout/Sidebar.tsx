@@ -51,7 +51,7 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Inspections', to: '/admin/inspections', icon: ClipboardCheck },
       { label: 'Cash Flow Ledger', to: '/admin/finance', icon: ReceiptText },
       { label: 'Staff & Karyawan', to: '/admin/staff', icon: Briefcase },
-      { label: 'Members & Blacklist', to: '/admin/members', icon: Users },
+      { label: 'Member', to: '/admin/members', icon: Users },
       { label: 'Client Chat', to: '/admin/chat', icon: MessageSquare },
     ],
   },

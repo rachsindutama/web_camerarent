@@ -145,3 +145,4 @@ firebase deploy --only firestore,storage
 ```
 
 > **Security Notice:** `.env.local`, `*firebase-adminsdk*.json`, `serviceAccountKey.json`, and `secrets/` are strictly ignored in `.gitignore`. Keep all Admin SDK private keys server-side only.
+
