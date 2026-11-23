@@ -72,10 +72,10 @@ export function StaffPage() {
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<'all' | StaffRole>('all');
 
-  // Create Staff Dialog
+  // Create Staff Dialog (picks from registered users)
   const [createStaffOpen, setCreateStaffOpen] = useState(false);
   const [newStaffForm, setNewStaffForm] = useState({
-    name: '',
+    userId: '',
     phone: '',
     role: 'courier' as StaffRole,
     vehicleInfo: '',
@@ -186,12 +186,20 @@ export function StaffPage() {
     });
   };
 
+  const existingStaffUids = new Set(branchStaff.map((s) => s.userId).filter(Boolean));
+  const staffCandidateUsers = allUsers
+    .filter((u) => !existingStaffUids.has(u.uid))
+    .sort((a, b) => a.displayName.localeCompare(b.displayName));
+  const selectedCandidateUser =
+    allUsers.find((u) => u.uid === newStaffForm.userId) ?? null;
+
   const filteredStaff = branchStaff.filter((s) => {
     if (roleFilter !== 'all' && s.role !== roleFilter) return false;
     const q = search.trim().toLowerCase();
     if (!q) return true;
     return (
       s.name.toLowerCase().includes(q) ||
+      (s.email ?? '').toLowerCase().includes(q) ||
       s.phone.toLowerCase().includes(q) ||
       (s.vehicleInfo ?? '').toLowerCase().includes(q)
     );
@@ -200,25 +208,32 @@ export function StaffPage() {
   const handleCreateStaff = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!db || !activeTenantId) return;
-    if (!newStaffForm.name.trim() || !newStaffForm.phone.trim()) {
-      toast.error('Nama dan nomor HP/WhatsApp karyawan wajib diisi.');
+    if (!selectedCandidateUser) {
+      toast.error('Pilih akun user yang akan ditambahkan sebagai karyawan.');
+      return;
+    }
+    const cleanPhone = (newStaffForm.phone || selectedCandidateUser.phone || '').trim();
+    if (!cleanPhone) {
+      toast.error('Nomor WhatsApp / HP wajib diisi.');
       return;
     }
 
     try {
       await addDoc(collection(db, 'tenant_staff'), {
         tenantId: activeTenantId,
-        name: newStaffForm.name.trim(),
-        phone: newStaffForm.phone.trim(),
+        userId: selectedCandidateUser.uid,
+        email: selectedCandidateUser.email,
+        name: selectedCandidateUser.displayName,
+        phone: cleanPhone,
         role: newStaffForm.role,
         vehicleInfo: newStaffForm.vehicleInfo.trim(),
         isActive: true,
         createdAt: Timestamp.now(),
       });
       await queryClient.invalidateQueries({ queryKey: ['tenant_staff', activeTenantId] });
-      toast.success(`${newStaffForm.name.trim()} ditambahkan ke ${activeTenant.name}.`);
+      toast.success(`${selectedCandidateUser.displayName} ditambahkan ke ${activeTenant.name}.`);
       setCreateStaffOpen(false);
-      setNewStaffForm({ name: '', phone: '', role: 'courier', vehicleInfo: '' });
+      setNewStaffForm({ userId: '', phone: '', role: 'courier', vehicleInfo: '' });
     } catch (error) {
       console.error('Create staff error:', error);
       toast.error('Gagal menambahkan karyawan.');
@@ -487,7 +502,12 @@ export function StaffPage() {
                         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
                           {getInitials(staff.name)}
                         </div>
-                        <span className="font-medium text-foreground">{staff.name}</span>
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-foreground">{staff.name}</p>
+                          {staff.email ? (
+                            <p className="truncate text-xs text-muted-foreground">{staff.email}</p>
+                          ) : null}
+                        </div>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -597,34 +617,78 @@ export function StaffPage() {
         </TabsContent>
       </Tabs>
 
-      {/* Create Operational Staff Dialog */}
-      <Dialog open={createStaffOpen} onOpenChange={setCreateStaffOpen}>
+      {/* Create Operational Staff Dialog (Pick from registered users) */}
+      <Dialog
+        open={createStaffOpen}
+        onOpenChange={(open) => {
+          setCreateStaffOpen(open);
+          if (!open) {
+            setNewStaffForm({ userId: '', phone: '', role: 'courier', vehicleInfo: '' });
+          }
+        }}
+      >
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Tambah Karyawan</DialogTitle>
             <DialogDescription>
-              Cabang {activeTenant.name}. Karyawan aktif otomatis tersedia di penugasan Antar-Jemput.
+              Pilih dari akun terdaftar untuk ditugaskan di cabang {activeTenant.name}.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleCreateStaff} className="space-y-4">
             <div className="space-y-1.5">
-              <Label>Nama Lengkap</Label>
-              <Input
-                placeholder="Budi Santoso"
-                value={newStaffForm.name}
-                onChange={(e) => setNewStaffForm({ ...newStaffForm, name: e.target.value })}
-              />
+              <Label>Pilih Akun User</Label>
+              <Select
+                value={newStaffForm.userId}
+                onValueChange={(uid) => {
+                  const u = allUsers.find((item) => item.uid === uid);
+                  setNewStaffForm((prev) => ({
+                    ...prev,
+                    userId: uid,
+                    phone: u?.phone || '',
+                  }));
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Pilih akun dari users..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {staffCandidateUsers.length === 0 ? (
+                    <div className="px-2 py-2 text-xs text-muted-foreground">
+                      Semua akun terdaftar sudah menjadi karyawan cabang ini.
+                    </div>
+                  ) : (
+                    staffCandidateUsers.map((u) => (
+                      <SelectItem key={u.uid} value={u.uid}>
+                        {u.displayName} ({u.email})
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
             </div>
 
+            {selectedCandidateUser ? (
+              <dl className="divide-y divide-border rounded-md border bg-muted/30 px-3 text-xs">
+                <div className="flex items-center justify-between py-2">
+                  <dt className="text-muted-foreground">Nama</dt>
+                  <dd className="font-medium text-foreground">
+                    {selectedCandidateUser.displayName}
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between py-2">
+                  <dt className="text-muted-foreground">Email</dt>
+                  <dd className="text-foreground">{selectedCandidateUser.email}</dd>
+                </div>
+                <div className="flex items-center justify-between py-2">
+                  <dt className="text-muted-foreground">NIK</dt>
+                  <dd className="font-mono text-foreground">
+                    {selectedCandidateUser.nik || '—'}
+                  </dd>
+                </div>
+              </dl>
+            ) : null}
+
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>WhatsApp / HP</Label>
-                <Input
-                  placeholder="081234567890"
-                  value={newStaffForm.phone}
-                  onChange={(e) => setNewStaffForm({ ...newStaffForm, phone: e.target.value })}
-                />
-              </div>
               <div className="space-y-1.5">
                 <Label>Jabatan</Label>
                 <Select
@@ -640,6 +704,14 @@ export function StaffPage() {
                     <SelectItem value="admin_ops">Admin Operasional</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>WhatsApp / HP</Label>
+                <Input
+                  placeholder="Otomatis dari profil user"
+                  value={newStaffForm.phone}
+                  onChange={(e) => setNewStaffForm({ ...newStaffForm, phone: e.target.value })}
+                />
               </div>
             </div>
 
@@ -658,7 +730,9 @@ export function StaffPage() {
               <Button type="button" variant="outline" onClick={() => setCreateStaffOpen(false)}>
                 Batal
               </Button>
-              <Button type="submit">Simpan Karyawan</Button>
+              <Button type="submit" disabled={!selectedCandidateUser}>
+                Simpan Karyawan
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -779,6 +853,12 @@ export function StaffPage() {
 
                 <TabsContent value="detail" className="mt-4 space-y-5">
                   <dl className="divide-y divide-border text-sm">
+                    {detailStaff.email ? (
+                      <div className="flex items-center justify-between gap-4 py-2.5">
+                        <dt className="shrink-0 text-muted-foreground">Email Akun</dt>
+                        <dd className="truncate text-foreground">{detailStaff.email}</dd>
+                      </div>
+                    ) : null}
                     <div className="flex items-center justify-between py-2.5">
                       <dt className="text-muted-foreground">Jabatan</dt>
                       <dd className="font-medium text-foreground">

@@ -181,6 +181,8 @@ export interface Transaction {
 export interface TenantStaff {
   id: string;
   tenantId: string;
+  userId?: string;
+  email?: string;
   name: string;
   phone: string;
   role: StaffRole;

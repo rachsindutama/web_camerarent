@@ -141,12 +141,15 @@ export function LogisticsPage() {
           : `${s.name} · ${STAFF_ROLE_LABELS[s.role]}`,
       }));
 
-    const fromAdmins: SelectableCourierOption[] = branchAdmins.map((u) => ({
-      id: `admin_${u.uid}`,
-      name: u.displayName,
-      phone: u.phone ?? '',
-      label: `${u.displayName} · Branch Admin`,
-    }));
+    const linkedStaffUids = new Set(branchStaff.map((s) => s.userId).filter(Boolean));
+    const fromAdmins: SelectableCourierOption[] = branchAdmins
+      .filter((u) => !linkedStaffUids.has(u.uid))
+      .map((u) => ({
+        id: `admin_${u.uid}`,
+        name: u.displayName,
+        phone: u.phone ?? '',
+        label: `${u.displayName} · Branch Admin`,
+      }));
 
     return [...fromStaff, ...fromAdmins];
   }, [branchStaff, branchAdmins]);
