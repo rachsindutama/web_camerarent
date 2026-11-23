@@ -19,6 +19,7 @@ const ROUTE_TITLES: Record<string, string> = {
   '/superadmin/tenants': 'Tenants Directory',
   '/superadmin/blacklist': 'Global Blacklist',
   '/superadmin/gmv': 'Global GMV Overview',
+  '/superadmin/settings': 'Platform Settings',
   '/admin/inventory': 'Inventory & Serial Numbers',
   '/admin/bundles': 'Production Kit Bundles',
   '/admin/bookings': 'Booking Dispatch & Queue',

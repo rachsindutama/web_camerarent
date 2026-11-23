@@ -25,8 +25,9 @@ import {
   generateInvoiceNumber,
 } from '@/lib/availability';
 import { estimateRoadDistanceKm, reverseGeocode } from '@/lib/geo';
-import { calculateTierPricing, getMembershipBenefits } from '@/lib/membership';
+import { calculateTierPricing, formatTierSummaryParts, getMembershipBenefits } from '@/lib/membership';
 import { useAuth } from '@/hooks/useAuth';
+import { usePlatformSettings } from '@/hooks/usePlatformSettings';
 import { useTenant } from '@/hooks/useTenant';
 import { useAvailability } from '@/hooks/useAvailability';
 import { useBookingDraftStore } from '@/store/useBookingDraftStore';
@@ -47,6 +48,7 @@ export function CatalogPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { userProfile } = useAuth();
+  const { settings } = usePlatformSettings();
   const { activeTenantId, activeTenant } = useTenant();
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<string>('all');
@@ -137,7 +139,7 @@ export function CatalogPage() {
   }
 
   const memberTier = userProfile?.membershipTier ?? 'basic';
-  const tierBenefits = getMembershipBenefits(memberTier);
+  const tierBenefits = getMembershipBenefits(memberTier, settings.tiers);
   const totalDraftUnits =
     items.reduce((sum, i) => sum + i.quantity, 0) +
     cartBundles.reduce((sum, b) => sum + b.equipmentIds.length, 0);
@@ -164,6 +166,7 @@ export function CatalogPage() {
     isDelivery: logisticsType === 'delivery' && Boolean(deliveryCoordinates),
     distanceKm: lockedDistanceKm,
     deliveryRatePerKm: activeTenant.deliveryRatePerKm,
+    customTiers: settings.tiers,
   });
 
   const subtotal = pricing.netSubtotal;
@@ -653,18 +656,17 @@ export function CatalogPage() {
                   Active Premium Perks
                 </p>
                 <p className="mt-0.5 leading-relaxed text-zinc-600">
-                  10% rental discount · 50% deposit reduction · First 5 km delivery free · +60m
-                  overdue grace · Unlimited units.
+                  {formatTierSummaryParts(tierBenefits).join(' · ')}.
                 </p>
               </div>
-            ) : (
+            ) : tierBenefits.maxUnitsPerBooking !== null ? (
               <div className="flex items-center justify-between rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-2 text-[11px] text-zinc-600">
                 <span>Basic Limit</span>
                 <span className="font-mono font-medium text-zinc-900">
                   {totalDraftUnits} / {tierBenefits.maxUnitsPerBooking} units
                 </span>
               </div>
-            )}
+            ) : null}
 
             {exceedsUnitLimit ? (
               <div className="rounded-md border border-red-200 bg-red-50 p-2.5 text-xs text-red-900">
@@ -878,7 +880,7 @@ export function CatalogPage() {
               </div>
               {pricing.discountAmount > 0 ? (
                 <div className="flex justify-between text-emerald-700">
-                  <span>Premium Discount (10%)</span>
+                  <span>Member Discount ({tierBenefits.rentalDiscountPercent}%)</span>
                   <span className="font-mono tabular-nums">
                     - <CurrencyText amount={pricing.discountAmount} />
                   </span>
@@ -889,7 +891,7 @@ export function CatalogPage() {
                   Antar-Jemput Fee
                   {logisticsType === 'delivery' && tierBenefits.freeDeliveryKm > 0 ? (
                     <span className="ml-1 font-mono text-[10px] text-emerald-700">
-                      (5km free)
+                      ({tierBenefits.freeDeliveryKm}km free)
                     </span>
                   ) : null}
                 </span>

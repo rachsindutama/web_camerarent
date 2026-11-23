@@ -3,18 +3,26 @@ import type { MembershipTier } from '@/types/schema';
 export interface MembershipBenefitConfig {
   tier: MembershipTier;
   label: string;
-  rentalDiscountPercent: number;    // #1: 0% vs 10%
-  depositDiscountPercent: number;   // #2: 0% vs 50%
-  extraOverdueGraceMinutes: number; // #3: 0m vs +60m
-  freeDeliveryKm: number;           // #4: 0km vs 5km
-  maxUnitsPerBooking: number | null; // #6: 3 vs unlimited (null)
-  prioritySupport: boolean;         // #7: Priority badge in ops & chat
+  rentalDiscountPercent: number;      // e.g., 0% vs 10%
+  depositDiscountPercent: number;     // e.g., 0% vs 50%
+  extraOverdueGraceMinutes: number;   // e.g., 0m vs +60m
+  freeDeliveryKm: number;             // e.g., 0km vs 5km
+  maxUnitsPerBooking: number | null;  // e.g., 3 vs unlimited (null)
+  prioritySupport: boolean;           // Priority badge & ops handling
 }
 
-export const MEMBERSHIP_BENEFITS: Record<MembershipTier, MembershipBenefitConfig> = {
+export interface PlatformSettings {
+  tiers: Record<MembershipTier, MembershipBenefitConfig>;
+  defaultDeliveryRatePerKm: number;
+  defaultBufferHours: number;
+  defaultOverdueGraceMinutes: number;
+  defaultOverdueHourlyRatePercent: number;
+}
+
+export const DEFAULT_MEMBERSHIP_BENEFITS: Record<MembershipTier, MembershipBenefitConfig> = {
   basic: {
     tier: 'basic',
-    label: 'Basic Member',
+    label: 'Basic',
     rentalDiscountPercent: 0,
     depositDiscountPercent: 0,
     extraOverdueGraceMinutes: 0,
@@ -24,7 +32,7 @@ export const MEMBERSHIP_BENEFITS: Record<MembershipTier, MembershipBenefitConfig
   },
   premium: {
     tier: 'premium',
-    label: 'Premium Member',
+    label: 'Premium',
     rentalDiscountPercent: 10,
     depositDiscountPercent: 50,
     extraOverdueGraceMinutes: 60,
@@ -34,8 +42,143 @@ export const MEMBERSHIP_BENEFITS: Record<MembershipTier, MembershipBenefitConfig
   },
 };
 
-export function getMembershipBenefits(tier?: string | null): MembershipBenefitConfig {
-  return MEMBERSHIP_BENEFITS[tier === 'premium' ? 'premium' : 'basic'];
+export const DEFAULT_PLATFORM_SETTINGS: PlatformSettings = {
+  tiers: DEFAULT_MEMBERSHIP_BENEFITS,
+  defaultDeliveryRatePerKm: 12000,
+  defaultBufferHours: 3,
+  defaultOverdueGraceMinutes: 60,
+  defaultOverdueHourlyRatePercent: 10,
+};
+
+// Backwards-compatible constant reference
+export const MEMBERSHIP_BENEFITS = DEFAULT_MEMBERSHIP_BENEFITS;
+
+// Live settings synced from Firestore platform_settings/global
+let livePlatformSettings: PlatformSettings = DEFAULT_PLATFORM_SETTINGS;
+
+export function setLivePlatformSettings(settings: PlatformSettings): void {
+  livePlatformSettings = settings;
+}
+
+export function getLivePlatformSettings(): PlatformSettings {
+  return livePlatformSettings;
+}
+
+export function normalizePlatformSettings(
+  raw?: Partial<PlatformSettings> | Record<string, unknown> | null
+): PlatformSettings {
+  if (!raw || typeof raw !== 'object') return DEFAULT_PLATFORM_SETTINGS;
+  const r = raw as Record<string, unknown>;
+  const rawTiers = (r.tiers ?? {}) as Record<string, Partial<MembershipBenefitConfig> | undefined>;
+
+  const parseTier = (tier: MembershipTier): MembershipBenefitConfig => {
+    const def = DEFAULT_MEMBERSHIP_BENEFITS[tier];
+    const t = rawTiers[tier];
+    if (!t) return { ...def };
+    const rawMax = t.maxUnitsPerBooking;
+    const maxUnitsPerBooking =
+      rawMax === null || rawMax === undefined || Number(rawMax) <= 0
+        ? rawMax === null
+          ? null
+          : def.maxUnitsPerBooking
+        : Math.max(1, Math.floor(Number(rawMax)));
+
+    return {
+      tier,
+      label: typeof t.label === 'string' && t.label.trim() ? t.label.trim() : def.label,
+      rentalDiscountPercent: clampNum(t.rentalDiscountPercent, 0, 100, def.rentalDiscountPercent),
+      depositDiscountPercent: clampNum(
+        t.depositDiscountPercent,
+        0,
+        100,
+        def.depositDiscountPercent
+      ),
+      extraOverdueGraceMinutes: clampNum(
+        t.extraOverdueGraceMinutes,
+        0,
+        1440,
+        def.extraOverdueGraceMinutes
+      ),
+      freeDeliveryKm: clampNum(t.freeDeliveryKm, 0, 200, def.freeDeliveryKm),
+      maxUnitsPerBooking,
+      prioritySupport:
+        typeof t.prioritySupport === 'boolean' ? t.prioritySupport : def.prioritySupport,
+    };
+  };
+
+  return {
+    tiers: {
+      basic: parseTier('basic'),
+      premium: parseTier('premium'),
+    },
+    defaultDeliveryRatePerKm: clampNum(
+      r.defaultDeliveryRatePerKm,
+      0,
+      1000000,
+      DEFAULT_PLATFORM_SETTINGS.defaultDeliveryRatePerKm
+    ),
+    defaultBufferHours: clampNum(
+      r.defaultBufferHours,
+      0,
+      72,
+      DEFAULT_PLATFORM_SETTINGS.defaultBufferHours
+    ),
+    defaultOverdueGraceMinutes: clampNum(
+      r.defaultOverdueGraceMinutes,
+      0,
+      1440,
+      DEFAULT_PLATFORM_SETTINGS.defaultOverdueGraceMinutes
+    ),
+    defaultOverdueHourlyRatePercent: clampNum(
+      r.defaultOverdueHourlyRatePercent,
+      1,
+      100,
+      DEFAULT_PLATFORM_SETTINGS.defaultOverdueHourlyRatePercent
+    ),
+  };
+}
+
+function clampNum(val: unknown, min: number, max: number, fallback: number): number {
+  const num = Number(val);
+  if (val === undefined || val === null || Number.isNaN(num)) return fallback;
+  return Math.min(max, Math.max(min, num));
+}
+
+export function getMembershipBenefits(
+  tier?: string | null,
+  customTiers?: Record<MembershipTier, MembershipBenefitConfig>
+): MembershipBenefitConfig {
+  const source = customTiers ?? livePlatformSettings.tiers;
+  return source[tier === 'premium' ? 'premium' : 'basic'];
+}
+
+export function formatTierSummaryParts(config: MembershipBenefitConfig): string[] {
+  const parts: string[] = [];
+  parts.push(
+    config.rentalDiscountPercent > 0 ? `Diskon ${config.rentalDiscountPercent}%` : 'Tarif standar'
+  );
+  parts.push(
+    config.depositDiscountPercent > 0
+      ? `Deposit -${config.depositDiscountPercent}%`
+      : 'Deposit 100%'
+  );
+  parts.push(
+    config.extraOverdueGraceMinutes > 0
+      ? `Grace +${config.extraOverdueGraceMinutes} menit`
+      : 'Grace standar cabang'
+  );
+  parts.push(
+    config.freeDeliveryKm > 0 ? `Gratis ongkir ${config.freeDeliveryKm} km` : 'Ongkir penuh'
+  );
+  parts.push(
+    config.maxUnitsPerBooking === null
+      ? 'Unlimited unit'
+      : `Maks. ${config.maxUnitsPerBooking} unit/booking`
+  );
+  if (config.prioritySupport) {
+    parts.push('Priority');
+  }
+  return parts;
 }
 
 export interface TierPricingResult {
@@ -56,8 +199,9 @@ export function calculateTierPricing(params: {
   isDelivery: boolean;
   distanceKm: number;
   deliveryRatePerKm: number;
+  customTiers?: Record<MembershipTier, MembershipBenefitConfig>;
 }): TierPricingResult {
-  const benefits = getMembershipBenefits(params.tier);
+  const benefits = getMembershipBenefits(params.tier, params.customTiers);
 
   const discountAmount = Math.round(
     (params.grossSubtotal * benefits.rentalDiscountPercent) / 100

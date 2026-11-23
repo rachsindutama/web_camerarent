@@ -519,7 +519,7 @@ export function BookingDetailModal({
                     </div>
                     {discountAmount > 0 ? (
                       <div className="flex justify-between text-emerald-700">
-                        <span>Diskon Premium (10%)</span>
+                        <span>Diskon Member</span>
                         <span className="font-mono tabular-nums">
                           - <CurrencyText amount={discountAmount} />
                         </span>

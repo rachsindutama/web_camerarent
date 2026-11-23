@@ -13,6 +13,7 @@ import {
   FileCheck2,
   Users,
   Briefcase,
+  Settings,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -38,6 +39,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: 'Tenants', to: '/superadmin/tenants', icon: Building2 },
       { label: 'Global GMV', to: '/superadmin/gmv', icon: BarChart3 },
+      { label: 'Settings', to: '/superadmin/settings', icon: Settings },
     ],
   },
   {

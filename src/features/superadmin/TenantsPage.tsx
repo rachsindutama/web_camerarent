@@ -23,6 +23,7 @@ import {
 import { toast } from 'sonner';
 import { db } from '@/lib/firebase';
 import { useTenant } from '@/hooks/useTenant';
+import { usePlatformSettings } from '@/hooks/usePlatformSettings';
 import { seedSampleRentalHouse } from '@/features/superadmin/seedDemoData';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { CurrencyText } from '@/components/shared/CurrencyText';
@@ -72,6 +73,7 @@ type TenantFormValues = z.infer<typeof tenantSchema>;
 export function TenantsPage() {
   const queryClient = useQueryClient();
   const { allTenants, isLoading, setSelectedTenantId } = useTenant();
+  const { settings } = usePlatformSettings();
   const [search, setSearch] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
@@ -86,10 +88,10 @@ export function TenantsPage() {
       address: '',
       lat: -6.2088,
       lng: 106.8456,
-      deliveryRatePerKm: 12000,
-      bufferHours: 3,
-      overdueGraceMinutes: 60,
-      overdueHourlyRatePercent: 10,
+      deliveryRatePerKm: settings.defaultDeliveryRatePerKm,
+      bufferHours: settings.defaultBufferHours,
+      overdueGraceMinutes: settings.defaultOverdueGraceMinutes,
+      overdueHourlyRatePercent: settings.defaultOverdueHourlyRatePercent,
       bankName: 'BCA',
       accountNumber: '',
       accountHolder: '',
@@ -104,10 +106,10 @@ export function TenantsPage() {
       address: '',
       lat: -6.2088,
       lng: 106.8456,
-      deliveryRatePerKm: 12000,
-      bufferHours: 3,
-      overdueGraceMinutes: 60,
-      overdueHourlyRatePercent: 10,
+      deliveryRatePerKm: settings.defaultDeliveryRatePerKm,
+      bufferHours: settings.defaultBufferHours,
+      overdueGraceMinutes: settings.defaultOverdueGraceMinutes,
+      overdueHourlyRatePercent: settings.defaultOverdueHourlyRatePercent,
       bankName: 'BCA',
       accountNumber: '',
       accountHolder: '',

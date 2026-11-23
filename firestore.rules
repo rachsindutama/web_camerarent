@@ -21,6 +21,12 @@ service cloud.firestore {
       return hasUserDoc() && userDoc().isBlacklisted == false && userDoc().kycStatus == 'verified';
     }
 
+    // PLATFORM SETTINGS (Global tier benefits & default operational pricing)
+    match /platform_settings/{docId} {
+      allow read: if true;
+      allow write: if isSuperAdmin();
+    }
+
     // TENANTS
     match /tenants/{tenantId} {
       allow read: if true;

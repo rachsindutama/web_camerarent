@@ -1,12 +1,14 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { collection, doc, getDocs, query, Timestamp, updateDoc, where } from 'firebase/firestore';
-import { ChevronRight, Eye, Search, Users } from 'lucide-react';
+import { ChevronRight, Eye, Search, Settings, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { db } from '@/lib/firebase';
-import { MEMBERSHIP_BENEFITS } from '@/lib/membership';
+import { formatTierSummaryParts } from '@/lib/membership';
 import { formatDateTime } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
+import { usePlatformSettings } from '@/hooks/usePlatformSettings';
 import { useTenant } from '@/hooks/useTenant';
 import { CurrencyText } from '@/components/shared/CurrencyText';
 import {
@@ -61,6 +63,7 @@ function getInitials(name: string): string {
 export function MembersPage() {
   const queryClient = useQueryClient();
   const { userProfile } = useAuth();
+  const { settings } = usePlatformSettings();
   const { allTenants, activeTenantId } = useTenant();
   const isSuperAdmin = userProfile?.role === 'superadmin';
 
@@ -285,14 +288,25 @@ export function MembersPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="space-y-1">
-        <h2 className="text-xl font-semibold tracking-tight text-foreground">Member</h2>
-        <p className="text-sm text-muted-foreground">
-          Kelola data penyewa, tier Basic &amp; Premium, verifikasi KYC, dan status Global Blacklist.
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="space-y-1">
+          <h2 className="text-xl font-semibold tracking-tight text-foreground">Member</h2>
+          <p className="text-sm text-muted-foreground">
+            Kelola data penyewa, tier Basic &amp; Premium, verifikasi KYC, dan status Global
+            Blacklist.
+          </p>
+        </div>
+        {isSuperAdmin ? (
+          <Button asChild variant="outline" size="sm">
+            <Link to="/superadmin/settings">
+              <Settings className="h-3.5 w-3.5" strokeWidth={1.5} />
+              Atur Benefit &amp; Ongkir
+            </Link>
+          </Button>
+        ) : null}
       </div>
 
-      {/* Tier Benefit Reference Strip */}
+      {/* Tier Benefit Reference Strip (Live from Platform Settings) */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <div className="rounded-lg border bg-card p-4 shadow-sm">
           <div className="flex items-center justify-between">
@@ -300,11 +314,7 @@ export function MembersPage() {
             <MembershipBadge tier="basic" />
           </div>
           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-            Tarif standar · Deposit 100% · Grace standar cabang · Ongkir penuh · Maks.{' '}
-            <span className="font-medium text-foreground">
-              {MEMBERSHIP_BENEFITS.basic.maxUnitsPerBooking} unit
-            </span>{' '}
-            per booking.
+            {formatTierSummaryParts(settings.tiers.basic).join(' · ')}.
           </p>
         </div>
 
@@ -314,10 +324,7 @@ export function MembersPage() {
             <MembershipBadge tier="premium" />
           </div>
           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-            Diskon <span className="font-medium text-foreground">10%</span> · Deposit{' '}
-            <span className="font-medium text-foreground">-50%</span> · Grace{' '}
-            <span className="font-medium text-foreground">+60 menit</span> · Gratis ongkir{' '}
-            <span className="font-medium text-foreground">5 km</span> · Unlimited unit · Priority.
+            {formatTierSummaryParts(settings.tiers.premium).join(' · ')}.
           </p>
         </div>
       </div>
