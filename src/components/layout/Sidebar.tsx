@@ -2,7 +2,6 @@ import { NavLink } from 'react-router-dom';
 import {
   Aperture,
   Building2,
-  BarChart3,
   Camera,
   Package,
   CalendarClock,
@@ -38,7 +37,6 @@ const NAV_GROUPS: NavGroup[] = [
     roles: ['superadmin'],
     items: [
       { label: 'Tenants', to: '/superadmin/tenants', icon: Building2 },
-      { label: 'Global GMV', to: '/superadmin/gmv', icon: BarChart3 },
       { label: 'Settings', to: '/superadmin/settings', icon: Settings },
     ],
   },

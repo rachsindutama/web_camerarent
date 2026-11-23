@@ -16,9 +16,9 @@ import {
 } from '@/components/ui/dropdown-menu';
 
 const ROUTE_TITLES: Record<string, string> = {
-  '/superadmin/tenants': 'Tenants Directory',
-  '/superadmin/blacklist': 'Global Blacklist',
-  '/superadmin/gmv': 'Global GMV Overview',
+  '/superadmin/tenants': 'Tenants & Global GMV',
+  '/superadmin/blacklist': 'Member',
+  '/superadmin/gmv': 'Tenants & Global GMV',
   '/superadmin/settings': 'Platform Settings',
   '/admin/inventory': 'Inventory & Serial Numbers',
   '/admin/bundles': 'Production Kit Bundles',

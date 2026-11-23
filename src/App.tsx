@@ -11,7 +11,6 @@ import { RegisterPage } from '@/features/auth/RegisterPage';
 import { KycOnboardingPage } from '@/features/auth/KycOnboardingPage';
 import { BlacklistNoticePage } from '@/features/auth/BlacklistNoticePage';
 import { TenantsPage } from '@/features/superadmin/TenantsPage';
-import { GlobalGmvPage } from '@/features/superadmin/GlobalGmvPage';
 import { SettingsPage } from '@/features/superadmin/SettingsPage';
 import { InventoryPage } from '@/features/inventory/InventoryPage';
 import { BundlesPage } from '@/features/inventory/BundlesPage';
@@ -65,7 +64,10 @@ export function App() {
                 path="/superadmin/blacklist"
                 element={<Navigate to="/admin/members" replace />}
               />
-              <Route path="/superadmin/gmv" element={<GlobalGmvPage />} />
+              <Route
+                path="/superadmin/gmv"
+                element={<Navigate to="/superadmin/tenants" replace />}
+              />
               <Route path="/superadmin/settings" element={<SettingsPage />} />
             </Route>
 
