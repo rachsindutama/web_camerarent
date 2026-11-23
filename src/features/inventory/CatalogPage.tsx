@@ -25,7 +25,12 @@ import {
   generateInvoiceNumber,
 } from '@/lib/availability';
 import { estimateRoadDistanceKm, reverseGeocode } from '@/lib/geo';
-import { calculateTierPricing, formatTierSummaryParts, getMembershipBenefits } from '@/lib/membership';
+import {
+  calculateTierPricing,
+  formatTierSummaryParts,
+  getMembershipBenefits,
+  resolveTenantMembershipTiers,
+} from '@/lib/membership';
 import { useAuth } from '@/hooks/useAuth';
 import { usePlatformSettings } from '@/hooks/usePlatformSettings';
 import { useTenant } from '@/hooks/useTenant';
@@ -141,7 +146,8 @@ export function CatalogPage() {
   }
 
   const memberTier = userProfile?.membershipTier ?? 'basic';
-  const tierBenefits = getMembershipBenefits(memberTier, settings.tiers);
+  const branchTiers = resolveTenantMembershipTiers(activeTenant, settings.tiers);
+  const tierBenefits = getMembershipBenefits(memberTier, branchTiers);
   const totalDraftUnits =
     items.reduce((sum, i) => sum + i.quantity, 0) +
     cartBundles.reduce((sum, b) => sum + b.equipmentIds.length, 0);
@@ -168,7 +174,7 @@ export function CatalogPage() {
     isDelivery: logisticsType === 'delivery' && Boolean(deliveryCoordinates),
     distanceKm: lockedDistanceKm,
     deliveryRatePerKm: activeTenant.deliveryRatePerKm,
-    customTiers: settings.tiers,
+    customTiers: branchTiers,
   });
 
   const subtotal = pricing.netSubtotal;

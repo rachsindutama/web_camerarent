@@ -14,8 +14,10 @@ import {
   DEFAULT_PLATFORM_SETTINGS,
   normalizePlatformSettings,
   setLivePlatformSettings,
+  type MembershipBenefitConfig,
   type PlatformSettings,
 } from '@/lib/membership';
+import type { MembershipTier } from '@/types/schema';
 
 export const PLATFORM_SETTINGS_QUERY_KEY = ['platform_settings', 'global'] as const;
 
@@ -66,12 +68,13 @@ export async function savePlatformSettings(next: PlatformSettings): Promise<Plat
   return normalized;
 }
 
-export async function applyOperationalDefaultsToTenants(
-  defaults: {
+export async function applySettingsToTenants(
+  payload: {
     deliveryRatePerKm: number;
     bufferHours: number;
     overdueGraceMinutes: number;
     overdueHourlyRatePercent: number;
+    membershipTiers: Record<MembershipTier, MembershipBenefitConfig>;
   },
   targetTenantIds?: string[]
 ): Promise<number> {
@@ -90,13 +93,13 @@ export async function applyOperationalDefaultsToTenants(
   const batch = writeBatch(db);
   matchedDocs.forEach((tenantDoc) => {
     batch.update(tenantDoc.ref, {
-      deliveryRatePerKm: defaults.deliveryRatePerKm,
-      bufferHours: defaults.bufferHours,
-      overdueGraceMinutes: defaults.overdueGraceMinutes,
-      overdueHourlyRatePercent: defaults.overdueHourlyRatePercent,
+      deliveryRatePerKm: payload.deliveryRatePerKm,
+      bufferHours: payload.bufferHours,
+      overdueGraceMinutes: payload.overdueGraceMinutes,
+      overdueHourlyRatePercent: payload.overdueHourlyRatePercent,
+      membershipTiers: payload.membershipTiers,
     });
   });
   await batch.commit();
   return matchedDocs.length;
 }
-

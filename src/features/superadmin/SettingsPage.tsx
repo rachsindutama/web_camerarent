@@ -15,11 +15,13 @@ import { toast } from 'sonner';
 import {
   DEFAULT_PLATFORM_SETTINGS,
   formatTierSummaryParts,
+  normalizePlatformSettings,
+  resolveTenantMembershipTiers,
   type MembershipBenefitConfig,
   type PlatformSettings,
 } from '@/lib/membership';
 import {
-  applyOperationalDefaultsToTenants,
+  applySettingsToTenants,
   PLATFORM_SETTINGS_QUERY_KEY,
   savePlatformSettings,
   usePlatformSettings,
@@ -39,7 +41,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
-import type { MembershipTier } from '@/types/schema';
+import type { MembershipTier, Tenant } from '@/types/schema';
 
 type ApplyScope = 'all' | 'selected';
 
@@ -50,9 +52,8 @@ export function SettingsPage() {
 
   const [draft, setDraft] = useState<PlatformSettings>(settings);
   const [saving, setSaving] = useState(false);
-  const [applyingBranches, setApplyingBranches] = useState(false);
 
-  // Branch target scope, search & pagination for Ongkir, Buffer, Grace & Denda
+  // Unified Target Branch Scope (applies to BOTH Tier Benefits & Operational Rules)
   const [applyScope, setApplyScope] = useState<ApplyScope>('all');
   const [selectedTenantIds, setSelectedTenantIds] = useState<string[]>([]);
   const [branchSearch, setBranchSearch] = useState('');
@@ -110,7 +111,21 @@ export function SettingsPage() {
     );
   };
 
-  const handleSave = async (e: React.FormEvent) => {
+  const loadTenantIntoForm = (tenant: Tenant) => {
+    const resolvedTiers = resolveTenantMembershipTiers(tenant, settings.tiers);
+    setDraft({
+      tiers: resolvedTiers,
+      defaultDeliveryRatePerKm: tenant.deliveryRatePerKm,
+      defaultBufferHours: tenant.bufferHours,
+      defaultOverdueGraceMinutes: tenant.overdueGraceMinutes,
+      defaultOverdueHourlyRatePercent: tenant.overdueHourlyRatePercent,
+    });
+    setApplyScope('selected');
+    setSelectedTenantIds([tenant.id]);
+    toast.info(`Memuat konfigurasi aktif dari ${tenant.name} ke form.`);
+  };
+
+  const handleSaveAndApply = async (e: React.FormEvent) => {
     e.preventDefault();
     if (applyScope === 'selected' && selectedTenantIds.length === 0) {
       toast.error('Pilih minimal 1 cabang tujuan, atau pilih "Semua Cabang".');
@@ -119,16 +134,22 @@ export function SettingsPage() {
 
     setSaving(true);
     try {
-      const saved = await savePlatformSettings(draft);
-      queryClient.setQueryData(PLATFORM_SETTINGS_QUERY_KEY, saved);
+      const normalized = normalizePlatformSettings(draft);
+
+      // Update global platform defaults only when applying to Semua Cabang
+      if (applyScope === 'all') {
+        const saved = await savePlatformSettings(normalized);
+        queryClient.setQueryData(PLATFORM_SETTINGS_QUERY_KEY, saved);
+      }
 
       const targetIds = applyScope === 'all' ? undefined : selectedTenantIds;
-      const updatedCount = await applyOperationalDefaultsToTenants(
+      const updatedCount = await applySettingsToTenants(
         {
-          deliveryRatePerKm: saved.defaultDeliveryRatePerKm,
-          bufferHours: saved.defaultBufferHours,
-          overdueGraceMinutes: saved.defaultOverdueGraceMinutes,
-          overdueHourlyRatePercent: saved.defaultOverdueHourlyRatePercent,
+          deliveryRatePerKm: normalized.defaultDeliveryRatePerKm,
+          bufferHours: normalized.defaultBufferHours,
+          overdueGraceMinutes: normalized.defaultOverdueGraceMinutes,
+          overdueHourlyRatePercent: normalized.defaultOverdueHourlyRatePercent,
+          membershipTiers: normalized.tiers,
         },
         targetIds
       );
@@ -136,8 +157,8 @@ export function SettingsPage() {
       await queryClient.invalidateQueries({ queryKey: ['tenants'] });
       toast.success(
         applyScope === 'all'
-          ? `Pengaturan disimpan & diterapkan ke semua (${updatedCount}) cabang.`
-          : `Pengaturan disimpan & diterapkan ke ${updatedCount} cabang terpilih.`
+          ? `Benefit Tier & Aturan Operasional disimpan dan diterapkan ke semua (${updatedCount}) cabang.`
+          : `Benefit Tier & Aturan Operasional diterapkan ke ${updatedCount} cabang terpilih.`
       );
     } catch (error) {
       console.error('Save platform settings error:', error);
@@ -147,43 +168,16 @@ export function SettingsPage() {
     }
   };
 
-  const handleApplyOperationalOnly = async () => {
-    if (applyScope === 'selected' && selectedTenantIds.length === 0) {
-      toast.error('Pilih minimal 1 cabang yang akan diperbarui.');
-      return;
-    }
-    setApplyingBranches(true);
-    try {
-      const saved = await savePlatformSettings(draft);
-      queryClient.setQueryData(PLATFORM_SETTINGS_QUERY_KEY, saved);
-      const targetIds = applyScope === 'all' ? undefined : selectedTenantIds;
-      const count = await applyOperationalDefaultsToTenants(
-        {
-          deliveryRatePerKm: saved.defaultDeliveryRatePerKm,
-          bufferHours: saved.defaultBufferHours,
-          overdueGraceMinutes: saved.defaultOverdueGraceMinutes,
-          overdueHourlyRatePercent: saved.defaultOverdueHourlyRatePercent,
-        },
-        targetIds
-      );
-      await queryClient.invalidateQueries({ queryKey: ['tenants'] });
-      toast.success(
-        applyScope === 'all'
-          ? `Tarif ongkir & aturan diterapkan ke semua (${count}) cabang.`
-          : `Tarif ongkir & aturan diterapkan ke ${count} cabang terpilih.`
-      );
-    } catch (error) {
-      console.error('Apply settings to tenants error:', error);
-      toast.error('Gagal menerapkan aturan ke cabang.');
-    } finally {
-      setApplyingBranches(false);
-    }
-  };
-
   const handleResetDefaults = () => {
     setDraft(DEFAULT_PLATFORM_SETTINGS);
-    toast.info('Form dikembalikan ke nilai default. Klik Simpan untuk menerapkan.');
+    toast.info('Form dikembalikan ke nilai default. Klik Simpan & Terapkan untuk menerapkan.');
   };
+
+  const submitLabel = saving
+    ? 'Menyimpan...'
+    : applyScope === 'all'
+      ? `Simpan & Terapkan ke Semua Cabang (${allTenants.length})`
+      : `Simpan & Terapkan ke ${selectedTenantIds.length} Cabang Terpilih`;
 
   const renderTierCard = (tier: MembershipTier) => {
     const config = draft.tiers[tier];
@@ -345,13 +339,13 @@ export function SettingsPage() {
   };
 
   return (
-    <form onSubmit={handleSave} className="space-y-6">
+    <form onSubmit={handleSaveAndApply} className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="space-y-1">
           <h2 className="text-xl font-semibold tracking-tight text-foreground">Settings</h2>
           <p className="text-sm text-muted-foreground">
-            Pusat pengaturan benefit tier Basic &amp; Premium, tarif ongkir, buffer, grace period,
-            dan denda keterlambatan untuk semua cabang maupun cabang tertentu.
+            Atur Benefit Tier Member (Basic &amp; Premium) serta Ongkir &amp; Aturan Operasional,
+            lalu terapkan ke semua cabang atau cabang tertentu.
           </p>
         </div>
 
@@ -360,9 +354,13 @@ export function SettingsPage() {
             <RotateCcw className="h-3.5 w-3.5" strokeWidth={1.5} />
             Reset Default
           </Button>
-          <Button type="submit" size="sm" disabled={saving}>
+          <Button
+            type="submit"
+            size="sm"
+            disabled={saving || (applyScope === 'selected' && selectedTenantIds.length === 0)}
+          >
             <Save className="h-3.5 w-3.5" strokeWidth={1.5} />
-            {saving ? 'Menyimpan...' : 'Simpan & Terapkan'}
+            {submitLabel}
           </Button>
         </div>
       </div>
@@ -379,7 +377,7 @@ export function SettingsPage() {
         </div>
       </section>
 
-      {/* Section 2: Global / Branch-Scoped Delivery & Operational Rules */}
+      {/* Section 2: Delivery & Operational Rules */}
       <section className="space-y-3">
         <div className="flex items-center gap-2">
           <SlidersHorizontal className="h-4 w-4 text-muted-foreground" strokeWidth={1.5} />
@@ -392,8 +390,8 @@ export function SettingsPage() {
           <CardHeader>
             <CardTitle className="text-base">Tarif Ongkir, Buffer, Grace &amp; Denda</CardTitle>
             <CardDescription>
-              Diatur terpusat di sini — pilih apakah ingin menerapkan ke semua cabang sekaligus atau
-              hanya cabang tertentu.
+              Semua nilai di atas (Benefit Tier Member + Ongkir &amp; Aturan Operasional) akan
+              diterapkan ke cabang sesuai Target Penerapan di bawah.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
@@ -479,13 +477,14 @@ export function SettingsPage() {
 
             <Separator />
 
-            {/* Target Branch Scope Selector */}
+            {/* Unified Target Branch Scope Selector */}
             <div className="space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-medium text-foreground">Target Penerapan Cabang</p>
                   <p className="text-xs text-muted-foreground">
-                    Pilih cabang mana yang akan menerima tarif &amp; aturan operasional di atas.
+                    Mencakup seluruh pengaturan <strong className="font-medium text-foreground">Benefit Tier Member</strong>{' '}
+                    serta <strong className="font-medium text-foreground">Ongkir &amp; Aturan Operasional</strong> di atas.
                   </p>
                 </div>
 
@@ -556,7 +555,7 @@ export function SettingsPage() {
                 </div>
               ) : null}
 
-              {/* Branch status overview & selectable checkboxes when scope === 'selected' */}
+              {/* Branch list with both operational & tier preview */}
               {allTenants.length === 0 ? (
                 <div className="flex items-center gap-2 rounded-md border border-dashed px-3.5 py-3 text-xs text-muted-foreground">
                   <Building2 className="h-4 w-4" strokeWidth={1.5} />
@@ -573,6 +572,7 @@ export function SettingsPage() {
                       const checked =
                         applyScope === 'all' || selectedTenantIds.includes(tenant.id);
                       const isSelectable = applyScope === 'selected';
+                      const tTiers = resolveTenantMembershipTiers(tenant, settings.tiers);
 
                       return (
                         <div
@@ -594,17 +594,35 @@ export function SettingsPage() {
                             </div>
                             <div>
                               <p className="font-medium text-foreground">{tenant.name}</p>
-                              <p className="text-[11px] text-muted-foreground">{tenant.slug}</p>
+                              <p className="text-[11px] text-muted-foreground">
+                                Premium: diskon {tTiers.premium.rentalDiscountPercent}% · dep -
+                                {tTiers.premium.depositDiscountPercent}% · gratis ongkir{' '}
+                                {tTiers.premium.freeDeliveryKm}km
+                              </p>
                             </div>
                           </div>
 
-                          <div className="flex flex-wrap items-center gap-3 tabular-nums text-[11px] text-muted-foreground">
-                            <span className="font-medium text-foreground">
-                              <CurrencyText amount={tenant.deliveryRatePerKm} suffix="/km" />
-                            </span>
-                            <span>· {tenant.bufferHours}h buffer</span>
-                            <span>· {tenant.overdueGraceMinutes}m grace</span>
-                            <span>· {tenant.overdueHourlyRatePercent}%/jam</span>
+                          <div className="flex flex-wrap items-center gap-3">
+                            <div className="flex flex-wrap items-center gap-2 tabular-nums text-[11px] text-muted-foreground">
+                              <span className="font-medium text-foreground">
+                                <CurrencyText amount={tenant.deliveryRatePerKm} suffix="/km" />
+                              </span>
+                              <span>· {tenant.bufferHours}h</span>
+                              <span>· {tenant.overdueGraceMinutes}m</span>
+                              <span>· {tenant.overdueHourlyRatePercent}%/jam</span>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2 text-[11px]"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                loadTenantIntoForm(tenant);
+                              }}
+                            >
+                              Muat Nilai
+                            </Button>
                           </div>
                         </div>
                       );
@@ -652,20 +670,12 @@ export function SettingsPage() {
 
               <div className="flex justify-end pt-1">
                 <Button
-                  type="button"
-                  variant="outline"
+                  type="submit"
                   size="sm"
-                  disabled={
-                    applyingBranches ||
-                    (applyScope === 'selected' && selectedTenantIds.length === 0)
-                  }
-                  onClick={() => void handleApplyOperationalOnly()}
+                  disabled={saving || (applyScope === 'selected' && selectedTenantIds.length === 0)}
                 >
-                  {applyingBranches
-                    ? 'Menerapkan...'
-                    : applyScope === 'all'
-                      ? `Terapkan ke Semua Cabang (${allTenants.length})`
-                      : `Terapkan ke ${selectedTenantIds.length} Cabang Terpilih`}
+                  <Save className="h-3.5 w-3.5" strokeWidth={1.5} />
+                  {submitLabel}
                 </Button>
               </div>
             </div>

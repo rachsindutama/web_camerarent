@@ -1,15 +1,6 @@
-import type { MembershipTier } from '@/types/schema';
+import type { MembershipBenefitConfig, MembershipTier, Tenant } from '@/types/schema';
 
-export interface MembershipBenefitConfig {
-  tier: MembershipTier;
-  label: string;
-  rentalDiscountPercent: number;      // e.g., 0% vs 10%
-  depositDiscountPercent: number;     // e.g., 0% vs 50%
-  extraOverdueGraceMinutes: number;   // e.g., 0m vs +60m
-  freeDeliveryKm: number;             // e.g., 0km vs 5km
-  maxUnitsPerBooking: number | null;  // e.g., 3 vs unlimited (null)
-  prioritySupport: boolean;           // Priority badge & ops handling
-}
+export type { MembershipBenefitConfig };
 
 export interface PlatformSettings {
   tiers: Record<MembershipTier, MembershipBenefitConfig>;
@@ -64,24 +55,26 @@ export function getLivePlatformSettings(): PlatformSettings {
   return livePlatformSettings;
 }
 
-export function normalizePlatformSettings(
-  raw?: Partial<PlatformSettings> | Record<string, unknown> | null
-): PlatformSettings {
-  if (!raw || typeof raw !== 'object') return DEFAULT_PLATFORM_SETTINGS;
-  const r = raw as Record<string, unknown>;
-  const rawTiers = (r.tiers ?? {}) as Record<string, Partial<MembershipBenefitConfig> | undefined>;
+function clampNum(val: unknown, min: number, max: number, fallback: number): number {
+  const num = Number(val);
+  if (val === undefined || val === null || Number.isNaN(num)) return fallback;
+  return Math.min(max, Math.max(min, num));
+}
 
+export function normalizeTierMap(
+  rawTiers?: Record<string, Partial<MembershipBenefitConfig> | undefined> | null
+): Record<MembershipTier, MembershipBenefitConfig> {
   const parseTier = (tier: MembershipTier): MembershipBenefitConfig => {
     const def = DEFAULT_MEMBERSHIP_BENEFITS[tier];
-    const t = rawTiers[tier];
+    const t = rawTiers?.[tier];
     if (!t) return { ...def };
     const rawMax = t.maxUnitsPerBooking;
     const maxUnitsPerBooking =
-      rawMax === null || rawMax === undefined || Number(rawMax) <= 0
-        ? rawMax === null
-          ? null
-          : def.maxUnitsPerBooking
-        : Math.max(1, Math.floor(Number(rawMax)));
+      rawMax === null
+        ? null
+        : rawMax === undefined || Number(rawMax) <= 0
+          ? def.maxUnitsPerBooking
+          : Math.max(1, Math.floor(Number(rawMax)));
 
     return {
       tier,
@@ -107,10 +100,20 @@ export function normalizePlatformSettings(
   };
 
   return {
-    tiers: {
-      basic: parseTier('basic'),
-      premium: parseTier('premium'),
-    },
+    basic: parseTier('basic'),
+    premium: parseTier('premium'),
+  };
+}
+
+export function normalizePlatformSettings(
+  raw?: Partial<PlatformSettings> | Record<string, unknown> | null
+): PlatformSettings {
+  if (!raw || typeof raw !== 'object') return DEFAULT_PLATFORM_SETTINGS;
+  const r = raw as Record<string, unknown>;
+  const rawTiers = (r.tiers ?? {}) as Record<string, Partial<MembershipBenefitConfig> | undefined>;
+
+  return {
+    tiers: normalizeTierMap(rawTiers),
     defaultDeliveryRatePerKm: clampNum(
       r.defaultDeliveryRatePerKm,
       0,
@@ -138,10 +141,14 @@ export function normalizePlatformSettings(
   };
 }
 
-function clampNum(val: unknown, min: number, max: number, fallback: number): number {
-  const num = Number(val);
-  if (val === undefined || val === null || Number.isNaN(num)) return fallback;
-  return Math.min(max, Math.max(min, num));
+export function resolveTenantMembershipTiers(
+  tenant?: Pick<Tenant, 'membershipTiers'> | null,
+  fallbackTiers?: Record<MembershipTier, MembershipBenefitConfig>
+): Record<MembershipTier, MembershipBenefitConfig> {
+  if (tenant?.membershipTiers) {
+    return normalizeTierMap(tenant.membershipTiers);
+  }
+  return fallbackTiers ?? livePlatformSettings.tiers;
 }
 
 export function getMembershipBenefits(

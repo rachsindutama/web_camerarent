@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { collection, getDocs, query, Timestamp } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '@/lib/firebase';
+import { normalizeTierMap } from '@/lib/membership';
 import { useAuth } from '@/hooks/useAuth';
 import { ALL_TENANTS_SCOPE, useTenantStore } from '@/store/useTenantStore';
 import type { Tenant } from '@/types/schema';
@@ -28,6 +29,7 @@ export function useTenant() {
           bufferHours: Number(d.bufferHours ?? 3),
           overdueGraceMinutes: Number(d.overdueGraceMinutes ?? 60),
           overdueHourlyRatePercent: Number(d.overdueHourlyRatePercent ?? 10),
+          ...(d.membershipTiers ? { membershipTiers: normalizeTierMap(d.membershipTiers) } : {}),
           bankDetails: d.bankDetails ?? {
             bankName: 'BCA',
             accountNumber: '-',

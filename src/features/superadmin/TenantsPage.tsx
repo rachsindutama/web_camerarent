@@ -183,6 +183,7 @@ export function TenantsPage() {
           bufferHours: settings.defaultBufferHours,
           overdueGraceMinutes: settings.defaultOverdueGraceMinutes,
           overdueHourlyRatePercent: settings.defaultOverdueHourlyRatePercent,
+          membershipTiers: settings.tiers,
           status: 'active',
           createdAt: serverTimestamp(),
         });

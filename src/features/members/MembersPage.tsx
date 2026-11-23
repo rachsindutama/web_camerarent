@@ -5,7 +5,7 @@ import { collection, doc, getDocs, query, Timestamp, updateDoc, where } from 'fi
 import { ChevronRight, Eye, Search, Settings, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { db } from '@/lib/firebase';
-import { formatTierSummaryParts } from '@/lib/membership';
+import { formatTierSummaryParts, resolveTenantMembershipTiers } from '@/lib/membership';
 import { formatDateTime } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { usePlatformSettings } from '@/hooks/usePlatformSettings';
@@ -64,7 +64,8 @@ export function MembersPage() {
   const queryClient = useQueryClient();
   const { userProfile } = useAuth();
   const { settings } = usePlatformSettings();
-  const { allTenants, activeTenantId } = useTenant();
+  const { allTenants, activeTenant, activeTenantId } = useTenant();
+  const displayTiers = resolveTenantMembershipTiers(activeTenant, settings.tiers);
   const isSuperAdmin = userProfile?.role === 'superadmin';
 
   const [search, setSearch] = useState('');
@@ -306,25 +307,29 @@ export function MembersPage() {
         ) : null}
       </div>
 
-      {/* Tier Benefit Reference Strip (Live from Platform Settings) */}
+      {/* Tier Benefit Reference Strip (Live from Active Branch or Global Settings) */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <div className="rounded-lg border bg-card p-4 shadow-sm">
           <div className="flex items-center justify-between">
-            <p className="text-sm font-medium text-foreground">Basic</p>
+            <p className="text-sm font-medium text-foreground">
+              Basic {activeTenant ? `· ${activeTenant.name}` : '· Standar Global'}
+            </p>
             <MembershipBadge tier="basic" />
           </div>
           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-            {formatTierSummaryParts(settings.tiers.basic).join(' · ')}.
+            {formatTierSummaryParts(displayTiers.basic).join(' · ')}.
           </p>
         </div>
 
         <div className="rounded-lg border bg-card p-4 shadow-sm">
           <div className="flex items-center justify-between">
-            <p className="text-sm font-medium text-foreground">Premium</p>
+            <p className="text-sm font-medium text-foreground">
+              Premium {activeTenant ? `· ${activeTenant.name}` : '· Standar Global'}
+            </p>
             <MembershipBadge tier="premium" />
           </div>
           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-            {formatTierSummaryParts(settings.tiers.premium).join(' · ')}.
+            {formatTierSummaryParts(displayTiers.premium).join(' · ')}.
           </p>
         </div>
       </div>
