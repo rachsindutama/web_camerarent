@@ -168,9 +168,7 @@ export function LoginPage() {
   const handleBranchChange = (value: string) => {
     setManualBranchPicked(true);
     setSelectedTenantId(value);
-    if (value !== 'all') {
-      setStoreTenantId(value, true);
-    }
+    setStoreTenantId(value, true);
   };
 
   const handleDetectNearest = async () => {
@@ -192,11 +190,9 @@ export function LoginPage() {
     enabled: isFirebaseConfigured && Boolean(db) && Boolean(effectiveTenantId),
     queryFn: async () => {
       if (!db || !effectiveTenantId) return [];
-      const q =
-        effectiveTenantId === 'all'
-          ? collection(db, 'equipment')
-          : query(collection(db, 'equipment'), where('tenantId', '==', effectiveTenantId));
-      const snap = await getDocs(q);
+      const snap = await getDocs(
+        query(collection(db, 'equipment'), where('tenantId', '==', effectiveTenantId))
+      );
       return snap.docs
         .map((d) => ({ id: d.id, ...d.data() }) as Equipment)
         .filter((e) => e.isActive !== false)
@@ -212,11 +208,9 @@ export function LoginPage() {
     enabled: isFirebaseConfigured && Boolean(db) && Boolean(effectiveTenantId),
     queryFn: async () => {
       if (!db || !effectiveTenantId) return [];
-      const q =
-        effectiveTenantId === 'all'
-          ? collection(db, 'bundles')
-          : query(collection(db, 'bundles'), where('tenantId', '==', effectiveTenantId));
-      const snap = await getDocs(q);
+      const snap = await getDocs(
+        query(collection(db, 'bundles'), where('tenantId', '==', effectiveTenantId))
+      );
       return snap.docs
         .map((d) => ({ id: d.id, ...d.data() }) as Bundle)
         .filter((b) => b.isActive !== false)
@@ -289,7 +283,7 @@ export function LoginPage() {
               <div className="hidden items-center gap-1.5 border-l pl-3 sm:flex">
                 <MapPin className="h-3.5 w-3.5 shrink-0 text-muted-foreground" strokeWidth={1.5} />
                 <Select value={effectiveTenantId} onValueChange={handleBranchChange}>
-                  <SelectTrigger className="h-8 w-56 border-none bg-transparent px-2 text-xs shadow-none hover:bg-muted/60">
+                  <SelectTrigger className="h-8 w-52 border-none bg-transparent px-2 text-xs shadow-none hover:bg-muted/60">
                     <SelectValue
                       placeholder={detectingNearest ? 'Mendeteksi cabang terdekat...' : 'Pilih cabang'}
                     />
@@ -297,26 +291,18 @@ export function LoginPage() {
                   <SelectContent>
                     {sortedTenants.map((t) => {
                       const dist = distancesById[t.id];
-                      const isClosest = Boolean(visitorLocation && nearestTenant?.id === t.id);
                       return (
                         <SelectItem key={t.id} value={t.id}>
                           {t.name}
-                          {isClosest ? ' · Terdekat' : ''}
                           {dist !== undefined ? ` (${formatBranchDistanceKm(dist)})` : ''}
                         </SelectItem>
                       );
                     })}
-                    {tenants.length > 1 ? (
-                      <SelectItem value="all">Semua Cabang ({tenants.length})</SelectItem>
-                    ) : null}
                   </SelectContent>
                 </Select>
                 {isNearestActive ? (
                   <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-secondary-foreground">
                     Terdekat
-                    {distancesById[effectiveTenantId] !== undefined
-                      ? ` · ~${formatBranchDistanceKm(distancesById[effectiveTenantId])}`
-                      : ''}
                   </span>
                 ) : null}
                 <Button
@@ -379,18 +365,13 @@ export function LoginPage() {
                     <SelectContent>
                       {sortedTenants.map((t) => {
                         const dist = distancesById[t.id];
-                        const isClosest = Boolean(visitorLocation && nearestTenant?.id === t.id);
                         return (
                           <SelectItem key={t.id} value={t.id}>
                             {t.name}
-                            {isClosest ? ' · Terdekat' : ''}
                             {dist !== undefined ? ` (${formatBranchDistanceKm(dist)})` : ''}
                           </SelectItem>
                         );
                       })}
-                      {tenants.length > 1 ? (
-                        <SelectItem value="all">Semua Cabang ({tenants.length})</SelectItem>
-                      ) : null}
                     </SelectContent>
                   </Select>
                   <Button
