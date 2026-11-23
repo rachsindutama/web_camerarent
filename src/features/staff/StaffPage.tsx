@@ -72,8 +72,9 @@ export function StaffPage() {
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<'all' | StaffRole>('all');
 
-  // Create Staff Dialog (picks from registered users)
+  // Create Staff Dialog (requires exact 16-digit NIK lookup from registered users)
   const [createStaffOpen, setCreateStaffOpen] = useState(false);
+  const [staffNikQuery, setStaffNikQuery] = useState('');
   const [newStaffForm, setNewStaffForm] = useState({
     userId: '',
     phone: '',
@@ -187,11 +188,20 @@ export function StaffPage() {
   };
 
   const existingStaffUids = new Set(branchStaff.map((s) => s.userId).filter(Boolean));
-  const staffCandidateUsers = allUsers
+  const cleanStaffNikQuery = staffNikQuery.replace(/\D/g, '');
+  const exactNikMatchedUsers =
+    cleanStaffNikQuery.length === 16
+      ? allUsers.filter((u) => (u.nik ?? '').replace(/\D/g, '') === cleanStaffNikQuery)
+      : [];
+  const staffCandidateUsers = exactNikMatchedUsers
     .filter((u) => !existingStaffUids.has(u.uid))
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
+  const nikAlreadyAssignedInBranch =
+    cleanStaffNikQuery.length === 16 &&
+    exactNikMatchedUsers.length > 0 &&
+    staffCandidateUsers.length === 0;
   const selectedCandidateUser =
-    allUsers.find((u) => u.uid === newStaffForm.userId) ?? null;
+    staffCandidateUsers.find((u) => u.uid === newStaffForm.userId) ?? null;
 
   const filteredStaff = branchStaff.filter((s) => {
     if (roleFilter !== 'all' && s.role !== roleFilter) return false;
@@ -233,6 +243,7 @@ export function StaffPage() {
       await queryClient.invalidateQueries({ queryKey: ['tenant_staff', activeTenantId] });
       toast.success(`${selectedCandidateUser.displayName} ditambahkan ke ${activeTenant.name}.`);
       setCreateStaffOpen(false);
+      setStaffNikQuery('');
       setNewStaffForm({ userId: '', phone: '', role: 'courier', vehicleInfo: '' });
     } catch (error) {
       console.error('Create staff error:', error);
@@ -617,12 +628,13 @@ export function StaffPage() {
         </TabsContent>
       </Tabs>
 
-      {/* Create Operational Staff Dialog (Pick from registered users) */}
+      {/* Create Operational Staff Dialog (Pick from registered users by exact 16-digit NIK) */}
       <Dialog
         open={createStaffOpen}
         onOpenChange={(open) => {
           setCreateStaffOpen(open);
           if (!open) {
+            setStaffNikQuery('');
             setNewStaffForm({ userId: '', phone: '', role: 'courier', vehicleInfo: '' });
           }
         }}
@@ -631,16 +643,56 @@ export function StaffPage() {
           <DialogHeader>
             <DialogTitle>Tambah Karyawan</DialogTitle>
             <DialogDescription>
-              Pilih dari akun terdaftar untuk ditugaskan di cabang {activeTenant.name}.
+              Masukkan NIK lengkap 16 digit untuk mencari akun terdaftar di cabang{' '}
+              {activeTenant.name}.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleCreateStaff} className="space-y-4">
             <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="staff-nik-lookup">NIK Lengkap (16 Digit)</Label>
+                <span className="font-mono text-[11px] text-muted-foreground">
+                  {cleanStaffNikQuery.length}/16
+                </span>
+              </div>
+              <Input
+                id="staff-nik-lookup"
+                className="font-mono text-xs"
+                maxLength={16}
+                placeholder="Masukkan 16 digit NIK..."
+                value={staffNikQuery}
+                onChange={(e) => {
+                  const nextNik = e.target.value.replace(/\D/g, '').slice(0, 16);
+                  setStaffNikQuery(nextNik);
+                  setNewStaffForm((prev) => ({ ...prev, userId: '', phone: '' }));
+                }}
+              />
+              {cleanStaffNikQuery.length < 16 ? (
+                <p className="text-xs text-muted-foreground">
+                  Ketik 16 digit NIK lengkap untuk memunculkan akun di dropdown.
+                </p>
+              ) : nikAlreadyAssignedInBranch ? (
+                <p className="text-xs text-destructive">
+                  Akun dengan NIK ini sudah terdaftar sebagai karyawan di cabang ini.
+                </p>
+              ) : staffCandidateUsers.length === 0 ? (
+                <p className="text-xs text-destructive">
+                  Tidak ditemukan akun user dengan NIK tersebut.
+                </p>
+              ) : (
+                <p className="text-xs text-foreground">
+                  {staffCandidateUsers.length} akun ditemukan — silakan pilih di dropdown di bawah.
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
               <Label>Pilih Akun User</Label>
               <Select
+                disabled={cleanStaffNikQuery.length !== 16 || staffCandidateUsers.length === 0}
                 value={newStaffForm.userId}
                 onValueChange={(uid) => {
-                  const u = allUsers.find((item) => item.uid === uid);
+                  const u = staffCandidateUsers.find((item) => item.uid === uid);
                   setNewStaffForm((prev) => ({
                     ...prev,
                     userId: uid,
@@ -649,20 +701,22 @@ export function StaffPage() {
                 }}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Pilih akun dari users..." />
+                  <SelectValue
+                    placeholder={
+                      cleanStaffNikQuery.length < 16
+                        ? 'Masukkan 16 digit NIK terlebih dahulu...'
+                        : staffCandidateUsers.length === 0
+                          ? 'Akun tidak tersedia'
+                          : 'Pilih akun user...'
+                    }
+                  />
                 </SelectTrigger>
                 <SelectContent>
-                  {staffCandidateUsers.length === 0 ? (
-                    <div className="px-2 py-2 text-xs text-muted-foreground">
-                      Semua akun terdaftar sudah menjadi karyawan cabang ini.
-                    </div>
-                  ) : (
-                    staffCandidateUsers.map((u) => (
-                      <SelectItem key={u.uid} value={u.uid}>
-                        {u.displayName} ({u.email})
-                      </SelectItem>
-                    ))
-                  )}
+                  {staffCandidateUsers.map((u) => (
+                    <SelectItem key={u.uid} value={u.uid}>
+                      {u.displayName} ({u.email})
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
