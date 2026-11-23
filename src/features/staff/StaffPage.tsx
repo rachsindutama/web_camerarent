@@ -18,6 +18,7 @@ import {
   Phone,
   Plus,
   Power,
+  Save,
   Search,
   Trash2,
   UserCog,
@@ -68,7 +69,7 @@ const STAFF_ROLE_LABELS: Record<StaffRole, string> = {
 export function StaffPage() {
   const queryClient = useQueryClient();
   const { userProfile } = useAuth();
-  const { activeTenantId, activeTenant } = useTenant();
+  const { activeTenantId, activeTenant, allTenants } = useTenant();
   const isSuperAdmin = userProfile?.role === 'superadmin';
 
   const [search, setSearch] = useState('');
@@ -88,7 +89,15 @@ export function StaffPage() {
   const [assignAdminOpen, setAssignAdminOpen] = useState(false);
   const [selectedUserUid, setSelectedUserUid] = useState('');
   const [detailStaff, setDetailStaff] = useState<TenantStaff | null>(null);
-  const [detailAdmin, setDetailAdmin] = useState<UserProfile | null>(null);
+  const [detailAdminUid, setDetailAdminUid] = useState<string | null>(null);
+  const [isEditingAdmin, setIsEditingAdmin] = useState(false);
+  const [savingAdminEdit, setSavingAdminEdit] = useState(false);
+  const [adminEditForm, setAdminEditForm] = useState({
+    displayName: '',
+    phone: '',
+    nik: '',
+    tenantId: '',
+  });
 
   const { data: branchStaff = [], isLoading: loadingStaff } = useQuery<TenantStaff[]>({
     queryKey: ['tenant_staff', activeTenantId],
@@ -132,6 +141,68 @@ export function StaffPage() {
   const assignableUsers = allUsers.filter(
     (u) => u.role === 'user' || (u.role === 'admin' && u.tenantId !== activeTenantId)
   );
+  const detailAdmin = allUsers.find((u) => u.uid === detailAdminUid) ?? null;
+
+  const canEditAdminAccount = (admin: UserProfile) =>
+    isSuperAdmin || admin.uid === userProfile?.uid;
+
+  const openAdminDetail = (admin: UserProfile, startEdit = false) => {
+    setDetailAdminUid(admin.uid);
+    setAdminEditForm({
+      displayName: admin.displayName,
+      phone: admin.phone || '',
+      nik: admin.nik || '',
+      tenantId: admin.tenantId || activeTenantId,
+    });
+    setIsEditingAdmin(startEdit && canEditAdminAccount(admin));
+  };
+
+  const handleSaveAdminEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!db || !detailAdmin || !canEditAdminAccount(detailAdmin)) return;
+
+    const cleanName = adminEditForm.displayName.trim();
+    const cleanPhone = adminEditForm.phone.trim();
+    const cleanNik = adminEditForm.nik.replace(/\D/g, '');
+
+    if (cleanName.length < 2) {
+      toast.error('Nama lengkap minimal 2 karakter.');
+      return;
+    }
+    if (cleanNik.length > 0 && cleanNik.length !== 16) {
+      toast.error('NIK harus 16 digit angka (atau kosongkan jika belum ada).');
+      return;
+    }
+
+    setSavingAdminEdit(true);
+    try {
+      const payload: {
+        displayName: string;
+        phone: string;
+        nik: string;
+        tenantId?: string;
+      } = {
+        displayName: cleanName,
+        phone: cleanPhone,
+        nik: cleanNik,
+      };
+      if (isSuperAdmin && detailAdmin.role === 'admin' && adminEditForm.tenantId) {
+        payload.tenantId = adminEditForm.tenantId;
+      }
+
+      await updateDoc(doc(db, 'users', detailAdmin.uid), payload);
+      await queryClient.invalidateQueries({ queryKey: ['staff-users'] });
+      await queryClient.invalidateQueries({ queryKey: ['tenant_admin_staff'] });
+      await queryClient.invalidateQueries({ queryKey: ['members'] });
+      toast.success(`Profil ${cleanName} berhasil diperbarui.`);
+      setIsEditingAdmin(false);
+    } catch (error) {
+      console.error('Update admin profile error:', error);
+      toast.error('Gagal menyimpan perubahan profil akun.');
+    } finally {
+      setSavingAdminEdit(false);
+    }
+  };
 
   const filteredStaff = branchStaff.filter((s) => {
     if (roleFilter !== 'all' && s.role !== roleFilter) return false;
@@ -449,14 +520,14 @@ export function StaffPage() {
                   <TableHead>Nama &amp; Email</TableHead>
                   <TableHead>Phone / NIK</TableHead>
                   <TableHead>Role</TableHead>
-                  {isSuperAdmin ? <TableHead className="text-right">Aksi</TableHead> : null}
+                  <TableHead className="text-right">Aksi</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {branchAdmins.map((admin) => (
                   <TableRow
                     key={admin.uid}
-                    onClick={() => setDetailAdmin(admin)}
+                    onClick={() => openAdminDetail(admin, false)}
                     className="cursor-pointer"
                   >
                     <TableCell>
@@ -465,7 +536,7 @@ export function StaffPage() {
                     </TableCell>
                     <TableCell className="font-mono text-[11px]">
                       <div>{admin.phone || '—'}</div>
-                      <div className="text-zinc-500">{admin.nik ?? '—'}</div>
+                      <div className="text-zinc-500">{admin.nik || '—'}</div>
                     </TableCell>
                     <TableCell>
                       <span
@@ -478,29 +549,37 @@ export function StaffPage() {
                         {admin.role === 'superadmin' ? 'SUPERADMIN' : 'BRANCH ADMIN'}
                       </span>
                     </TableCell>
-                    {isSuperAdmin ? (
-                      <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                        <div className="inline-flex items-center gap-1.5">
+                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                      <div className="inline-flex items-center gap-1.5">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openAdminDetail(admin, false)}
+                        >
+                          <Eye className="h-3 w-3" strokeWidth={1.5} />
+                          Detail
+                        </Button>
+                        {canEditAdminAccount(admin) ? (
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => setDetailAdmin(admin)}
+                            onClick={() => openAdminDetail(admin, true)}
                           >
-                            <Eye className="h-3 w-3" strokeWidth={1.5} />
-                            Detail
+                            <Pencil className="h-3 w-3" strokeWidth={1.5} />
+                            Edit
                           </Button>
-                          {admin.role === 'admin' ? (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => void handleRevokeBranchAdmin(admin)}
-                            >
-                              Cabut Akses Admin
-                            </Button>
-                          ) : null}
-                        </div>
-                      </TableCell>
-                    ) : null}
+                        ) : null}
+                        {isSuperAdmin && admin.role === 'admin' ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void handleRevokeBranchAdmin(admin)}
+                          >
+                            Cabut Akses Admin
+                          </Button>
+                        ) : null}
+                      </div>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -674,12 +753,20 @@ export function StaffPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Admin / Superadmin Account Detail Modal */}
-      <Dialog open={Boolean(detailAdmin)} onOpenChange={(o) => !o && setDetailAdmin(null)}>
+      {/* Admin / Superadmin Account Detail & Edit Modal */}
+      <Dialog
+        open={Boolean(detailAdmin)}
+        onOpenChange={(o) => {
+          if (!o) {
+            setDetailAdminUid(null);
+            setIsEditingAdmin(false);
+          }
+        }}
+      >
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-sm">
-              {detailAdmin?.displayName}
+              {isEditingAdmin ? `Edit Profil — ${detailAdmin?.displayName}` : detailAdmin?.displayName}
               {detailAdmin ? (
                 <span
                   className={`rounded border px-1.5 py-0.5 font-mono text-[10px] uppercase ${
@@ -696,49 +783,168 @@ export function StaffPage() {
               {detailAdmin?.email}
             </DialogDescription>
           </DialogHeader>
+
           {detailAdmin ? (
-            <div className="space-y-2 rounded-md border border-zinc-200 bg-zinc-50 p-3.5 font-mono text-[11px]">
-              <div className="flex justify-between gap-2">
-                <span className="text-zinc-400">ROLE SCOPE</span>
-                <span className="uppercase text-zinc-900">{detailAdmin.role}</span>
+            isEditingAdmin && canEditAdminAccount(detailAdmin) ? (
+              <form id="edit-admin-form" onSubmit={handleSaveAdminEdit} className="space-y-3">
+                <div className="space-y-1">
+                  <Label htmlFor="admin-edit-name">Nama Lengkap</Label>
+                  <Input
+                    id="admin-edit-name"
+                    value={adminEditForm.displayName}
+                    onChange={(e) =>
+                      setAdminEditForm((prev) => ({ ...prev, displayName: e.target.value }))
+                    }
+                    placeholder="Nama lengkap admin"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="admin-edit-phone">No. HP / WhatsApp</Label>
+                    <Input
+                      id="admin-edit-phone"
+                      className="font-mono"
+                      value={adminEditForm.phone}
+                      onChange={(e) =>
+                        setAdminEditForm((prev) => ({ ...prev, phone: e.target.value }))
+                      }
+                      placeholder="0812xxxxxxxx"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="admin-edit-nik">NIK (16 Digit)</Label>
+                    <Input
+                      id="admin-edit-nik"
+                      className="font-mono"
+                      maxLength={16}
+                      value={adminEditForm.nik}
+                      onChange={(e) =>
+                        setAdminEditForm((prev) => ({
+                          ...prev,
+                          nik: e.target.value.replace(/\D/g, '').slice(0, 16),
+                        }))
+                      }
+                      placeholder="3174xxxxxxxxxxxx"
+                    />
+                  </div>
+                </div>
+
+                {isSuperAdmin && detailAdmin.role === 'admin' ? (
+                  <div className="space-y-1">
+                    <Label>Cabang Ditugaskan</Label>
+                    <Select
+                      value={adminEditForm.tenantId}
+                      onValueChange={(v) =>
+                        setAdminEditForm((prev) => ({ ...prev, tenantId: v }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Pilih cabang..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {allTenants.map((t) => (
+                          <SelectItem key={t.id} value={t.id}>
+                            {t.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : null}
+              </form>
+            ) : (
+              <div className="space-y-2 rounded-md border border-zinc-200 bg-zinc-50 p-3.5 font-mono text-[11px]">
+                <div className="flex justify-between gap-2">
+                  <span className="text-zinc-400">ROLE SCOPE</span>
+                  <span className="uppercase text-zinc-900">{detailAdmin.role}</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-zinc-400">CABANG</span>
+                  <span className="text-zinc-900">
+                    {detailAdmin.role === 'superadmin'
+                      ? 'All Branches (Global)'
+                      : allTenants.find((t) => t.id === detailAdmin.tenantId)?.name ??
+                        activeTenant.name}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-zinc-400">HP / WHATSAPP</span>
+                  <span className="text-zinc-900">{detailAdmin.phone || '—'}</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-zinc-400">NIK</span>
+                  <span className="text-zinc-900">{detailAdmin.nik || '—'}</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-zinc-400">UID</span>
+                  <span className="truncate text-zinc-600">{detailAdmin.uid}</span>
+                </div>
               </div>
-              <div className="flex justify-between gap-2">
-                <span className="text-zinc-400">CABANG</span>
-                <span className="text-zinc-900">
-                  {detailAdmin.role === 'superadmin' ? 'All Branches (Global)' : activeTenant.name}
-                </span>
-              </div>
-              <div className="flex justify-between gap-2">
-                <span className="text-zinc-400">HP / WHATSAPP</span>
-                <span className="text-zinc-900">{detailAdmin.phone || '—'}</span>
-              </div>
-              <div className="flex justify-between gap-2">
-                <span className="text-zinc-400">NIK</span>
-                <span className="text-zinc-900">{detailAdmin.nik || '—'}</span>
-              </div>
-              <div className="flex justify-between gap-2">
-                <span className="text-zinc-400">UID</span>
-                <span className="truncate text-zinc-600">{detailAdmin.uid}</span>
-              </div>
-            </div>
+            )
           ) : null}
+
           <DialogFooter>
-            {isSuperAdmin && detailAdmin?.role === 'admin' ? (
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => {
-                  const target = detailAdmin;
-                  setDetailAdmin(null);
-                  void handleRevokeBranchAdmin(target);
-                }}
-              >
-                Cabut Akses Admin
-              </Button>
+            {detailAdmin ? (
+              isEditingAdmin && canEditAdminAccount(detailAdmin) ? (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsEditingAdmin(false)}
+                  >
+                    Batal
+                  </Button>
+                  <Button
+                    type="submit"
+                    form="edit-admin-form"
+                    size="sm"
+                    disabled={savingAdminEdit}
+                  >
+                    <Save className="h-3.5 w-3.5" strokeWidth={1.5} />
+                    {savingAdminEdit ? 'Menyimpan...' : 'Simpan Perubahan'}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  {canEditAdminAccount(detailAdmin) ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => openAdminDetail(detailAdmin, true)}
+                    >
+                      <Pencil className="h-3.5 w-3.5" strokeWidth={1.5} />
+                      Edit Profil
+                    </Button>
+                  ) : null}
+                  {isSuperAdmin && detailAdmin.role === 'admin' ? (
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => {
+                        const target = detailAdmin;
+                        setDetailAdminUid(null);
+                        setIsEditingAdmin(false);
+                        void handleRevokeBranchAdmin(target);
+                      }}
+                    >
+                      Cabut Akses Admin
+                    </Button>
+                  ) : null}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setDetailAdminUid(null);
+                      setIsEditingAdmin(false);
+                    }}
+                  >
+                    Close
+                  </Button>
+                </>
+              )
             ) : null}
-            <Button variant="outline" size="sm" onClick={() => setDetailAdmin(null)}>
-              Close
-            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
