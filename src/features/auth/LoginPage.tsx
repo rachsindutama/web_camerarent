@@ -579,8 +579,8 @@ export function LoginPage() {
             </DialogTitle>
             <DialogDescription>
               {intentItem
-                ? 'Silakan masuk atau daftar akun penyewa terlebih dahulu untuk menambahkan item ke booking.'
-                : 'Khusus akun terdaftar. Hak akses dan cabang diselesaikan otomatis dari Firestore.'}
+                ? 'Silakan masuk atau daftar dulu untuk menambahkan item ini ke booking.'
+                : 'Masuk dengan akun terdaftar untuk mulai booking dan pantau pesananmu.'}
             </DialogDescription>
           </DialogHeader>
 
@@ -636,8 +636,8 @@ export function LoginPage() {
                 <span>Akun Belum Terdaftar</span>
               </div>
               <p className="leading-relaxed">
-                <span className="font-mono font-medium">{unregisteredEmail}</span> belum terdaftar.
-                Silakan daftar dengan NIK &amp; nomor WhatsApp terlebih dahulu.
+                Akun <span className="font-mono font-medium">{unregisteredEmail}</span> belum
+                terdaftar. Yuk daftar dulu supaya bisa langsung booking.
               </p>
               <Button asChild size="sm" className="w-full">
                 <Link to="/register">
@@ -688,8 +688,8 @@ export function LoginPage() {
           <div className="flex items-start gap-2.5 text-xs text-muted-foreground">
             <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.5} />
             <p className="leading-relaxed">
-              Penyewa baru wajib mendaftar dengan NIK 16 digit &amp; WhatsApp aktif sebelum dapat
-              melakukan booking.
+              Belum punya akun? Daftar sebentar dulu supaya kamu bisa langsung booking dan pantau
+              pesananmu.
             </p>
           </div>
         </DialogContent>
