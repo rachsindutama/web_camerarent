@@ -84,9 +84,13 @@ export function App() {
               <Route path="/admin/chat" element={<ChatPage mode="admin" />} />
             </Route>
 
+            {/* Shared Gear Catalog (Renters book, Admin/Superadmin preview live catalog) */}
+            <Route element={<RoleGuard allowedRoles={['user', 'admin', 'superadmin']} />}>
+              <Route path="/catalog" element={<CatalogPage />} />
+            </Route>
+
             {/* Renter portal routes (strictly role === 'user') */}
             <Route element={<RoleGuard allowedRoles={['user']} />}>
-              <Route path="/catalog" element={<CatalogPage />} />
               <Route path="/bookings" element={<MyBookingsPage />} />
               <Route path="/kyc" element={<KycOnboardingPage />} />
               <Route path="/chat" element={<ChatPage mode="user" />} />

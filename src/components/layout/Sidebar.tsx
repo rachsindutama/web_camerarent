@@ -13,6 +13,7 @@ import {
   Users,
   Briefcase,
   Settings,
+  LayoutGrid,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -44,6 +45,7 @@ const NAV_GROUPS: NavGroup[] = [
     heading: 'Rental Operations',
     roles: ['superadmin', 'admin'],
     items: [
+      { label: 'Katalog Gear', to: '/catalog', icon: LayoutGrid },
       { label: 'Inventory & SN', to: '/admin/inventory', icon: Camera },
       { label: 'Kit Bundles', to: '/admin/bundles', icon: Package },
       { label: 'Bookings', to: '/admin/bookings', icon: CalendarClock },
