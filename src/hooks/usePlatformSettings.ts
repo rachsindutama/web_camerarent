@@ -45,8 +45,10 @@ export function usePlatformSettings() {
   });
 
   useEffect(() => {
-    if (query.data) {
-      setLivePlatformSettings(query.data);
+    if (!query.data) return;
+    setLivePlatformSettings(query.data);
+    // Avoid flashing hardcoded DEFAULT_SITE_SEO title before Firestore responds
+    if (!query.isPlaceholderData || Boolean(getCachedSiteSeo())) {
       applySiteSeoToDocument(query.data.seo, { persistCache: !query.isPlaceholderData });
     }
   }, [query.data, query.isPlaceholderData]);

@@ -16,7 +16,26 @@
       content="Rent cinema cameras, professional lenses, lighting, and production kits with real-time serial-number inventory at CameraRent."
     />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <title>CameraRent — Production Gear &amp; Camera Rental Operations</title>
+    <title>Loading...</title>
+    <script>
+      (function () {
+        try {
+          var raw = localStorage.getItem('camerarent-site-seo-v1');
+          if (!raw) return;
+          var seo = JSON.parse(raw);
+          var t = (seo && (seo.siteTitle || seo.siteName) || '').trim();
+          if (t) document.title = t;
+          if (seo && seo.faviconUrl && seo.faviconUrl.trim()) {
+            var icon = document.querySelector('link[rel="icon"]');
+            if (icon) icon.setAttribute('href', seo.faviconUrl.trim());
+          }
+          if (seo && seo.themeColor && seo.themeColor.trim()) {
+            var theme = document.querySelector('meta[name="theme-color"]');
+            if (theme) theme.setAttribute('content', seo.themeColor.trim());
+          }
+        } catch (e) {}
+      })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
