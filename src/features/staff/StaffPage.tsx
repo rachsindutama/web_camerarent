@@ -10,7 +10,6 @@ import {
   where,
 } from 'firebase/firestore';
 import {
-  BadgeCheck,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -79,7 +78,9 @@ export function StaffPage() {
   const isSuperAdmin = userProfile?.role === 'superadmin';
 
   const [search, setSearch] = useState('');
-  const [roleFilter, setRoleFilter] = useState<'all' | StaffRole>('all');
+  const [roleFilter, setRoleFilter] = useState<
+    'all' | 'superadmin' | 'admin' | StaffRole
+  >('all');
 
   // Operational Staff Detail & Edit Dialog
   const [detailStaffId, setDetailStaffId] = useState<string | null>(null);
@@ -225,9 +226,42 @@ export function StaffPage() {
     });
   };
 
-  const filteredStaff = branchStaff.filter((s) => {
-    if (roleFilter !== 'all' && s.role !== roleFilter) return false;
+  type UnifiedTeamRow =
+    | { kind: 'admin'; key: string; sortRank: number; name: string; admin: UserProfile }
+    | { kind: 'staff'; key: string; sortRank: number; name: string; staff: TenantStaff };
+
+  const unifiedTeam: UnifiedTeamRow[] = [
+    ...branchAdmins.map((admin) => ({
+      kind: 'admin' as const,
+      key: `admin-${admin.uid}`,
+      sortRank: admin.role === 'superadmin' ? 0 : 1,
+      name: admin.displayName,
+      admin,
+    })),
+    ...branchStaff.map((staff) => ({
+      kind: 'staff' as const,
+      key: `staff-${staff.id}`,
+      sortRank: 2,
+      name: staff.name,
+      staff,
+    })),
+  ].sort((a, b) => a.sortRank - b.sortRank || a.name.localeCompare(b.name));
+
+  const filteredTeam = unifiedTeam.filter((row) => {
     const q = search.trim().toLowerCase();
+    if (row.kind === 'admin') {
+      const a = row.admin;
+      if (roleFilter !== 'all' && roleFilter !== a.role) return false;
+      if (!q) return true;
+      return (
+        a.displayName.toLowerCase().includes(q) ||
+        a.email.toLowerCase().includes(q) ||
+        (a.phone ?? '').toLowerCase().includes(q) ||
+        (a.nik ?? '').toLowerCase().includes(q)
+      );
+    }
+    const s = row.staff;
+    if (roleFilter !== 'all' && roleFilter !== s.role) return false;
     if (!q) return true;
     return (
       s.name.toLowerCase().includes(q) ||
@@ -236,6 +270,8 @@ export function StaffPage() {
       (s.vehicleInfo ?? '').toLowerCase().includes(q)
     );
   });
+
+  const isLoadingTeam = loadingStaff || loadingAdmins;
 
   const handleSaveStaffEdit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -444,86 +480,161 @@ export function StaffPage() {
         ) : null}
       </div>
 
-      <Tabs defaultValue="employees">
-        <TabsList>
-          <TabsTrigger value="employees">
-            {tx('Operational Staff', 'Karyawan Operasional')} ({branchStaff.length})
-          </TabsTrigger>
-          <TabsTrigger value="admins">
-            {tx('Admins & Superadmins', 'Admin & Superadmin')} ({branchAdmins.length})
-          </TabsTrigger>
-        </TabsList>
-
-        {/* Tab 1: Operational Staff */}
-        <TabsContent value="employees" className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="relative w-64">
-                <Search
-                  className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground"
-                  strokeWidth={1.5}
-                />
-                <Input
-                  placeholder={tx('Search name, phone, plate...', 'Cari nama, HP, plat...')}
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="pl-9"
-                />
-              </div>
-              <Select
-                value={roleFilter}
-                onValueChange={(v) => setRoleFilter(v as typeof roleFilter)}
-              >
-                <SelectTrigger className="h-9 w-44">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">{tx('All Roles', 'Semua Jabatan')}</SelectItem>
-                  <SelectItem value="courier">{staffRoleLabels.courier}</SelectItem>
-                  <SelectItem value="technician">{staffRoleLabels.technician}</SelectItem>
-                  <SelectItem value="admin_ops">{staffRoleLabels.admin_ops}</SelectItem>
-                </SelectContent>
-              </Select>
+      {/* Unified Search, Role Filter & Summary */}
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative w-64">
+              <Search
+                className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground"
+                strokeWidth={1.5}
+              />
+              <Input
+                placeholder={tx(
+                  'Search name, email, phone, NIK, plate...',
+                  'Cari nama, email, HP, NIK, plat...'
+                )}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-9"
+              />
             </div>
-            <span className="text-xs text-muted-foreground">
-              {branchStaff.filter((s) => s.isActive).length} {tx('active', 'aktif')} ·{' '}
-              {branchStaff.filter((s) => s.role === 'courier' && s.isActive).length}{' '}
-              {tx('couriers', 'kurir')}
-            </span>
+            <Select
+              value={roleFilter}
+              onValueChange={(v) => setRoleFilter(v as typeof roleFilter)}
+            >
+              <SelectTrigger className="h-9 w-48">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">
+                  {tx('All Roles', 'Semua Role')} ({unifiedTeam.length})
+                </SelectItem>
+                <SelectItem value="superadmin">Superadmin</SelectItem>
+                <SelectItem value="admin">Branch Admin</SelectItem>
+                <SelectItem value="courier">{staffRoleLabels.courier}</SelectItem>
+                <SelectItem value="technician">{staffRoleLabels.technician}</SelectItem>
+                <SelectItem value="admin_ops">{staffRoleLabels.admin_ops}</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
-          {loadingStaff ? (
-            <div className="rounded-lg border bg-card p-10 text-center text-sm text-muted-foreground">
-              {tx('Loading staff list...', 'Memuat daftar karyawan...')}
-            </div>
-          ) : filteredStaff.length === 0 ? (
-            <EmptyState
-              icon={Users}
-              title={tx(
-                `No staff yet in ${isAllTenants ? 'all branches' : activeTenant?.name}`,
-                `Belum ada karyawan di ${isAllTenants ? 'semua cabang' : activeTenant?.name}`
-              )}
-              description={tx(
-                'Active operational staff for this branch will appear here.',
-                'Daftar karyawan operasional cabang yang aktif akan tampil di sini.'
-              )}
-            />
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{tx('Employee', 'Karyawan')}</TableHead>
-                  <TableHead>{tx('Role', 'Jabatan')}</TableHead>
-                  <TableHead>{tx('WhatsApp / Phone', 'WhatsApp / HP')}</TableHead>
-                  <TableHead>{tx('Vehicle', 'Kendaraan')}</TableHead>
-                  <TableHead>{tx('Status', 'Status')}</TableHead>
-                  <TableHead className="w-10" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredStaff.map((staff) => (
+          <span className="text-xs text-muted-foreground">
+            {unifiedTeam.length} {tx('total', 'total')} · {branchAdmins.length}{' '}
+            {tx('admins', 'admin')} · {branchStaff.length} {tx('operational', 'operasional')}
+          </span>
+        </div>
+
+        {isLoadingTeam ? (
+          <div className="rounded-lg border bg-card p-10 text-center text-sm text-muted-foreground">
+            {tx('Loading team directory...', 'Memuat daftar tim & karyawan...')}
+          </div>
+        ) : filteredTeam.length === 0 ? (
+          <EmptyState
+            icon={Users}
+            title={tx(
+              `No matching team members in ${isAllTenants ? 'all branches' : activeTenant?.name}`,
+              `Tidak ada anggota tim yang cocok di ${isAllTenants ? 'semua cabang' : activeTenant?.name}`
+            )}
+            description={tx(
+              'Try clearing your search filter or assign a branch admin / operational staff account.',
+              'Coba hapus filter pencarian atau atur role akun admin / karyawan operasional.'
+            )}
+            action={
+              isSuperAdmin ? (
+                <Button size="sm" onClick={openAssignRoleDialog}>
+                  <UserCog className="h-3.5 w-3.5" strokeWidth={1.5} />
+                  {tx('Assign Account Role', 'Atur Role Akun')}
+                </Button>
+              ) : undefined
+            }
+          />
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{tx('Account / Employee', 'Akun / Karyawan')}</TableHead>
+                <TableHead>{tx('Role', 'Role / Jabatan')}</TableHead>
+                <TableHead>{tx('Contact & Details', 'Kontak & Detail')}</TableHead>
+                <TableHead>{tx('Status', 'Status')}</TableHead>
+                <TableHead className="w-10" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredTeam.map((row) => {
+                if (row.kind === 'admin') {
+                  const admin = row.admin;
+                  const branchName =
+                    admin.tenantId && tenantById[admin.tenantId]
+                      ? tenantById[admin.tenantId].name
+                      : null;
+
+                  return (
+                    <TableRow
+                      key={row.key}
+                      onClick={() => openAdminDetail(admin)}
+                      className="group cursor-pointer"
+                    >
+                      <TableCell>
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-xs font-medium text-white">
+                            {getInitials(admin.displayName)}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="truncate font-medium text-foreground">
+                              {admin.displayName}
+                            </p>
+                            <p className="truncate text-xs text-muted-foreground">
+                              {admin.email}
+                              {isAllTenants && branchName ? ` · ${branchName}` : ''}
+                            </p>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <span
+                          className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-md px-2 py-0.5 text-xs font-medium ${
+                            admin.role === 'superadmin'
+                              ? 'bg-primary text-primary-foreground'
+                              : 'bg-secondary text-secondary-foreground'
+                          }`}
+                        >
+                          {admin.role === 'superadmin'
+                            ? 'Superadmin'
+                            : isAllTenants && branchName
+                              ? `Admin · ${branchName}`
+                              : 'Branch Admin'}
+                        </span>
+                      </TableCell>
+                      <TableCell className="tabular-nums">
+                        <div className="text-xs font-medium text-foreground">
+                          {admin.phone || '—'}
+                        </div>
+                        <div className="font-mono text-[11px] text-muted-foreground">
+                          {admin.nik ? `NIK ${admin.nik}` : '—'}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <StatusBadge
+                          status="active"
+                          label={tx('Active', 'Aktif')}
+                        />
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <ChevronRight
+                          className="ml-auto h-4 w-4 text-muted-foreground/50 transition-transform group-hover:translate-x-0.5 group-hover:text-foreground"
+                          strokeWidth={1.5}
+                        />
+                      </TableCell>
+                    </TableRow>
+                  );
+                }
+
+                const staff = row.staff;
+                const staffBranch = tenantById[staff.tenantId]?.name;
+                return (
                   <TableRow
-                    key={staff.id}
+                    key={row.key}
                     onClick={() => openStaffDetail(staff)}
                     className="group cursor-pointer"
                   >
@@ -534,12 +645,9 @@ export function StaffPage() {
                         </div>
                         <div className="min-w-0">
                           <p className="truncate font-medium text-foreground">{staff.name}</p>
-                          {staff.email || isAllTenants ? (
+                          {staff.email || (isAllTenants && staffBranch) ? (
                             <p className="truncate text-xs text-muted-foreground">
-                              {[
-                                staff.email,
-                                isAllTenants ? tenantById[staff.tenantId]?.name : undefined,
-                              ]
+                              {[staff.email, isAllTenants ? staffBranch : undefined]
                                 .filter(Boolean)
                                 .join(' · ')}
                             </p>
@@ -548,15 +656,15 @@ export function StaffPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <span className="inline-flex items-center rounded-md bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">
+                      <span className="inline-flex shrink-0 items-center whitespace-nowrap rounded-md border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-xs font-medium text-zinc-700">
                         {staffRoleLabels[staff.role]}
                       </span>
                     </TableCell>
-                    <TableCell className="tabular-nums text-xs text-muted-foreground">
-                      {staff.phone}
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      {staff.vehicleInfo || '—'}
+                    <TableCell className="tabular-nums">
+                      <div className="text-xs font-medium text-foreground">{staff.phone}</div>
+                      <div className="text-[11px] text-muted-foreground">
+                        {staff.vehicleInfo || '—'}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <StatusBadge
@@ -571,98 +679,12 @@ export function StaffPage() {
                       />
                     </TableCell>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </TabsContent>
-
-        {/* Tab 2: Admin & Superadmin */}
-        <TabsContent value="admins" className="space-y-4">
-          {loadingAdmins ? (
-            <div className="rounded-lg border bg-card p-10 text-center text-sm text-muted-foreground">
-              {tx('Loading admin accounts...', 'Memuat akun admin...')}
-            </div>
-          ) : branchAdmins.length === 0 ? (
-            <EmptyState
-              icon={BadgeCheck}
-              title={tx(
-                `No dedicated admin in ${isAllTenants ? 'all branches' : activeTenant?.name}`,
-                `Belum ada admin khusus di ${isAllTenants ? 'semua cabang' : activeTenant?.name}`
-              )}
-              description={tx(
-                'A Superadmin can assign a registered account as Branch Admin here.',
-                'Superadmin dapat menugaskan akun terdaftar menjadi admin cabang ini.'
-              )}
-              action={
-                isSuperAdmin ? (
-                  <Button size="sm" onClick={openAssignRoleDialog}>
-                    <UserCog className="h-3.5 w-3.5" strokeWidth={1.5} />
-                    {tx('Assign Account Role', 'Atur Role Akun')}
-                  </Button>
-                ) : undefined
-              }
-            />
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{tx('Account', 'Akun')}</TableHead>
-                  <TableHead>{tx('NIK & WhatsApp', 'NIK & WhatsApp')}</TableHead>
-                  <TableHead>{tx('Role', 'Role')}</TableHead>
-                  <TableHead className="w-10" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {branchAdmins.map((admin) => (
-                  <TableRow
-                    key={admin.uid}
-                    onClick={() => openAdminDetail(admin)}
-                    className="group cursor-pointer"
-                  >
-                    <TableCell>
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
-                          {getInitials(admin.displayName)}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="truncate font-medium text-foreground">{admin.displayName}</p>
-                          <p className="truncate text-xs text-muted-foreground">{admin.email}</p>
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell className="tabular-nums">
-                      <div className="text-xs font-medium text-foreground">{admin.nik || '—'}</div>
-                      <div className="text-xs text-muted-foreground">{admin.phone || '—'}</div>
-                    </TableCell>
-                    <TableCell>
-                      <span
-                        className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${
-                          admin.role === 'superadmin'
-                            ? 'bg-primary text-primary-foreground'
-                            : 'bg-secondary text-secondary-foreground'
-                        }`}
-                      >
-                        {admin.role === 'superadmin'
-                          ? 'Superadmin'
-                          : isAllTenants && admin.tenantId && tenantById[admin.tenantId]
-                            ? `Admin · ${tenantById[admin.tenantId].name}`
-                            : 'Branch Admin'}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <ChevronRight
-                        className="ml-auto h-4 w-4 text-muted-foreground/50 transition-transform group-hover:translate-x-0.5 group-hover:text-foreground"
-                        strokeWidth={1.5}
-                      />
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </TabsContent>
-      </Tabs>
+                );
+              })}
+            </TableBody>
+          </Table>
+        )}
+      </div>
 
       {/* Assign RBAC Role & Branch Dialog */}
       <Dialog
