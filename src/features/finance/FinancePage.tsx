@@ -287,9 +287,8 @@ export function FinancePage() {
           role="button"
           tabIndex={0}
           onClick={() => setCategoryTab('revenue')}
-          className={`cursor-pointer shadow-none transition-colors hover:border-zinc-400 ${
-            categoryTab === 'revenue' ? 'border-emerald-400 ring-1 ring-emerald-200' : ''
-          }`}
+          className={`cursor-pointer shadow-none transition-colors hover:border-zinc-400 ${categoryTab === 'revenue' ? 'border-emerald-400 ring-1 ring-emerald-200' : ''
+            }`}
         >
           <CardHeader className="flex flex-row items-center justify-between pb-1.5">
             <CardTitle className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
@@ -311,9 +310,8 @@ export function FinancePage() {
           role="button"
           tabIndex={0}
           onClick={() => setCategoryTab('liability')}
-          className={`cursor-pointer border-blue-200 bg-blue-50/30 shadow-none transition-colors hover:border-blue-400 ${
-            categoryTab === 'liability' ? 'border-blue-500 ring-1 ring-blue-200' : ''
-          }`}
+          className={`cursor-pointer border-blue-200 bg-blue-50/30 shadow-none transition-colors hover:border-blue-400 ${categoryTab === 'liability' ? 'border-blue-500 ring-1 ring-blue-200' : ''
+            }`}
         >
           <CardHeader className="flex flex-row items-center justify-between pb-1.5">
             <CardTitle className="font-mono text-[10px] uppercase tracking-wider text-blue-700">
@@ -335,9 +333,8 @@ export function FinancePage() {
           role="button"
           tabIndex={0}
           onClick={() => setCategoryTab('expense')}
-          className={`cursor-pointer shadow-none transition-colors hover:border-zinc-400 ${
-            categoryTab === 'expense' ? 'border-red-400 ring-1 ring-red-200' : ''
-          }`}
+          className={`cursor-pointer shadow-none transition-colors hover:border-zinc-400 ${categoryTab === 'expense' ? 'border-red-400 ring-1 ring-red-200' : ''
+            }`}
         >
           <CardHeader className="flex flex-row items-center justify-between pb-1.5">
             <CardTitle className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
@@ -359,9 +356,8 @@ export function FinancePage() {
           role="button"
           tabIndex={0}
           onClick={() => setCategoryTab('all')}
-          className={`cursor-pointer shadow-none transition-colors hover:border-zinc-400 ${
-            categoryTab === 'all' ? 'border-zinc-400' : ''
-          }`}
+          className={`cursor-pointer shadow-none transition-colors hover:border-zinc-400 ${categoryTab === 'all' ? 'border-zinc-400' : ''
+            }`}
         >
           <CardHeader className="flex flex-row items-center justify-between pb-1.5">
             <CardTitle className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
@@ -451,13 +447,12 @@ export function FinancePage() {
                   </TableCell>
                   <TableCell>
                     <span
-                      className={`rounded border px-1.5 py-0.5 font-mono text-[10px] uppercase ${
-                        entry.category === 'revenue'
-                          ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                          : entry.category === 'liability'
-                            ? 'border-blue-200 bg-blue-50 text-blue-700'
-                            : 'border-red-200 bg-red-50 text-red-700'
-                      }`}
+                      className={`rounded border px-1.5 py-0.5 font-mono text-[10px] uppercase ${entry.category === 'revenue'
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                        : entry.category === 'liability'
+                          ? 'border-blue-200 bg-blue-50 text-blue-700'
+                          : 'border-red-200 bg-red-50 text-red-700'
+                        }`}
                     >
                       {entry.category}
                     </span>
@@ -504,13 +499,12 @@ export function FinancePage() {
               </DialogTitle>
               {selectedTx ? (
                 <span
-                  className={`rounded border px-1.5 py-0.5 font-mono text-[10px] uppercase ${
-                    selectedTx.category === 'revenue'
-                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                      : selectedTx.category === 'liability'
-                        ? 'border-blue-200 bg-blue-50 text-blue-700'
-                        : 'border-red-200 bg-red-50 text-red-700'
-                  }`}
+                  className={`rounded border px-1.5 py-0.5 font-mono text-[10px] uppercase ${selectedTx.category === 'revenue'
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                    : selectedTx.category === 'liability'
+                      ? 'border-blue-200 bg-blue-50 text-blue-700'
+                      : 'border-red-200 bg-red-50 text-red-700'
+                    }`}
                 >
                   {selectedTx.category}
                 </span>
@@ -531,7 +525,7 @@ export function FinancePage() {
                   </p>
                   <p className="mt-1 font-mono text-xl font-semibold text-zinc-950">
                     {selectedTx.type === 'operational_expense' ||
-                    selectedTx.type === 'deposit_refund'
+                      selectedTx.type === 'deposit_refund'
                       ? '- '
                       : '+ '}
                     <CurrencyText amount={selectedTx.amount} />
@@ -673,7 +667,7 @@ export function FinancePage() {
                 }
               >
                 <FileDown className="h-3.5 w-3.5" strokeWidth={1.5} />
-                {tx('Download A4 Invoice', 'Unduh Invoice A4')}
+                {tx('Download Invoice PNG', 'Unduh Invoice PNG')}
               </Button>
             ) : (
               <span className="font-mono text-[10px] text-zinc-400">

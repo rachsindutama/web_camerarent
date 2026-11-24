@@ -424,7 +424,7 @@ export function AdminBookingsPage() {
                           renter: rentersById[b.userId] ?? null,
                         })
                       }
-                      title={tx('Download A4 PDF Invoice', 'Unduh Invoice PDF A4')}
+                      title={tx('Download Invoice PNG', 'Unduh Invoice PNG')}
                     >
                       <FileDown className="h-3.5 w-3.5" strokeWidth={1.5} />
                     </Button>

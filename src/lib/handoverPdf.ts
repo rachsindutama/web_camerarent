@@ -3,7 +3,7 @@ import { calculateRentalDays } from '@/lib/availability';
 import { txStatic } from '@/lib/i18n';
 import { getMembershipBenefits } from '@/lib/membership';
 import { resolveBookingUnitsMap, resolveFreshPlatformSettings } from '@/lib/pdfUnits';
-import { escapeHtml, renderHtmlToA4Pdf } from '@/lib/htmlPdfEngine';
+import { escapeHtml, renderHtmlToPng } from '@/lib/htmlPdfEngine';
 import type { Booking, EquipmentUnit, Tenant, UserProfile } from '@/types/schema';
 
 interface GenerateHandoverPdfParams {
@@ -148,7 +148,7 @@ export async function generateHandoverPdf({
   const hourlyPct = tenant?.overdueHourlyRatePercent ?? settings.defaultOverdueHourlyRatePercent;
 
   const html = `
-    <div style="width:100%;min-height:1105px;box-sizing:border-box;background:#ffffff;color:#09090b;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:flex;flex-direction:column;">
+    <div style="width:794px;box-sizing:border-box;background:#ffffff;color:#09090b;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:flex;flex-direction:column;">
       <div style="height:8px;width:100%;background:#18181b;"></div>
 
       <div style="padding:30px 38px 24px 38px;flex:1;">
@@ -328,5 +328,5 @@ export async function generateHandoverPdf({
   `;
 
   const safeFilename = booking.invoiceNumber.replace(/\//g, '-');
-  await renderHtmlToA4Pdf(html, `BAST-${safeFilename}.pdf`);
+  await renderHtmlToPng(html, `BAST-${safeFilename}.png`);
 }

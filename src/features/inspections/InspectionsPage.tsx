@@ -517,7 +517,7 @@ export function InspectionsPage() {
                         }
                       >
                         <FileDown className="h-3.5 w-3.5" strokeWidth={1.5} />
-                        {tx('BAST PDF', 'BAST PDF')}
+                        {tx('BAST PNG', 'BAST PNG')}
                       </Button>
                       <Button
                         size="sm"

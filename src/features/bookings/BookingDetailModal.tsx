@@ -656,7 +656,7 @@ export function BookingDetailModal({
                 onClick={() => void generateInvoicePdf({ booking, tenant, renter, unitsById })}
               >
                 <FileDown className="h-3.5 w-3.5" strokeWidth={1.5} />
-                {tx('Download A4 Invoice PDF', 'Unduh Invoice PDF A4')}
+                {tx('Download Invoice PNG', 'Unduh Invoice PNG')}
               </Button>
               {['confirmed', 'active_rent', 'overdue', 'completed'].includes(
                 booking.bookingStatus
@@ -669,7 +669,7 @@ export function BookingDetailModal({
                   onClick={() => void generateHandoverPdf({ booking, tenant, renter, unitsById })}
                 >
                   <ClipboardCheck className="h-3.5 w-3.5" strokeWidth={1.5} />
-                  {tx('Download BAST PDF', 'Unduh BAST PDF')}
+                  {tx('Download BAST PNG', 'Unduh BAST PNG')}
                 </Button>
               ) : null}
             </div>

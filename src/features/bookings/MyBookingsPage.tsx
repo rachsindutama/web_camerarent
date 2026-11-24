@@ -289,7 +289,7 @@ export function MyBookingsPage() {
                         }
                       >
                         <FileDown className="h-3.5 w-3.5" strokeWidth={1.5} />
-                        {tx('A4 Invoice PDF', 'Invoice PDF A4')}
+                        {tx('Invoice PNG', 'Invoice PNG')}
                       </Button>
 
                       {['confirmed', 'active_rent', 'overdue', 'completed'].includes(
@@ -303,7 +303,7 @@ export function MyBookingsPage() {
                           }
                         >
                           <ClipboardCheck className="h-3.5 w-3.5" strokeWidth={1.5} />
-                          BAST
+                          BAST PNG
                         </Button>
                       ) : null}
                     </div>

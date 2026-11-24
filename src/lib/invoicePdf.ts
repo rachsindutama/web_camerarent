@@ -3,7 +3,7 @@ import { calculateRentalDays } from '@/lib/availability';
 import { txStatic } from '@/lib/i18n';
 import { getMembershipBenefits } from '@/lib/membership';
 import { resolveBookingUnitsMap, resolveFreshPlatformSettings } from '@/lib/pdfUnits';
-import { escapeHtml, renderHtmlToA4Pdf } from '@/lib/htmlPdfEngine';
+import { escapeHtml, renderHtmlToPng } from '@/lib/htmlPdfEngine';
 import type { Booking, EquipmentUnit, Tenant, UserProfile } from '@/types/schema';
 
 interface GenerateInvoiceParams {
@@ -272,7 +272,7 @@ export async function generateInvoicePdf({
   ];
 
   const html = `
-    <div style="width:100%;min-height:1105px;box-sizing:border-box;background:#ffffff;color:#09090b;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;position:relative;display:flex;flex-direction:column;">
+    <div style="width:794px;box-sizing:border-box;background:#ffffff;color:#09090b;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;position:relative;display:flex;flex-direction:column;">
       <!-- Top Editorial Accent Bar -->
       <div style="height:8px;width:100%;background:#18181b;"></div>
 
@@ -436,5 +436,5 @@ export async function generateInvoicePdf({
   `;
 
   const safeFilename = booking.invoiceNumber.replace(/\//g, '-');
-  await renderHtmlToA4Pdf(html, `${safeFilename}.pdf`);
+  await renderHtmlToPng(html, `${safeFilename}.png`);
 }
