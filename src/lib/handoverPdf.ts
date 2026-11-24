@@ -1,10 +1,9 @@
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import { formatDateTime, formatIDR } from '@/lib/utils';
 import { calculateRentalDays } from '@/lib/availability';
 import { txStatic } from '@/lib/i18n';
 import { getMembershipBenefits } from '@/lib/membership';
 import { resolveBookingUnitsMap, resolveFreshPlatformSettings } from '@/lib/pdfUnits';
+import { escapeHtml, renderHtmlToA4Pdf } from '@/lib/htmlPdfEngine';
 import type { Booking, EquipmentUnit, Tenant, UserProfile } from '@/types/schema';
 
 interface GenerateHandoverPdfParams {
@@ -12,88 +11,6 @@ interface GenerateHandoverPdfParams {
   tenant: Tenant | null;
   renter?: Pick<UserProfile, 'displayName' | 'email' | 'phone' | 'nik'> | null;
   unitsById?: Record<string, EquipmentUnit>;
-}
-
-interface KvRow {
-  label: string;
-  value: string;
-  bold?: boolean;
-}
-
-function measureCardHeight(
-  doc: jsPDF,
-  width: number,
-  labelW: number,
-  rows: KvRow[],
-  hasHeadline: boolean
-): number {
-  const valueMaxW = width - labelW - 9;
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8);
-  let h = 11;
-  if (hasHeadline) h += 5.5;
-  for (const row of rows) {
-    const lines = doc.splitTextToSize(row.value || '—', valueMaxW) as string[];
-    h += Math.max(1, lines.length) * 3.8 + 1.3;
-  }
-  return h + 3;
-}
-
-function drawCard(
-  doc: jsPDF,
-  opts: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    labelW: number;
-    title: string;
-    headline?: string;
-    rows: KvRow[];
-  }
-): void {
-  const { x, y, width, height, labelW, title, headline, rows } = opts;
-
-  doc.setFillColor(250, 250, 250);
-  doc.setDrawColor(228, 228, 231);
-  doc.setLineWidth(0.3);
-  doc.roundedRect(x, y, width, height, 1.8, 1.8, 'FD');
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7);
-  doc.setTextColor(113, 113, 122);
-  doc.text(title, x + 4, y + 5.5);
-
-  doc.setDrawColor(228, 228, 231);
-  doc.setLineWidth(0.2);
-  doc.line(x + 4, y + 7.5, x + width - 4, y + 7.5);
-
-  let cursorY = y + 12;
-  if (headline) {
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9.2);
-    doc.setTextColor(9, 9, 11);
-    const hLines = doc.splitTextToSize(headline, width - 8) as string[];
-    doc.text(hLines[0] ?? headline, x + 4, cursorY);
-    cursorY += 5.2;
-  }
-
-  const valueX = x + 4 + labelW;
-  const valueMaxW = width - labelW - 9;
-
-  for (const row of rows) {
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.6);
-    doc.setTextColor(113, 113, 122);
-    doc.text(row.label, x + 4, cursorY);
-
-    doc.setFont('helvetica', row.bold ? 'bold' : 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(24, 24, 27);
-    const lines = doc.splitTextToSize(row.value || '—', valueMaxW) as string[];
-    doc.text(lines, valueX, cursorY);
-    cursorY += Math.max(1, lines.length) * 3.8 + 1.3;
-  }
 }
 
 export async function generateHandoverPdf({
@@ -107,90 +24,27 @@ export async function generateHandoverPdf({
     resolveFreshPlatformSettings(),
   ]);
 
-  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  const pageWidth = pdf.internal.pageSize.getWidth();
-  const pageHeight = pdf.internal.pageSize.getHeight();
-  const margin = 14;
-  const contentWidth = pageWidth - margin * 2; // 182mm
-  const rightEdge = pageWidth - margin; // 196mm
-
   const rentalDays = calculateRentalDays(booking.startDate.toDate(), booking.endDate.toDate());
   const tierBenefits = getMembershipBenefits(booking.membershipTier, settings.tiers);
   const brandFallback = settings.seo.siteName || 'CameraRent';
 
-  // Top dark accent bar
-  pdf.setFillColor(24, 24, 27);
-  pdf.rect(0, 0, pageWidth, 3.5, 'F');
-
-  // Header Left (strict maxWidth = 96mm so address NEVER overlaps right title)
-  const leftMaxW = 96;
-  pdf.setFont('helvetica', 'bold');
-  pdf.setFontSize(15);
-  pdf.setTextColor(9, 9, 11);
-  const branchTitle = tenant?.name ?? `${brandFallback} Rental Ops`;
-  const titleLines = pdf.splitTextToSize(branchTitle, leftMaxW) as string[];
-  pdf.text(titleLines, margin, 14.5);
-
-  let leftY = 14.5 + (titleLines.length - 1) * 5.6 + 4.5;
-  pdf.setFont('helvetica', 'normal');
-  pdf.setFontSize(8);
-  pdf.setTextColor(113, 113, 122);
-  const addressText =
+  const branchName = tenant?.name ?? `${brandFallback} Rental Ops`;
+  const branchAddress =
     tenant?.address ??
     txStatic('Official Equipment Handover Branch', 'Cabang Resmi Serah Terima Peralatan');
-  const addressLines = pdf.splitTextToSize(addressText, leftMaxW) as string[];
-  pdf.text(addressLines, margin, leftY);
-  leftY += addressLines.length * 3.7;
 
-  // Header Right
-  pdf.setFont('helvetica', 'bold');
-  pdf.setFontSize(10.5);
-  pdf.setTextColor(9, 9, 11);
-  pdf.text(
-    txStatic('EQUIPMENT HANDOVER (BAST)', 'BERITA ACARA SERAH TERIMA'),
-    rightEdge,
-    13.5,
-    { align: 'right' }
-  );
-
-  pdf.setFont('courier', 'bold');
-  pdf.setFontSize(10);
-  pdf.setTextColor(63, 63, 70);
-  pdf.text(`REF: ${booking.invoiceNumber}`, rightEdge, 19, { align: 'right' });
-
-  pdf.setFont('helvetica', 'bold');
-  pdf.setFontSize(7.5);
-  pdf.setTextColor(113, 113, 122);
-  pdf.text(
-    `${booking.bookingStatus.replace(/_/g, ' ').toUpperCase()}  ·  ${tierBenefits.label.toUpperCase()}`,
-    rightEdge,
-    24,
-    { align: 'right' }
-  );
-  const rightY = 26;
-
-  const dividerY = Math.max(leftY, rightY) + 4;
-  pdf.setDrawColor(228, 228, 231);
-  pdf.setLineWidth(0.35);
-  pdf.line(margin, dividerY, rightEdge, dividerY);
-
-  // Two-column aligned metadata cards
-  const cardsY = dividerY + 4.5;
-  const leftCardW = 86;
-  const cardGap = 4;
-  const rightCardW = contentWidth - leftCardW - cardGap;
-
-  const renterRows: KvRow[] = [];
+  const renterRows: Array<{ label: string; value: string; bold?: boolean }> = [];
   if (renter?.nik) renterRows.push({ label: 'NIK / KTP', value: renter.nik });
-  if (renter?.phone) renterRows.push({ label: txStatic('Phone', 'HP / WA'), value: renter.phone });
+  if (renter?.phone)
+    renterRows.push({ label: txStatic('Phone / WA', 'HP / WA'), value: renter.phone });
   if (renter?.email) renterRows.push({ label: 'Email', value: renter.email });
   renterRows.push({
-    label: txStatic('Deposit', 'Deposit'),
+    label: txStatic('Security Deposit', 'Deposit Jaminan'),
     value: formatIDR(booking.deposit),
     bold: true,
   });
 
-  const scheduleRows: KvRow[] = [
+  const scheduleRows: Array<{ label: string; value: string; bold?: boolean }> = [
     {
       label: txStatic('Start / Pickup', 'Mulai / Ambil'),
       value: formatDateTime(booking.startDate),
@@ -217,143 +71,69 @@ export async function generateHandoverPdf({
     },
   ];
   if (booking.deliveryAddress) {
-    scheduleRows.push({ label: txStatic('Address', 'Alamat'), value: booking.deliveryAddress });
+    scheduleRows.push({
+      label: txStatic('Address', 'Alamat'),
+      value: booking.deliveryAddress,
+    });
   }
 
-  const equalCardH = Math.max(
-    measureCardHeight(pdf, leftCardW, 21, renterRows, true),
-    measureCardHeight(pdf, rightCardW, 25, scheduleRows, false)
-  );
+  const renderKvRows = (rows: Array<{ label: string; value: string; bold?: boolean }>, labelW: string) =>
+    rows
+      .map(
+        (r) => `
+      <tr>
+        <td style="width:${labelW};padding:3px 8px 3px 0;vertical-align:top;font-size:10.5px;color:#71717a;white-space:nowrap;">${escapeHtml(r.label)}</td>
+        <td style="padding:3px 0;vertical-align:top;font-size:11px;color:#18181b;font-weight:${r.bold ? '600' : '400'};line-height:1.4;">${escapeHtml(r.value)}</td>
+      </tr>`
+      )
+      .join('');
 
-  drawCard(pdf, {
-    x: margin,
-    y: cardsY,
-    width: leftCardW,
-    height: equalCardH,
-    labelW: 21,
-    title: txStatic('RECEIVING PARTY (RENTER)', 'PIHAK PENERIMA (PENYEWA)'),
-    headline: renter?.displayName ?? booking.userId,
-    rows: renterRows,
-  });
+  const itemRowsHtml = booking.items
+    .map((item, idx) => {
+      const unit = resolvedUnits[item.unitId];
+      const condLabel = (unit?.condition ?? 'good').toUpperCase();
+      const accessories = unit?.accessoriesIncluded ?? [];
+      const accessoriesHtml =
+        accessories.length > 0
+          ? accessories
+              .map(
+                (acc) =>
+                  `<span style="display:inline-block;margin:0 4px 4px 0;padding:2px 6px;border-radius:3px;background:#f4f4f5;border:1px solid #e4e4e7;font-size:9.5px;color:#3f3f46;line-height:1.3;">${escapeHtml(acc)}</span>`
+              )
+              .join('')
+          : `<span style="font-size:10px;color:#a1a1aa;font-style:italic;">${escapeHtml(
+              txStatic('Standard unit accessories', 'Kelengkapan standar unit')
+            )}</span>`;
 
-  drawCard(pdf, {
-    x: margin + leftCardW + cardGap,
-    y: cardsY,
-    width: rightCardW,
-    height: equalCardH,
-    labelW: 25,
-    title: txStatic('HANDOVER & RENTAL SCHEDULE', 'JADWAL SERAH TERIMA & SEWA'),
-    rows: scheduleRows,
-  });
+      const rowBg = idx % 2 === 1 ? '#fafafa' : '#ffffff';
+      return `
+        <tr style="background:${rowBg};">
+          <td style="padding:10px 8px;border-bottom:1px solid #e4e4e7;text-align:center;vertical-align:top;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#71717a;">${idx + 1}</td>
+          <td style="padding:10px 10px;border-bottom:1px solid #e4e4e7;vertical-align:top;">
+            <div style="font-size:11.5px;font-weight:600;color:#09090b;line-height:1.35;">${escapeHtml(item.equipmentName)}</div>
+            <div style="margin-top:4px;">
+              <span style="display:inline-block;padding:1.5px 6px;border-radius:3px;background:#f4f4f5;border:1px solid #d4d4d8;font-family:'JetBrains Mono',monospace;font-size:9.5px;font-weight:500;color:#3f3f46;">${escapeHtml(item.serialNumber)}</span>
+            </div>
+          </td>
+          <td style="padding:10px 8px;border-bottom:1px solid #e4e4e7;text-align:center;vertical-align:top;">
+            <span style="display:inline-block;padding:2px 6px;border-radius:3px;background:#f4f4f5;border:1px solid #e4e4e7;font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;color:#3f3f46;">${escapeHtml(condLabel)}</span>
+          </td>
+          <td style="padding:10px 10px;border-bottom:1px solid #e4e4e7;vertical-align:top;">
+            <div>${accessoriesHtml}</div>
+          </td>
+          <td style="padding:10px 6px;border-bottom:1px solid #e4e4e7;text-align:center;vertical-align:top;font-family:'JetBrains Mono',monospace;font-size:10px;color:#52525b;white-space:nowrap;">&#9744; OK</td>
+          <td style="padding:10px 6px;border-bottom:1px solid #e4e4e7;text-align:center;vertical-align:top;font-family:'JetBrains Mono',monospace;font-size:10px;color:#52525b;white-space:nowrap;">&#9744; OK</td>
+        </tr>`;
+    })
+    .join('');
 
-  // Serialized Units & Included Accessories Checklist Table (182mm total)
-  const tableStartY = cardsY + equalCardH + 6;
-  const tableRows = booking.items.map((item, idx) => {
-    const unit = resolvedUnits[item.unitId];
-    const conditionLabel = unit?.condition
-      ? unit.condition.toUpperCase()
-      : txStatic('GOOD', 'BAIK');
-    const accessoriesText =
-      unit?.accessoriesIncluded && unit.accessoriesIncluded.length > 0
-        ? unit.accessoriesIncluded.join(', ')
-        : txStatic('Standard unit accessories', 'Kelengkapan standar unit');
-    return [
-      String(idx + 1),
-      item.equipmentName,
-      item.serialNumber,
-      conditionLabel,
-      accessoriesText,
-      '[  ] OK',
-      '[  ] OK',
-    ];
-  });
-
-  autoTable(pdf, {
-    startY: tableStartY,
-    head: [
-      [
-        '#',
-        txStatic('Equipment Model', 'Nama Peralatan'),
-        'Serial Number',
-        txStatic('Cond.', 'Kondisi'),
-        txStatic('Included Accessories', 'Kelengkapan Aksesoris'),
-        txStatic('Out', 'Keluar'),
-        txStatic('In', 'Kembali'),
-      ],
-    ],
-    body: tableRows,
-    theme: 'grid',
-    headStyles: {
-      fillColor: [24, 24, 27],
-      textColor: [250, 250, 250],
-      fontSize: 7.5,
-      fontStyle: 'bold',
-      cellPadding: 2.6,
-    },
-    bodyStyles: {
-      fontSize: 7.8,
-      textColor: [24, 24, 27],
-      cellPadding: 2.6,
-      lineColor: [228, 228, 231],
-      lineWidth: 0.2,
-      valign: 'top',
-    },
-    alternateRowStyles: {
-      fillColor: [250, 250, 250],
-    },
-    columnStyles: {
-      0: { cellWidth: 8, halign: 'center' },
-      1: { cellWidth: 42, fontStyle: 'bold' },
-      2: { font: 'courier', fontSize: 7.2, cellWidth: 29 },
-      3: { halign: 'center', fontSize: 7.2, cellWidth: 15 },
-      4: { fontSize: 7.2, textColor: [82, 82, 91] },
-      5: { halign: 'center', font: 'courier', fontSize: 7.2, cellWidth: 16 },
-      6: { halign: 'center', font: 'courier', fontSize: 7.2, cellWidth: 16 },
-    },
-    margin: { left: margin, right: margin },
-  });
-
-  let cursorY =
-    ((pdf as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY ?? 130) + 6;
-
-  // Pre-Rental Inspection Notes Box (auto-sized height)
-  const baselineText =
+  const baselineNotes =
     booking.preRentalChecklist?.notes ||
     txStatic(
       'All serialized units, optical elements, mounts, and listed accessories have been jointly inspected and verified in working order prior to handover.',
       'Seluruh unit bernomor seri, elemen optik, mount, dan aksesoris tertera telah diperiksa bersama dan dipastikan berfungsi normal sebelum serah terima.'
     );
-  pdf.setFont('helvetica', 'normal');
-  pdf.setFontSize(8);
-  const baselineLines = pdf.splitTextToSize(baselineText, contentWidth - 8) as string[];
-  const notesBoxH = 14 + baselineLines.length * 3.8 + 5;
 
-  if (cursorY + notesBoxH + 62 > pageHeight - 16) {
-    pdf.addPage();
-    cursorY = 16;
-  }
-
-  pdf.setDrawColor(228, 228, 231);
-  pdf.setFillColor(250, 250, 250);
-  pdf.roundedRect(margin, cursorY, contentWidth, notesBoxH, 1.8, 1.8, 'FD');
-
-  pdf.setFont('helvetica', 'bold');
-  pdf.setFontSize(7.4);
-  pdf.setTextColor(9, 9, 11);
-  pdf.text(
-    txStatic('PRE-RENTAL INSPECTION & CONDITION NOTES', 'CATATAN INSPEKSI & KONDISI PRA-SEWA'),
-    margin + 4,
-    cursorY + 5.5
-  );
-
-  pdf.setFont('helvetica', 'normal');
-  pdf.setFontSize(8);
-  pdf.setTextColor(63, 63, 70);
-  pdf.text(baselineLines, margin + 4, cursorY + 11);
-
-  pdf.setFont('courier', 'normal');
-  pdf.setFontSize(7.2);
-  pdf.setTextColor(113, 113, 122);
   const confirmLine = booking.preRentalChecklist?.confirmedByUserAt
     ? `${txStatic('Digital Sign-Off by Renter', 'Konfirmasi Digital Penyewa')}: ${formatDateTime(
         booking.preRentalChecklist.confirmedByUserAt
@@ -362,143 +142,191 @@ export async function generateHandoverPdf({
         'Digital Sign-Off: Pending · Physical signature below applies.',
         'Konfirmasi Digital: Menunggu · Berlaku tanda tangan fisik di bawah.'
       );
-  pdf.text(confirmLine, margin + 4, cursorY + notesBoxH - 3.5);
 
-  cursorY += notesBoxH + 5;
-
-  // Optional Post-Rental Return Record
-  if (booking.returnNotes || booking.returnedAt) {
-    const retText =
-      booking.returnNotes ??
-      txStatic('Equipment returned and checked in.', 'Alat dikembalikan dan telah diperiksa.');
-    pdf.setFont('helvetica', 'normal');
-    pdf.setFontSize(8);
-    const retLines = pdf.splitTextToSize(retText, contentWidth - 8) as string[];
-    const retBoxH = 10.5 + retLines.length * 3.8 + 2.5;
-
-    pdf.setDrawColor(167, 243, 208);
-    pdf.setFillColor(236, 253, 245);
-    pdf.roundedRect(margin, cursorY, contentWidth, retBoxH, 1.8, 1.8, 'FD');
-
-    pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(7.4);
-    pdf.setTextColor(6, 95, 70);
-    pdf.text(
-      `${txStatic('POST-RENTAL RETURN RECORD', 'CATATAN PENGEMBALIAN PASCA-SEWA')}${
-        booking.returnedAt ? ` (${formatDateTime(booking.returnedAt)})` : ''
-      }`,
-      margin + 4,
-      cursorY + 5.5
-    );
-    pdf.setFont('helvetica', 'normal');
-    pdf.setFontSize(8);
-    pdf.text(retLines, margin + 4, cursorY + 10.5);
-    cursorY += retBoxH + 5;
-  }
-
-  // Declaration Notice
   const baseGrace = tenant?.overdueGraceMinutes ?? settings.defaultOverdueGraceMinutes;
   const effectiveGrace = baseGrace + tierBenefits.extraOverdueGraceMinutes;
   const hourlyPct = tenant?.overdueHourlyRatePercent ?? settings.defaultOverdueHourlyRatePercent;
 
-  pdf.setFont('helvetica', 'normal');
-  pdf.setFontSize(7.4);
-  pdf.setTextColor(113, 113, 122);
-  const declLines = pdf.splitTextToSize(
-    txStatic(
-      `DECLARATION: The Renter acknowledges receipt of the serialized equipment and accessories listed above in the stated condition and accepts full responsibility until official post-rental check-in. Late returns beyond the ${effectiveGrace}-minute grace window incur ${hourlyPct}% of the daily rate per hour. Any damage, loss, or missing accessories will be deducted from the security deposit (${formatIDR(booking.deposit)}) and billed for any excess repair cost.`,
-      `PERNYATAAN: Penyewa menyatakan telah menerima seluruh unit bernomor seri beserta aksesoris di atas dalam kondisi sesuai catatan dan bertanggung jawab penuh hingga proses inspeksi pengembalian selesai. Keterlambatan melewati masa toleransi ${effectiveGrace} menit dikenakan denda ${hourlyPct}% dari tarif harian per jam. Kerusakan, kehilangan, atau kekurangan aksesoris akan dipotong dari deposit jaminan (${formatIDR(booking.deposit)}) dan ditagihkan selisihnya bila melebihi deposit.`
-    ),
-    contentWidth
-  ) as string[];
-  pdf.text(declLines, margin, cursorY + 2);
-  cursorY += declLines.length * 3.5 + 8;
+  const html = `
+    <div style="width:100%;min-height:1105px;box-sizing:border-box;background:#ffffff;color:#09090b;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:flex;flex-direction:column;">
+      <div style="height:8px;width:100%;background:#18181b;"></div>
 
-  // Dual Signature Blocks
-  if (cursorY + 42 > pageHeight - 16) {
-    pdf.addPage();
-    cursorY = 20;
-  }
-  const sigY = Math.min(Math.max(cursorY, 224), 236);
-  const boxWidth = (contentWidth - 8) / 2; // 87mm
-  const leftBoxX = margin;
-  const rightBoxX = margin + boxWidth + 8;
+      <div style="padding:30px 38px 24px 38px;flex:1;">
+        <!-- Header -->
+        <table style="width:100%;border-collapse:collapse;margin-bottom:18px;">
+          <tr>
+            <td style="width:55%;vertical-align:top;padding-right:16px;">
+              <div style="font-size:20px;font-weight:700;color:#09090b;letter-spacing:-0.025em;line-height:1.2;">${escapeHtml(branchName)}</div>
+              <div style="margin-top:5px;font-size:10.5px;color:#71717a;line-height:1.45;">${escapeHtml(branchAddress)}</div>
+            </td>
+            <td style="width:45%;vertical-align:top;text-align:right;">
+              <div style="font-size:9.5px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#71717a;">${escapeHtml(
+                txStatic('Equipment Handover Record (BAST)', 'Berita Acara Serah Terima (BAST)')
+              )}</div>
+              <div style="margin-top:4px;font-family:'JetBrains Mono',monospace;font-size:15.5px;font-weight:700;color:#09090b;">REF: ${escapeHtml(booking.invoiceNumber)}</div>
+              <div style="margin-top:6px;">
+                <span style="display:inline-block;padding:2.5px 8px;border-radius:4px;background:#f4f4f5;border:1px solid #d4d4d8;font-size:9.5px;font-weight:700;text-transform:uppercase;color:#3f3f46;">${escapeHtml(
+                  booking.bookingStatus.replace(/_/g, ' ')
+                )}</span>
+                <span style="display:inline-block;margin-left:5px;padding:2.5px 8px;border-radius:4px;background:#18181b;font-size:9.5px;font-weight:700;text-transform:uppercase;color:#ffffff;">${escapeHtml(
+                  tierBenefits.label
+                )}</span>
+              </div>
+            </td>
+          </tr>
+        </table>
 
-  pdf.setDrawColor(228, 228, 231);
-  pdf.setFillColor(255, 255, 255);
-  pdf.roundedRect(leftBoxX, sigY, boxWidth, 38, 1.8, 1.8, 'FD');
-  pdf.roundedRect(rightBoxX, sigY, boxWidth, 38, 1.8, 1.8, 'FD');
+        <div style="height:1px;background:#e4e4e7;margin-bottom:18px;"></div>
 
-  pdf.setFont('helvetica', 'bold');
-  pdf.setFontSize(7.5);
-  pdf.setTextColor(9, 9, 11);
-  pdf.text(
-    txStatic('HANDED OVER BY (BRANCH OFFICER)', 'DISERAHKAN OLEH (PETUGAS CABANG)'),
-    leftBoxX + boxWidth / 2,
-    sigY + 6,
-    { align: 'center' }
-  );
-  pdf.text(
-    txStatic('RECEIVED BY (RENTER)', 'DITERIMA OLEH (PENYEWA)'),
-    rightBoxX + boxWidth / 2,
-    sigY + 6,
-    { align: 'center' }
-  );
+        <!-- 2-Column Metadata Cards -->
+        <table style="width:100%;border-collapse:separate;border-spacing:0;margin-bottom:18px;">
+          <tr>
+            <td style="width:48.5%;vertical-align:top;background:#fafafa;border:1px solid #e4e4e7;border-radius:8px;padding:13px 15px;">
+              <div style="font-size:9.5px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#71717a;padding-bottom:6px;margin-bottom:8px;border-bottom:1px solid #e4e4e7;">
+                ${escapeHtml(txStatic('Receiving Party (Renter)', 'Pihak Penerima (Penyewa)'))}
+              </div>
+              <div style="font-size:12.5px;font-weight:700;color:#09090b;margin-bottom:5px;">${escapeHtml(
+                renter?.displayName ?? booking.userId
+              )}</div>
+              <table style="width:100%;border-collapse:collapse;">
+                ${renderKvRows(renterRows, '88px')}
+              </table>
+            </td>
+            <td style="width:3%;"></td>
+            <td style="width:48.5%;vertical-align:top;background:#fafafa;border:1px solid #e4e4e7;border-radius:8px;padding:13px 15px;">
+              <div style="font-size:9.5px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#71717a;padding-bottom:6px;margin-bottom:8px;border-bottom:1px solid #e4e4e7;">
+                ${escapeHtml(txStatic('Handover & Rental Schedule', 'Jadwal Serah Terima & Sewa'))}
+              </div>
+              <table style="width:100%;border-collapse:collapse;">
+                ${renderKvRows(scheduleRows, '84px')}
+              </table>
+            </td>
+          </tr>
+        </table>
 
-  pdf.setDrawColor(161, 161, 170);
-  pdf.line(leftBoxX + 12, sigY + 26, leftBoxX + boxWidth - 12, sigY + 26);
-  pdf.line(rightBoxX + 12, sigY + 26, rightBoxX + boxWidth - 12, sigY + 26);
+        <!-- Handover Equipment Checklist Table -->
+        <div style="border:1px solid #e4e4e7;border-radius:8px;overflow:hidden;margin-bottom:16px;">
+          <table style="width:100%;border-collapse:collapse;">
+            <thead>
+              <tr style="background:#18181b;color:#ffffff;">
+                <th style="width:30px;padding:9px 8px;text-align:center;font-size:9.5px;font-weight:700;text-transform:uppercase;">#</th>
+                <th style="width:200px;padding:9px 10px;text-align:left;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;">${escapeHtml(
+                  txStatic('Equipment & Serial No.', 'Peralatan & No. Seri')
+                )}</th>
+                <th style="width:66px;padding:9px 8px;text-align:center;font-size:9.5px;font-weight:700;text-transform:uppercase;">${escapeHtml(
+                  txStatic('Cond.', 'Kondisi')
+                )}</th>
+                <th style="padding:9px 10px;text-align:left;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;">${escapeHtml(
+                  txStatic('Included Accessories', 'Kelengkapan Aksesoris')
+                )}</th>
+                <th style="width:54px;padding:9px 6px;text-align:center;font-size:9.5px;font-weight:700;text-transform:uppercase;">${escapeHtml(
+                  txStatic('Out', 'Keluar')
+                )}</th>
+                <th style="width:54px;padding:9px 6px;text-align:center;font-size:9.5px;font-weight:700;text-transform:uppercase;">${escapeHtml(
+                  txStatic('In', 'Kembali')
+                )}</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${itemRowsHtml}
+            </tbody>
+          </table>
+        </div>
 
-  pdf.setFont('helvetica', 'bold');
-  pdf.setFontSize(8);
-  pdf.setTextColor(39, 39, 42);
-  pdf.text(tenant?.name ?? brandFallback, leftBoxX + boxWidth / 2, sigY + 31, { align: 'center' });
-  pdf.text(renter?.displayName ?? booking.userId, rightBoxX + boxWidth / 2, sigY + 31, {
-    align: 'center',
-  });
+        <!-- Pre-Rental Inspection Notes -->
+        <div class="pdf-avoid-break" style="background:#fafafa;border:1px solid #e4e4e7;border-radius:8px;padding:12px 15px;margin-bottom:12px;">
+          <div style="font-size:9.5px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#18181b;margin-bottom:5px;">
+            ${escapeHtml(
+              txStatic('Pre-Rental Inspection & Condition Notes', 'Catatan Inspeksi & Kondisi Pra-Sewa')
+            )}
+          </div>
+          <div style="font-size:11px;color:#3f3f46;line-height:1.5;">${escapeHtml(baselineNotes)}</div>
+          <div style="margin-top:7px;font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#71717a;">${escapeHtml(confirmLine)}</div>
+        </div>
 
-  pdf.setFont('courier', 'normal');
-  pdf.setFontSize(7);
-  pdf.setTextColor(113, 113, 122);
-  pdf.text(
-    txStatic('Date / Time: _______________', 'Tgl / Jam: _______________'),
-    leftBoxX + boxWidth / 2,
-    sigY + 35.5,
-    { align: 'center' }
-  );
-  pdf.text(
-    renter?.nik
-      ? `NIK: ${renter.nik}`
-      : txStatic('Date / Time: _______________', 'Tgl / Jam: _______________'),
-    rightBoxX + boxWidth / 2,
-    sigY + 35.5,
-    { align: 'center' }
-  );
+        ${
+          booking.returnNotes || booking.returnedAt
+            ? `
+        <div class="pdf-avoid-break" style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:11px 15px;margin-bottom:12px;">
+          <div style="font-size:9.5px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#065f46;margin-bottom:4px;">
+            ${escapeHtml(txStatic('Post-Rental Return Record', 'Catatan Pengembalian Pasca-Sewa'))}${
+                booking.returnedAt ? ` (${escapeHtml(formatDateTime(booking.returnedAt))})` : ''
+              }
+          </div>
+          <div style="font-size:11px;color:#065f46;line-height:1.45;">${escapeHtml(
+            booking.returnNotes ??
+              txStatic('Equipment returned and checked in.', 'Alat dikembalikan dan telah diperiksa.')
+          )}</div>
+        </div>`
+            : ''
+        }
 
-  // Footer across all pages
-  const totalPages = pdf.getNumberOfPages();
-  for (let p = 1; p <= totalPages; p++) {
-    pdf.setPage(p);
-    pdf.setDrawColor(228, 228, 231);
-    pdf.setLineWidth(0.25);
-    pdf.line(margin, pageHeight - 14, rightEdge, pageHeight - 14);
+        <!-- Declaration -->
+        <div class="pdf-avoid-break" style="font-size:9.8px;color:#71717a;line-height:1.55;margin-bottom:18px;">
+          ${escapeHtml(
+            txStatic(
+              `DECLARATION: The Renter acknowledges receipt of all serialized equipment and accessories listed above in the stated condition and accepts full responsibility until official post-rental check-in. Late returns beyond the ${effectiveGrace}-minute grace window incur ${hourlyPct}% of the daily rate per hour. Any damage, loss, or missing accessories will be deducted from the security deposit (${formatIDR(booking.deposit)}) and billed for any excess repair cost.`,
+              `PERNYATAAN: Penyewa menyatakan telah menerima seluruh unit bernomor seri beserta aksesoris di atas dalam kondisi sesuai catatan dan bertanggung jawab penuh hingga proses inspeksi pengembalian selesai. Keterlambatan melewati masa toleransi ${effectiveGrace} menit dikenakan denda ${hourlyPct}% dari tarif harian per jam. Kerusakan, kehilangan, atau kekurangan aksesoris akan dipotong dari deposit jaminan (${formatIDR(booking.deposit)}) dan ditagihkan selisihnya bila melebihi deposit.`
+            )
+          )}
+        </div>
 
-    pdf.setFont('courier', 'normal');
-    pdf.setFontSize(7);
-    pdf.setTextColor(161, 161, 170);
-    pdf.text(
-      `BAST  ·  ${txStatic('GENERATED', 'DICETAK')} ${formatDateTime(new Date())}  ·  ID ${booking.id}`,
-      margin,
-      pageHeight - 9.5
-    );
-    pdf.text(
-      `${brandFallback}  ·  ${txStatic('Page', 'Hal')} ${p}/${totalPages}`,
-      rightEdge,
-      pageHeight - 9.5,
-      { align: 'right' }
-    );
-  }
+        <!-- Dual Physical Signature Cards -->
+        <table class="pdf-avoid-break" style="width:100%;border-collapse:separate;border-spacing:0;">
+          <tr>
+            <td style="width:48%;border:1px solid #e4e4e7;border-radius:8px;padding:14px 16px;text-align:center;vertical-align:top;">
+              <div style="font-size:9.5px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#18181b;">
+                ${escapeHtml(txStatic('Handed Over By (Branch Officer)', 'Diserahkan Oleh (Petugas Cabang)'))}
+              </div>
+              <div style="height:64px;"></div>
+              <div style="border-top:1px solid #a1a1aa;width:78%;margin:0 auto 6px auto;"></div>
+              <div style="font-size:11px;font-weight:700;color:#18181b;">${escapeHtml(branchName)}</div>
+              <div style="margin-top:3px;font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#71717a;">
+                ${escapeHtml(txStatic('Date / Time: _______________', 'Tgl / Jam: _______________'))}
+              </div>
+            </td>
+            <td style="width:4%;"></td>
+            <td style="width:48%;border:1px solid #e4e4e7;border-radius:8px;padding:14px 16px;text-align:center;vertical-align:top;">
+              <div style="font-size:9.5px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#18181b;">
+                ${escapeHtml(txStatic('Received By (Renter)', 'Diterima Oleh (Penyewa)'))}
+              </div>
+              <div style="height:64px;"></div>
+              <div style="border-top:1px solid #a1a1aa;width:78%;margin:0 auto 6px auto;"></div>
+              <div style="font-size:11px;font-weight:700;color:#18181b;">${escapeHtml(
+                renter?.displayName ?? booking.userId
+              )}</div>
+              <div style="margin-top:3px;font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#71717a;">
+                ${escapeHtml(
+                  renter?.nik
+                    ? `NIK: ${renter.nik}`
+                    : txStatic('Date / Time: _______________', 'Tgl / Jam: _______________')
+                )}
+              </div>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <!-- Footer -->
+      <div style="padding:12px 38px 18px 38px;border-top:1px solid #e4e4e7;">
+        <table style="width:100%;border-collapse:collapse;">
+          <tr>
+            <td style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#a1a1aa;">
+              BAST &nbsp;·&nbsp; ${escapeHtml(txStatic('GENERATED', 'DICETAK'))} ${escapeHtml(
+                formatDateTime(new Date())
+              )} &nbsp;·&nbsp; ID ${escapeHtml(booking.id)}
+            </td>
+            <td style="text-align:right;font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#a1a1aa;">
+              ${escapeHtml(brandFallback)} &nbsp;·&nbsp; ${escapeHtml(
+                txStatic('Handover Checklist', 'Berita Acara Serah Terima')
+              )}
+            </td>
+          </tr>
+        </table>
+      </div>
+    </div>
+  `;
 
   const safeFilename = booking.invoiceNumber.replace(/\//g, '-');
-  pdf.save(`BAST-${safeFilename}.pdf`);
+  await renderHtmlToA4Pdf(html, `BAST-${safeFilename}.pdf`);
 }

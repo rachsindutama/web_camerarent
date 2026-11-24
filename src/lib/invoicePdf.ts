@@ -1,10 +1,9 @@
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import { formatDateTime, formatIDR } from '@/lib/utils';
 import { calculateRentalDays } from '@/lib/availability';
 import { txStatic } from '@/lib/i18n';
 import { getMembershipBenefits } from '@/lib/membership';
 import { resolveBookingUnitsMap, resolveFreshPlatformSettings } from '@/lib/pdfUnits';
+import { escapeHtml, renderHtmlToA4Pdf } from '@/lib/htmlPdfEngine';
 import type { Booking, EquipmentUnit, Tenant, UserProfile } from '@/types/schema';
 
 interface GenerateInvoiceParams {
@@ -14,146 +13,25 @@ interface GenerateInvoiceParams {
   unitsById?: Record<string, EquipmentUnit>;
 }
 
-type RGB = [number, number, number];
-
-interface BadgeSpec {
-  text: string;
-  bg: RGB;
-  border: RGB;
-  fg: RGB;
-}
-
-interface KvRow {
-  label: string;
-  value: string;
-  bold?: boolean;
-}
-
-function getBookingStatusColors(status: string): { bg: RGB; border: RGB; fg: RGB } {
+function getStatusBadgeStyle(status: string): { bg: string; border: string; fg: string } {
   switch (status) {
     case 'confirmed':
     case 'completed':
-      return { bg: [236, 253, 245], border: [167, 243, 208], fg: [6, 95, 70] };
+    case 'paid':
+      return { bg: '#ecfdf5', border: '#a7f3d0', fg: '#065f46' };
     case 'active_rent':
-      return { bg: [239, 246, 255], border: [191, 219, 254], fg: [30, 64, 175] };
+    case 'refunded':
+      return { bg: '#eff6ff', border: '#bfdbfe', fg: '#1e40af' };
     case 'overdue':
     case 'cancelled':
-      return { bg: [254, 242, 242], border: [254, 202, 202], fg: [185, 28, 28] };
+      return { bg: '#fef2f2', border: '#fecaca', fg: '#b91c1c' };
     default:
-      return { bg: [255, 251, 235], border: [253, 230, 138], fg: [146, 64, 14] };
+      return { bg: '#fffbeb', border: '#fde68a', fg: '#92400e' };
   }
 }
 
-function getPaymentStatusColors(status: string): { bg: RGB; border: RGB; fg: RGB } {
-  switch (status) {
-    case 'paid':
-      return { bg: [236, 253, 245], border: [167, 243, 208], fg: [6, 95, 70] };
-    case 'refunded':
-      return { bg: [239, 246, 255], border: [191, 219, 254], fg: [30, 64, 175] };
-    default:
-      return { bg: [255, 251, 235], border: [253, 230, 138], fg: [146, 64, 14] };
-  }
-}
-
-function drawBadgeRowRight(doc: jsPDF, rightX: number, y: number, badges: BadgeSpec[]): number {
-  let cursorX = rightX;
-  const h = 5.4;
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(6.8);
-
-  for (let i = badges.length - 1; i >= 0; i--) {
-    const b = badges[i];
-    const w = doc.getTextWidth(b.text) + 5;
-    cursorX -= w;
-    doc.setFillColor(...b.bg);
-    doc.setDrawColor(...b.border);
-    doc.setLineWidth(0.25);
-    doc.roundedRect(cursorX, y, w, h, 1.2, 1.2, 'FD');
-    doc.setTextColor(...b.fg);
-    doc.text(b.text, cursorX + w / 2, y + 3.65, { align: 'center' });
-    cursorX -= 2;
-  }
-
-  return y + h;
-}
-
-function measureKvCardHeight(
-  doc: jsPDF,
-  width: number,
-  labelW: number,
-  rows: KvRow[],
-  hasHeadline: boolean
-): number {
-  const valueMaxW = width - labelW - 9;
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8);
-  let h = 11; // top header strip + padding
-  if (hasHeadline) h += 5.5;
-  for (const row of rows) {
-    const lines = doc.splitTextToSize(row.value || '—', valueMaxW) as string[];
-    h += Math.max(1, lines.length) * 3.8 + 1.3;
-  }
-  return h + 3;
-}
-
-function drawKvCard(
-  doc: jsPDF,
-  opts: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    labelW: number;
-    title: string;
-    headline?: string;
-    rows: KvRow[];
-  }
-): void {
-  const { x, y, width, height, labelW, title, headline, rows } = opts;
-
-  // Outer card
-  doc.setFillColor(250, 250, 250);
-  doc.setDrawColor(228, 228, 231);
-  doc.setLineWidth(0.3);
-  doc.roundedRect(x, y, width, height, 1.8, 1.8, 'FD');
-
-  // Card section label
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7);
-  doc.setTextColor(113, 113, 122);
-  doc.text(title, x + 4, y + 5.5);
-
-  doc.setDrawColor(228, 228, 231);
-  doc.setLineWidth(0.2);
-  doc.line(x + 4, y + 7.5, x + width - 4, y + 7.5);
-
-  let cursorY = y + 12;
-
-  if (headline) {
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9.2);
-    doc.setTextColor(9, 9, 11);
-    const hLines = doc.splitTextToSize(headline, width - 8) as string[];
-    doc.text(hLines[0] ?? headline, x + 4, cursorY);
-    cursorY += 5.2;
-  }
-
-  const valueX = x + 4 + labelW;
-  const valueMaxW = width - labelW - 9;
-
-  for (const row of rows) {
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.6);
-    doc.setTextColor(113, 113, 122);
-    doc.text(row.label, x + 4, cursorY);
-
-    doc.setFont('helvetica', row.bold ? 'bold' : 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(24, 24, 27);
-    const lines = doc.splitTextToSize(row.value || '—', valueMaxW) as string[];
-    doc.text(lines, valueX, cursorY);
-    cursorY += Math.max(1, lines.length) * 3.8 + 1.3;
-  }
+function renderPill(text: string, style: { bg: string; border: string; fg: string }): string {
+  return `<span style="display:inline-block;padding:3px 9px;margin-left:6px;border-radius:4px;font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;font-size:9.5px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;background:${style.bg};border:1px solid ${style.border};color:${style.fg};line-height:1.2;">${escapeHtml(text)}</span>`;
 }
 
 export async function generateInvoicePdf({
@@ -167,98 +45,78 @@ export async function generateInvoicePdf({
     resolveFreshPlatformSettings(),
   ]);
 
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  const pageWidth = doc.internal.pageSize.getWidth(); // 210mm
-  const pageHeight = doc.internal.pageSize.getHeight(); // 297mm
-  const margin = 14;
-  const contentWidth = pageWidth - margin * 2; // 182mm
-  const rightEdge = pageWidth - margin; // 196mm
-
   const rentalDays = calculateRentalDays(booking.startDate.toDate(), booking.endDate.toDate());
   const tierBenefits = getMembershipBenefits(booking.membershipTier, settings.tiers);
   const brandFallback = settings.seo.siteName || 'CameraRent';
 
-  // 1. Top dark editorial accent bar
-  doc.setFillColor(24, 24, 27);
-  doc.rect(0, 0, pageWidth, 3.5, 'F');
-
-  // 2. Two-Column Header (strict maxWidth so branch address NEVER overlaps right column)
-  const leftMaxW = 104;
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(15.5);
-  doc.setTextColor(9, 9, 11);
-  const branchTitle = tenant?.name ?? `${brandFallback} Rental Ops`;
-  const titleLines = doc.splitTextToSize(branchTitle, leftMaxW) as string[];
-  doc.text(titleLines, margin, 14.5);
-
-  let leftY = 14.5 + (titleLines.length - 1) * 5.8 + 4.5;
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8);
-  doc.setTextColor(113, 113, 122);
-  const addressText =
+  const branchName = tenant?.name ?? `${brandFallback} Rental Ops`;
+  const branchAddress =
     tenant?.address ??
     txStatic('Multi-Tenant Production Equipment House', 'Rumah Sewa Peralatan Produksi Multi-Cabang');
-  const addressLines = doc.splitTextToSize(addressText, leftMaxW) as string[];
-  doc.text(addressLines, margin, leftY);
-  leftY += addressLines.length * 3.7;
 
-  // Right Header: Label + Invoice Number + Crisp Pill Badges
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7.5);
-  doc.setTextColor(113, 113, 122);
-  doc.text(txStatic('OFFICIAL RENTAL INVOICE', 'INVOICE RESMI PENYEWAAN'), rightEdge, 11.5, {
-    align: 'right',
-  });
+  // Dynamic Discount & Deposit calculations
+  const discountAmount = booking.discountAmount ?? 0;
+  const grossSubtotal = booking.subtotal + discountAmount;
+  const effectiveDiscountPct =
+    discountAmount > 0 && grossSubtotal > 0
+      ? Math.round((discountAmount / grossSubtotal) * 100)
+      : tierBenefits.rentalDiscountPercent;
 
-  doc.setFont('courier', 'bold');
-  doc.setFontSize(12);
-  doc.setTextColor(9, 9, 11);
-  doc.text(booking.invoiceNumber, rightEdge, 17.5, { align: 'right' });
+  const depositPayablePct = Math.max(0, 100 - tierBenefits.depositDiscountPercent);
+  const depositRowLabel =
+    booking.membershipTier === 'premium' && tierBenefits.depositDiscountPercent > 0
+      ? txStatic(
+          `Security Deposit (${depositPayablePct}% Rate)`,
+          `Deposit Jaminan (Tarif ${depositPayablePct}%)`
+        )
+      : txStatic('Security Deposit (Liability)', 'Deposit Jaminan (Liability)');
 
-  const headerBadges: BadgeSpec[] = [
-    {
-      text: booking.bookingStatus.replace(/_/g, ' ').toUpperCase(),
-      ...getBookingStatusColors(booking.bookingStatus),
-    },
-    {
-      text: `${txStatic('PAY', 'BAYAR')}: ${booking.paymentStatus.replace(/_/g, ' ').toUpperCase()}`,
-      ...getPaymentStatusColors(booking.paymentStatus),
-    },
-  ];
-  if (booking.membershipTier === 'premium') {
-    headerBadges.unshift({
-      text: `${tierBenefits.label.toUpperCase()}`,
-      bg: [24, 24, 27],
-      border: [24, 24, 27],
-      fg: [255, 255, 255],
-    });
-  }
-  const rightY = drawBadgeRowRight(doc, rightEdge, 20.5, headerBadges);
+  const baseGrace = tenant?.overdueGraceMinutes ?? settings.defaultOverdueGraceMinutes;
+  const extraGrace = tierBenefits.extraOverdueGraceMinutes;
+  const effectiveGrace = baseGrace + extraGrace;
+  const hourlyRatePct = tenant?.overdueHourlyRatePercent ?? settings.defaultOverdueHourlyRatePercent;
 
-  const dividerY = Math.max(leftY, rightY) + 4.5;
-  doc.setDrawColor(228, 228, 231);
-  doc.setLineWidth(0.35);
-  doc.line(margin, dividerY, rightEdge, dividerY);
+  const graceDetail =
+    extraGrace > 0
+      ? txStatic(
+          `${effectiveGrace} mins (${baseGrace}m branch + ${extraGrace}m ${tierBenefits.label} bonus)`,
+          `${effectiveGrace} menit (${baseGrace}m cabang + ${extraGrace}m bonus ${tierBenefits.label})`
+        )
+      : txStatic(`${effectiveGrace} mins`, `${effectiveGrace} menit`);
 
-  // 3. Structured 2-Card Metadata Row (Equal Height, Fixed-Column Alignment)
-  const cardsY = dividerY + 4.5;
-  const leftCardW = 86;
-  const cardGap = 4;
-  const rightCardW = contentWidth - leftCardW - cardGap; // 92mm
+  // Header status badges
+  const badgesHtml = [
+    booking.membershipTier === 'premium'
+      ? renderPill(tierBenefits.label, { bg: '#18181b', border: '#18181b', fg: '#ffffff' })
+      : '',
+    renderPill(
+      booking.bookingStatus.replace(/_/g, ' '),
+      getStatusBadgeStyle(booking.bookingStatus)
+    ),
+    renderPill(
+      `${txStatic('PAY', 'BAYAR')}: ${booking.paymentStatus.replace(/_/g, ' ')}`,
+      getStatusBadgeStyle(booking.paymentStatus)
+    ),
+  ]
+    .filter(Boolean)
+    .join('');
 
-  const billedRows: KvRow[] = [];
+  // Renter details rows
+  const billedRows: Array<{ label: string; value: string; bold?: boolean }> = [];
   if (renter?.email) billedRows.push({ label: 'Email', value: renter.email });
-  if (renter?.phone) billedRows.push({ label: txStatic('Phone', 'No. HP'), value: renter.phone });
+  if (renter?.phone)
+    billedRows.push({ label: txStatic('Phone', 'No. HP'), value: renter.phone });
   if (renter?.nik) billedRows.push({ label: 'NIK / KTP', value: renter.nik });
   billedRows.push({
-    label: txStatic('Tier', 'Tier Member'),
+    label: txStatic('Member Tier', 'Tier Member'),
     value: tierBenefits.label,
     bold: booking.membershipTier === 'premium',
   });
 
-  const rentalRows: KvRow[] = [
+  // Schedule & logistics rows
+  const rentalRows: Array<{ label: string; value: string; bold?: boolean }> = [
     {
-      label: txStatic('Start / Pickup', 'Mulai / Ambil'),
+      label: txStatic('Pickup / Start', 'Mulai / Ambil'),
       value: formatDateTime(booking.startDate),
       bold: true,
     },
@@ -292,138 +150,69 @@ export async function generateInvoicePdf({
     });
   }
 
-  const leftCardH = measureKvCardHeight(doc, leftCardW, 21, billedRows, true);
-  const rightCardH = measureKvCardHeight(doc, rightCardW, 25, rentalRows, false);
-  const equalCardH = Math.max(leftCardH, rightCardH);
+  const renderKvTableRows = (rows: Array<{ label: string; value: string; bold?: boolean }>, labelWidth: string) =>
+    rows
+      .map(
+        (r) => `
+        <tr>
+          <td style="width:${labelWidth};padding:3.5px 8px 3.5px 0;vertical-align:top;font-size:10.5px;color:#71717a;white-space:nowrap;">${escapeHtml(r.label)}</td>
+          <td style="padding:3.5px 0;vertical-align:top;font-size:11px;color:#18181b;font-weight:${r.bold ? '600' : '400'};line-height:1.4;">${escapeHtml(r.value)}</td>
+        </tr>`
+      )
+      .join('');
 
-  drawKvCard(doc, {
-    x: margin,
-    y: cardsY,
-    width: leftCardW,
-    height: equalCardH,
-    labelW: 21,
-    title: txStatic('BILLED TO', 'DITAGIHKAN KEPADA'),
-    headline: renter?.displayName ?? booking.userId,
-    rows: billedRows,
-  });
+  // Equipment + Included Accessories Table Rows
+  const itemRowsHtml = booking.items
+    .map((item, idx) => {
+      const unit = resolvedUnits[item.unitId];
+      const accessories = unit?.accessoriesIncluded ?? [];
+      const accessoriesHtml =
+        accessories.length > 0
+          ? accessories
+              .map(
+                (acc) =>
+                  `<span style="display:inline-block;margin:0 4px 4px 0;padding:2px 6px;border-radius:3px;background:#f4f4f5;border:1px solid #e4e4e7;font-size:9.5px;color:#3f3f46;line-height:1.3;">${escapeHtml(acc)}</span>`
+              )
+              .join('')
+          : `<span style="font-size:10px;color:#a1a1aa;font-style:italic;">${escapeHtml(
+              txStatic('Standard unit accessories', 'Kelengkapan standar unit')
+            )}</span>`;
 
-  drawKvCard(doc, {
-    x: margin + leftCardW + cardGap,
-    y: cardsY,
-    width: rightCardW,
-    height: equalCardH,
-    labelW: 25,
-    title: txStatic('RENTAL WINDOW & LOGISTICS', 'JADWAL SEWA & LOGISTIK'),
-    rows: rentalRows,
-  });
+      const rowBg = idx % 2 === 1 ? '#fafafa' : '#ffffff';
+      return `
+        <tr style="background:${rowBg};">
+          <td style="padding:11px 8px;border-bottom:1px solid #e4e4e7;text-align:center;vertical-align:top;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#71717a;">${idx + 1}</td>
+          <td style="padding:11px 10px;border-bottom:1px solid #e4e4e7;vertical-align:top;">
+            <div style="font-size:11.5px;font-weight:600;color:#09090b;line-height:1.35;">${escapeHtml(item.equipmentName)}</div>
+            <div style="margin-top:4px;">
+              <span style="display:inline-block;padding:1.5px 6px;border-radius:3px;background:#f4f4f5;border:1px solid #d4d4d8;font-family:'JetBrains Mono',monospace;font-size:9.5px;font-weight:500;color:#3f3f46;">${escapeHtml(item.serialNumber)}</span>
+            </div>
+          </td>
+          <td style="padding:11px 10px;border-bottom:1px solid #e4e4e7;vertical-align:top;">
+            <div>${accessoriesHtml}</div>
+          </td>
+          <td style="padding:11px 8px;border-bottom:1px solid #e4e4e7;text-align:center;vertical-align:top;font-family:'JetBrains Mono',monospace;font-size:11px;color:#3f3f46;white-space:nowrap;">${rentalDays}${txStatic('d', 'h')}</td>
+          <td style="padding:11px 10px;border-bottom:1px solid #e4e4e7;text-align:right;vertical-align:top;font-family:'JetBrains Mono',monospace;font-size:11px;color:#52525b;white-space:nowrap;">${escapeHtml(formatIDR(item.dailyRate))}</td>
+          <td style="padding:11px 12px;border-bottom:1px solid #e4e4e7;text-align:right;vertical-align:top;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;color:#09090b;white-space:nowrap;">${escapeHtml(formatIDR(item.dailyRate * rentalDays))}</td>
+        </tr>`;
+    })
+    .join('');
 
-  // 4. Equipment, Serial Numbers & Included Accessories Table (182mm exact width)
-  const tableStartY = cardsY + equalCardH + 6;
-  const tableRows = booking.items.map((item, index) => {
-    const unit = resolvedUnits[item.unitId];
-    const accessoriesText =
-      unit?.accessoriesIncluded && unit.accessoriesIncluded.length > 0
-        ? unit.accessoriesIncluded.join(', ')
-        : txStatic('Standard unit accessories', 'Kelengkapan standar unit');
-    return [
-      String(index + 1),
-      item.equipmentName,
-      item.serialNumber,
-      accessoriesText,
-      `${rentalDays}${txStatic('d', 'h')}`,
-      formatIDR(item.dailyRate),
-      formatIDR(item.dailyRate * rentalDays),
-    ];
-  });
-
-  autoTable(doc, {
-    startY: tableStartY,
-    head: [
-      [
-        '#',
-        txStatic('Equipment', 'Peralatan'),
-        'Serial Number',
-        txStatic('Included Accessories', 'Kelengkapan Aksesoris'),
-        txStatic('Dur.', 'Dur.'),
-        txStatic('Daily Rate', 'Tarif / Hari'),
-        txStatic('Line Total', 'Subtotal'),
-      ],
-    ],
-    body: tableRows,
-    theme: 'grid',
-    headStyles: {
-      fillColor: [24, 24, 27],
-      textColor: [250, 250, 250],
-      fontSize: 7.5,
-      fontStyle: 'bold',
-      cellPadding: { top: 2.8, right: 2.5, bottom: 2.8, left: 2.5 },
-      lineColor: [24, 24, 27],
-      lineWidth: 0.2,
-    },
-    bodyStyles: {
-      fontSize: 7.8,
-      textColor: [24, 24, 27],
-      cellPadding: { top: 2.8, right: 2.5, bottom: 2.8, left: 2.5 },
-      lineColor: [228, 228, 231],
-      lineWidth: 0.2,
-      valign: 'top',
-    },
-    alternateRowStyles: {
-      fillColor: [250, 250, 250],
-    },
-    columnStyles: {
-      0: { cellWidth: 8, halign: 'center', textColor: [113, 113, 122] },
-      1: { cellWidth: 42, fontStyle: 'bold' },
-      2: { cellWidth: 28, font: 'courier', fontSize: 7.2, textColor: [63, 63, 70] },
-      3: { cellWidth: 46, fontSize: 7.2, textColor: [82, 82, 91] },
-      4: { cellWidth: 11, halign: 'center' },
-      5: { cellWidth: 23, halign: 'right', font: 'courier', fontSize: 7.5 },
-      6: { cellWidth: 24, halign: 'right', font: 'courier', fontStyle: 'bold', fontSize: 7.6 },
-    },
-    margin: { left: margin, right: margin },
-  });
-
-  let sectionY =
-    ((doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY ??
-      tableStartY + 35) + 7;
-
-  // Dynamic Discount & Deposit calculations
-  const discountAmount = booking.discountAmount ?? 0;
-  const grossSubtotal = booking.subtotal + discountAmount;
-  const effectiveDiscountPct =
-    discountAmount > 0 && grossSubtotal > 0
-      ? Math.round((discountAmount / grossSubtotal) * 100)
-      : tierBenefits.rentalDiscountPercent;
-
-  const depositPayablePct = Math.max(0, 100 - tierBenefits.depositDiscountPercent);
-  const depositRowLabel =
-    booking.membershipTier === 'premium' && tierBenefits.depositDiscountPercent > 0
-      ? txStatic(
-          `Security Deposit (${depositPayablePct}% Rate)`,
-          `Deposit Jaminan (Tarif ${depositPayablePct}%)`
-        )
-      : txStatic('Security Deposit (Liability)', 'Deposit Jaminan (Liability)');
-
-  interface SummaryLine {
-    label: string;
-    value: string;
-    color?: RGB;
-  }
-
-  const summaryLines: SummaryLine[] = [
+  // Financial Summary Rows
+  const summaryRows: Array<{ label: string; value: string; color?: string }> = [
     { label: txStatic('Rental Subtotal', 'Subtotal Sewa'), value: formatIDR(grossSubtotal) },
   ];
   if (discountAmount > 0) {
-    summaryLines.push({
+    summaryRows.push({
       label: txStatic(
         `${tierBenefits.label} Discount (${effectiveDiscountPct}%)`,
         `Diskon ${tierBenefits.label} (${effectiveDiscountPct}%)`
       ),
       value: `- ${formatIDR(discountAmount)}`,
-      color: [6, 95, 70],
+      color: '#047857',
     });
   }
-  summaryLines.push(
+  summaryRows.push(
     {
       label: txStatic('Delivery & Pickup Fee', 'Biaya Antar-Jemput'),
       value: formatIDR(booking.deliveryFee),
@@ -434,210 +223,218 @@ export async function generateInvoicePdf({
     }
   );
   if (booking.overdueFine > 0) {
-    summaryLines.push({
+    summaryRows.push({
       label: txStatic('Overdue Fine', 'Denda Keterlambatan'),
       value: formatIDR(booking.overdueFine),
-      color: [185, 28, 28],
+      color: '#b91c1c',
     });
   }
   if (booking.damageFine > 0) {
-    summaryLines.push({
+    summaryRows.push({
       label: txStatic('Damage Fine', 'Denda Kerusakan'),
       value: formatIDR(booking.damageFine),
-      color: [185, 28, 28],
+      color: '#b91c1c',
     });
   }
 
-  // Ensure bottom 2-column section fits cleanly above footer
-  const summaryCardH = 10 + summaryLines.length * 6.2 + 12;
-  if (sectionY + Math.max(summaryCardH, 54) > pageHeight - 18) {
-    doc.addPage();
-    sectionY = 16;
-  }
-
-  // 5. Bottom 2-Column Layout: Left = Bank Transfer + Policy, Right = Financial Summary Box
-  const leftColW = 94;
-  const colGap = 6;
-  const rightColX = margin + leftColW + colGap; // 114mm
-  const rightColW = contentWidth - leftColW - colGap; // 82mm
-
-  // Right Financial Summary Box
-  doc.setFillColor(255, 255, 255);
-  doc.setDrawColor(228, 228, 231);
-  doc.setLineWidth(0.35);
-  doc.roundedRect(rightColX, sectionY, rightColW, summaryCardH, 1.8, 1.8, 'FD');
-
-  // Header strip inside Summary Box
-  doc.setFillColor(244, 244, 245);
-  doc.rect(rightColX + 0.2, sectionY + 0.2, rightColW - 0.4, 7.2, 'F');
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7.2);
-  doc.setTextColor(82, 82, 91);
-  doc.text(txStatic('PAYMENT SUMMARY', 'RINGKASAN PEMBAYARAN'), rightColX + 4, sectionY + 4.9);
-
-  let sumY = sectionY + 12.5;
-  for (const line of summaryLines) {
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.8);
-    if (line.color) {
-      doc.setTextColor(...line.color);
-    } else {
-      doc.setTextColor(82, 82, 91);
-    }
-    doc.text(line.label, rightColX + 4, sumY);
-
-    doc.setFont('courier', 'bold');
-    doc.setFontSize(8);
-    if (line.color) {
-      doc.setTextColor(...line.color);
-    } else {
-      doc.setTextColor(9, 9, 11);
-    }
-    doc.text(line.value, rightColX + rightColW - 4, sumY, { align: 'right' });
-    sumY += 6.2;
-  }
-
-  // Dark Total Payable Bar at bottom of Summary Card
-  const totalBarY = sectionY + summaryCardH - 10;
-  doc.setFillColor(24, 24, 27);
-  doc.roundedRect(rightColX, totalBarY, rightColW, 10, 1.5, 1.5, 'F');
-  doc.rect(rightColX, totalBarY, rightColW, 3, 'F'); // square top corners
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8.2);
-  doc.setTextColor(255, 255, 255);
-  doc.text(txStatic('TOTAL PAYABLE', 'TOTAL TAGIHAN'), rightColX + 4, totalBarY + 6.3);
-
-  doc.setFont('courier', 'bold');
-  doc.setFontSize(9.8);
-  doc.setTextColor(255, 255, 255);
-  doc.text(formatIDR(booking.totalAmount), rightColX + rightColW - 4, totalBarY + 6.4, {
-    align: 'right',
-  });
-
-  // Left Column: Bank Settlement + Terms
-  let leftBoxY = sectionY;
-  if (tenant?.bankDetails) {
-    const bankBoxH = 22;
-    doc.setFillColor(250, 250, 250);
-    doc.setDrawColor(228, 228, 231);
-    doc.setLineWidth(0.3);
-    doc.roundedRect(margin, leftBoxY, leftColW, bankBoxH, 1.8, 1.8, 'FD');
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.2);
-    doc.setTextColor(113, 113, 122);
-    doc.text(
-      txStatic('BANK TRANSFER SETTLEMENT', 'REKENING TRANSFER PEMBAYARAN'),
-      margin + 4,
-      leftBoxY + 5.5
-    );
-
-    doc.setFont('courier', 'bold');
-    doc.setFontSize(9.2);
-    doc.setTextColor(9, 9, 11);
-    doc.text(
-      `${tenant.bankDetails.bankName}  ·  ${tenant.bankDetails.accountNumber}`,
-      margin + 4,
-      leftBoxY + 12
-    );
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(63, 63, 70);
-    doc.text(
-      `${txStatic('Account Holder', 'Atas Nama')}: ${tenant.bankDetails.accountHolder}`,
-      margin + 4,
-      leftBoxY + 17.5
-    );
-
-    leftBoxY += bankBoxH + 4;
-  }
-
-  // Policy & Grace Period Notice Box
-  const baseGrace = tenant?.overdueGraceMinutes ?? settings.defaultOverdueGraceMinutes;
-  const extraGrace = tierBenefits.extraOverdueGraceMinutes;
-  const effectiveGrace = baseGrace + extraGrace;
-  const hourlyRatePct = tenant?.overdueHourlyRatePercent ?? settings.defaultOverdueHourlyRatePercent;
-
-  const graceDetail =
-    extraGrace > 0
-      ? txStatic(
-          `${effectiveGrace} mins (${baseGrace}m branch + ${extraGrace}m ${tierBenefits.label} bonus)`,
-          `${effectiveGrace} menit (${baseGrace}m cabang + ${extraGrace}m bonus ${tierBenefits.label})`
-        )
-      : txStatic(`${effectiveGrace} mins`, `${effectiveGrace} menit`);
+  const summaryRowsHtml = summaryRows
+    .map(
+      (s) => `
+      <tr>
+        <td style="padding:7px 14px;font-size:11px;color:${s.color ?? '#52525b'};border-bottom:1px solid #f4f4f5;">${escapeHtml(s.label)}</td>
+        <td style="padding:7px 14px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:600;color:${s.color ?? '#09090b'};border-bottom:1px solid #f4f4f5;white-space:nowrap;">${escapeHtml(s.value)}</td>
+      </tr>`
+    )
+    .join('');
 
   const policyBullets = [
     booking.membershipTier === 'premium' && tierBenefits.depositDiscountPercent > 0
       ? txStatic(
-          `• Security deposit enjoys -${tierBenefits.depositDiscountPercent}% ${tierBenefits.label} discount (${depositPayablePct}% payable) and is refunded upon clean return.`,
-          `• Deposit mendapat diskon -${tierBenefits.depositDiscountPercent}% ${tierBenefits.label} (bayar ${depositPayablePct}%) dan dikembalikan penuh setelah inspeksi bersih.`
+          `Security deposit enjoys -${tierBenefits.depositDiscountPercent}% ${tierBenefits.label} discount (${depositPayablePct}% payable) and is refunded in full upon clean return.`,
+          `Deposit mendapat diskon -${tierBenefits.depositDiscountPercent}% ${tierBenefits.label} (bayar ${depositPayablePct}%) dan dikembalikan penuh setelah inspeksi pengembalian bersih.`
         )
       : txStatic(
-          '• Security deposit is held as a refundable liability and returned in full upon clean post-rental inspection.',
-          '• Deposit jaminan dicatat sebagai liabilitas dan dikembalikan penuh setelah inspeksi pengembalian bersih.'
+          'Security deposit is recorded as a refundable liability and returned in full upon clean post-rental inspection.',
+          'Deposit jaminan dicatat sebagai liabilitas dan dikembalikan penuh setelah inspeksi pengembalian bersih.'
         ),
     txStatic(
-      `• Late return grace period: ${graceDetail}. Overtime billed at ${hourlyRatePct}% daily rate per hour.`,
-      `• Toleransi keterlambatan: ${graceDetail}. Keterlambatan dikenakan ${hourlyRatePct}% tarif harian per jam.`
+      `Late return grace period: ${graceDetail}. Overtime is billed at ${hourlyRatePct}% daily rate per hour thereafter.`,
+      `Toleransi keterlambatan: ${graceDetail}. Keterlambatan setelahnya dikenakan denda ${hourlyRatePct}% tarif harian per jam.`
     ),
+    ...(booking.paidAt
+      ? [
+          txStatic(
+            `Payment verified on ${formatDateTime(booking.paidAt)}.`,
+            `Pembayaran terverifikasi pada ${formatDateTime(booking.paidAt)}.`
+          ),
+        ]
+      : []),
   ];
-  if (booking.paidAt) {
-    policyBullets.push(
-      txStatic(
-        `• Payment verified on ${formatDateTime(booking.paidAt)}.`,
-        `• Pembayaran terverifikasi pada ${formatDateTime(booking.paidAt)}.`
-      )
-    );
-  }
 
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.2);
-  const wrappedPolicies = policyBullets.flatMap(
-    (line) => doc.splitTextToSize(line, leftColW - 8) as string[]
-  );
-  const policyBoxH = 9.5 + wrappedPolicies.length * 3.5;
+  const html = `
+    <div style="width:100%;min-height:1105px;box-sizing:border-box;background:#ffffff;color:#09090b;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;position:relative;display:flex;flex-direction:column;">
+      <!-- Top Editorial Accent Bar -->
+      <div style="height:8px;width:100%;background:#18181b;"></div>
 
-  doc.setFillColor(255, 255, 255);
-  doc.setDrawColor(228, 228, 231);
-  doc.setLineWidth(0.25);
-  doc.roundedRect(margin, leftBoxY, leftColW, policyBoxH, 1.8, 1.8, 'FD');
+      <!-- Main Body -->
+      <div style="padding:32px 38px 28px 38px;flex:1;">
+        <!-- Header 2-Column -->
+        <table style="width:100%;border-collapse:collapse;margin-bottom:22px;">
+          <tr>
+            <td style="width:58%;vertical-align:top;padding-right:16px;">
+              <div style="font-size:21px;font-weight:700;color:#09090b;letter-spacing:-0.025em;line-height:1.2;">${escapeHtml(branchName)}</div>
+              <div style="margin-top:6px;font-size:10.5px;color:#71717a;line-height:1.5;">${escapeHtml(branchAddress)}</div>
+            </td>
+            <td style="width:42%;vertical-align:top;text-align:right;">
+              <div style="font-size:9.5px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#71717a;">${escapeHtml(
+                txStatic('Official Rental Invoice', 'Invoice Resmi Penyewaan')
+              )}</div>
+              <div style="margin-top:4px;font-family:'JetBrains Mono',monospace;font-size:16.5px;font-weight:700;color:#09090b;letter-spacing:-0.01em;">${escapeHtml(booking.invoiceNumber)}</div>
+              <div style="margin-top:8px;">${badgesHtml}</div>
+            </td>
+          </tr>
+        </table>
 
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7);
-  doc.setTextColor(113, 113, 122);
-  doc.text(txStatic('TERMS & NOTES', 'KETENTUAN & CATATAN'), margin + 4, leftBoxY + 5);
+        <div style="height:1px;background:#e4e4e7;margin-bottom:20px;"></div>
 
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.2);
-  doc.setTextColor(82, 82, 91);
-  doc.text(wrappedPolicies, margin + 4, leftBoxY + 9.5, { lineHeightFactor: 1.35 });
+        <!-- 2 Equal-Height Metadata Cards -->
+        <table style="width:100%;border-collapse:separate;border-spacing:0;margin-bottom:22px;">
+          <tr>
+            <td style="width:48.5%;vertical-align:top;background:#fafafa;border:1px solid #e4e4e7;border-radius:8px;padding:14px 16px;">
+              <div style="font-size:9.5px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#71717a;padding-bottom:7px;margin-bottom:9px;border-bottom:1px solid #e4e4e7;">
+                ${escapeHtml(txStatic('Billed To', 'Ditagihkan Kepada'))}
+              </div>
+              <div style="font-size:13px;font-weight:700;color:#09090b;margin-bottom:6px;">${escapeHtml(
+                renter?.displayName ?? booking.userId
+              )}</div>
+              <table style="width:100%;border-collapse:collapse;">
+                ${renderKvTableRows(billedRows, '78px')}
+              </table>
+            </td>
+            <td style="width:3%;"></td>
+            <td style="width:48.5%;vertical-align:top;background:#fafafa;border:1px solid #e4e4e7;border-radius:8px;padding:14px 16px;">
+              <div style="font-size:9.5px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#71717a;padding-bottom:7px;margin-bottom:9px;border-bottom:1px solid #e4e4e7;">
+                ${escapeHtml(txStatic('Rental Window & Logistics', 'Jadwal Sewa & Logistik'))}
+              </div>
+              <table style="width:100%;border-collapse:collapse;">
+                ${renderKvTableRows(rentalRows, '88px')}
+              </table>
+            </td>
+          </tr>
+        </table>
 
-  // 6. Clean Footer across all pages
-  const totalPages = doc.getNumberOfPages();
-  for (let p = 1; p <= totalPages; p++) {
-    doc.setPage(p);
-    doc.setDrawColor(228, 228, 231);
-    doc.setLineWidth(0.25);
-    doc.line(margin, pageHeight - 14, rightEdge, pageHeight - 14);
+        <!-- Equipment & Included Accessories Table -->
+        <div style="border:1px solid #e4e4e7;border-radius:8px;overflow:hidden;margin-bottom:22px;">
+          <table style="width:100%;border-collapse:collapse;">
+            <thead>
+              <tr style="background:#18181b;color:#ffffff;">
+                <th style="width:32px;padding:10px 8px;text-align:center;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;">#</th>
+                <th style="width:206px;padding:10px 10px;text-align:left;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;">${escapeHtml(
+                  txStatic('Equipment & Serial No.', 'Peralatan & No. Seri')
+                )}</th>
+                <th style="padding:10px 10px;text-align:left;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;">${escapeHtml(
+                  txStatic('Included Accessories', 'Kelengkapan Aksesoris')
+                )}</th>
+                <th style="width:46px;padding:10px 8px;text-align:center;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;">${escapeHtml(
+                  txStatic('Dur.', 'Dur.')
+                )}</th>
+                <th style="width:92px;padding:10px 10px;text-align:right;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;">${escapeHtml(
+                  txStatic('Daily Rate', 'Tarif / Hari')
+                )}</th>
+                <th style="width:98px;padding:10px 12px;text-align:right;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;">${escapeHtml(
+                  txStatic('Line Total', 'Subtotal')
+                )}</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${itemRowsHtml}
+            </tbody>
+          </table>
+        </div>
 
-    doc.setFont('courier', 'normal');
-    doc.setFontSize(7);
-    doc.setTextColor(161, 161, 170);
-    doc.text(
-      `${txStatic('GENERATED', 'DICETAK')} ${formatDateTime(new Date())}  ·  DOC ID ${booking.id}`,
-      margin,
-      pageHeight - 9.5
-    );
-    doc.text(
-      `${brandFallback}  ·  ${txStatic('Page', 'Hal')} ${p}/${totalPages}`,
-      rightEdge,
-      pageHeight - 9.5,
-      { align: 'right' }
-    );
-  }
+        <!-- Bottom 2-Column Settlement & Summary -->
+        <table class="pdf-avoid-break" style="width:100%;border-collapse:separate;border-spacing:0;">
+          <tr>
+            <!-- Left: Bank & Policy -->
+            <td style="width:52%;vertical-align:top;padding-right:18px;">
+              ${
+                tenant?.bankDetails
+                  ? `
+              <div style="background:#fafafa;border:1px solid #e4e4e7;border-radius:8px;padding:13px 15px;margin-bottom:12px;">
+                <div style="font-size:9.5px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#71717a;margin-bottom:7px;">
+                  ${escapeHtml(
+                    txStatic('Bank Transfer Settlement', 'Rekening Transfer Pembayaran')
+                  )}
+                </div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;color:#09090b;">
+                  ${escapeHtml(tenant.bankDetails.bankName)} &nbsp;·&nbsp; ${escapeHtml(
+                      tenant.bankDetails.accountNumber
+                    )}
+                </div>
+                <div style="margin-top:4px;font-size:11px;color:#52525b;">
+                  ${escapeHtml(txStatic('Account Holder', 'Atas Nama'))}: <strong style="color:#18181b;">${escapeHtml(
+                      tenant.bankDetails.accountHolder
+                    )}</strong>
+                </div>
+              </div>`
+                  : ''
+              }
+
+              <div style="background:#ffffff;border:1px solid #e4e4e7;border-radius:8px;padding:12px 15px;">
+                <div style="font-size:9.5px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#71717a;margin-bottom:6px;">
+                  ${escapeHtml(txStatic('Terms & Rental Policy', 'Ketentuan & Kebijakan Sewa'))}
+                </div>
+                <ul style="margin:0;padding-left:15px;font-size:10px;color:#52525b;line-height:1.55;">
+                  ${policyBullets
+                    .map((b) => `<li style="margin-bottom:3px;">${escapeHtml(b)}</li>`)
+                    .join('')}
+                </ul>
+              </div>
+            </td>
+
+            <!-- Right: Financial Summary Box -->
+            <td style="width:48%;vertical-align:top;">
+              <div style="border:1px solid #e4e4e7;border-radius:8px;overflow:hidden;background:#ffffff;">
+                <div style="background:#f4f4f5;padding:9px 14px;border-bottom:1px solid #e4e4e7;font-size:9.5px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#52525b;">
+                  ${escapeHtml(txStatic('Payment Summary', 'Ringkasan Pembayaran'))}
+                </div>
+                <table style="width:100%;border-collapse:collapse;">
+                  ${summaryRowsHtml}
+                  <tr style="background:#18181b;color:#ffffff;">
+                    <td style="padding:12px 14px;font-size:11.5px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;">
+                      ${escapeHtml(txStatic('Total Payable', 'Total Tagihan'))}
+                    </td>
+                    <td style="padding:12px 14px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:14.5px;font-weight:700;white-space:nowrap;">
+                      ${escapeHtml(formatIDR(booking.totalAmount))}
+                    </td>
+                  </tr>
+                </table>
+              </div>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <!-- Footer -->
+      <div style="padding:14px 38px 20px 38px;border-top:1px solid #e4e4e7;">
+        <table style="width:100%;border-collapse:collapse;">
+          <tr>
+            <td style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#a1a1aa;">
+              ${escapeHtml(txStatic('GENERATED', 'DICETAK'))} ${escapeHtml(
+                formatDateTime(new Date())
+              )} &nbsp;·&nbsp; DOC ID ${escapeHtml(booking.id)}
+            </td>
+            <td style="text-align:right;font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#a1a1aa;">
+              ${escapeHtml(brandFallback)} &nbsp;·&nbsp; ${escapeHtml(
+                txStatic('Official Electronic Invoice', 'Invoice Elektronik Resmi')
+              )}
+            </td>
+          </tr>
+        </table>
+      </div>
+    </div>
+  `;
 
   const safeFilename = booking.invoiceNumber.replace(/\//g, '-');
-  doc.save(`${safeFilename}.pdf`);
+  await renderHtmlToA4Pdf(html, `${safeFilename}.pdf`);
 }
