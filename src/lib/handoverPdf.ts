@@ -1,7 +1,11 @@
 import { createElement } from 'react';
 import { HandoverDocument } from '@/components/documents/HandoverDocument';
 import { renderReactElementToPng } from '@/lib/htmlPdfEngine';
-import { resolveBookingUnitsMap, resolveFreshPlatformSettings } from '@/lib/pdfUnits';
+import {
+  resolveBookingRenter,
+  resolveBookingUnitsMap,
+  resolveFreshPlatformSettings,
+} from '@/lib/pdfUnits';
 import type { Booking, EquipmentUnit, Tenant, UserProfile } from '@/types/schema';
 
 interface GenerateHandoverPdfParams {
@@ -17,9 +21,10 @@ export async function generateHandoverPdf({
   renter,
   unitsById,
 }: GenerateHandoverPdfParams): Promise<void> {
-  const [resolvedUnits, settings] = await Promise.all([
+  const [resolvedUnits, settings, resolvedRenter] = await Promise.all([
     resolveBookingUnitsMap(booking, unitsById),
     resolveFreshPlatformSettings(),
+    resolveBookingRenter(booking, renter),
   ]);
 
   const safeFilename = booking.invoiceNumber.replace(/\//g, '-');
@@ -27,7 +32,7 @@ export async function generateHandoverPdf({
     createElement(HandoverDocument, {
       booking,
       tenant,
-      renter,
+      renter: resolvedRenter,
       unitsById: resolvedUnits,
       settings,
     }),

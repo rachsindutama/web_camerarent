@@ -6,7 +6,34 @@ import {
   setLivePlatformSettings,
   type PlatformSettings,
 } from '@/lib/membership';
-import type { Booking, EquipmentUnit } from '@/types/schema';
+import type { Booking, EquipmentUnit, UserProfile } from '@/types/schema';
+
+export type RenterDocumentInfo = Pick<UserProfile, 'displayName' | 'email' | 'phone' | 'nik'>;
+
+export async function resolveBookingRenter(
+  booking: Booking,
+  provided?: RenterDocumentInfo | null
+): Promise<RenterDocumentInfo | null> {
+  if (provided && provided.displayName) return provided;
+  if (!db || !booking.userId) return provided ?? null;
+
+  try {
+    const snap = await getDoc(firestoreDoc(db, 'users', booking.userId));
+    if (snap.exists()) {
+      const data = snap.data();
+      return {
+        displayName: String(data.displayName ?? booking.userId),
+        email: String(data.email ?? ''),
+        phone: String(data.phone ?? ''),
+        nik: data.nik ? String(data.nik) : undefined,
+      };
+    }
+  } catch {
+    // Non-blocking fallback if offline
+  }
+
+  return provided ?? null;
+}
 
 export async function resolveBookingUnitsMap(
   booking: Booking,
