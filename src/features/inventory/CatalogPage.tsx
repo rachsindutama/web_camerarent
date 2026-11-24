@@ -787,10 +787,10 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
                               }
                               label={
                                 availUnits.length > 0
-                                  ? tx(`${availUnits.length} free`, `${availUnits.length} tersedia`)
+                                  ? tx(`${availUnits.length} Available`, `${availUnits.length} Tersedia`)
                                   : eq.totalUnits === 0
-                                    ? tx('No SN', 'Tanpa SN')
-                                    : tx('0 free', '0 tersedia')
+                                    ? tx('No Units', 'Belum Ada Unit')
+                                    : tx('Unavailable', 'Stok Habis')
                               }
                             />
                           </div>
@@ -894,8 +894,12 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
                                   })
                                 }
                               >
-                                <Plus className="h-3.5 w-3.5" strokeWidth={1.5} />
-                                {tx('Add to Booking', 'Tambah ke Booking')}
+                                {availUnits.length > 0 ? (
+                                  <Plus className="h-3.5 w-3.5" strokeWidth={1.5} />
+                                ) : null}
+                                {availUnits.length === 0
+                                  ? tx('Unavailable for Dates', 'Tidak Tersedia di Tanggal Ini')
+                                  : tx('Add to Booking', 'Tambah ke Booking')}
                               </Button>
                             )}
                           </div>
@@ -957,8 +961,8 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
                                 status={kitReady ? 'available' : 'rented'}
                                 label={
                                   kitReady
-                                    ? tx(`${minAvailable} kit free`, `${minAvailable} kit tersedia`)
-                                    : tx('Unavailable', 'Tidak Tersedia')
+                                    ? tx(`${minAvailable} Kit Available`, `${minAvailable} Kit Tersedia`)
+                                    : tx('Unavailable', 'Stok Habis')
                                 }
                               />
                             </div>

@@ -130,10 +130,10 @@ export function ProductDetailModal({
                 }
                 label={
                   availableUnitCount > 0
-                    ? tx(`${availableUnitCount} free`, `${availableUnitCount} tersedia`)
+                    ? tx(`${availableUnitCount} Available`, `${availableUnitCount} Tersedia`)
                     : equipment.totalUnits === 0
-                      ? tx('No SN', 'Tanpa SN')
-                      : tx('0 free', '0 tersedia')
+                      ? tx('No Units', 'Belum Ada Unit')
+                      : tx('Unavailable', 'Stok Habis')
                 }
               />
             </div>
