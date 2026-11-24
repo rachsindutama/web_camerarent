@@ -64,12 +64,12 @@ export function StatusBadge({ status, label, className }: StatusBadgeProps) {
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-medium leading-tight',
+        'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] font-medium leading-tight',
         config.badgeClass,
         className
       )}
     >
-      <span className={cn('h-1.5 w-1.5 rounded-full', config.dotClass)} />
+      <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', config.dotClass)} />
       {label ?? tx(config.labelEn, config.labelId)}
     </span>
   );
