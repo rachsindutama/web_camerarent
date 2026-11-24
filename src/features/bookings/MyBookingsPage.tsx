@@ -59,6 +59,9 @@ export function MyBookingsPage() {
   const { allTenants } = useTenant();
   const [proofTarget, setProofTarget] = useState<Booking | null>(null);
   const [detailBookingId, setDetailBookingId] = useState<string | null>(null);
+  const [confirmHandoverTarget, setConfirmHandoverTarget] = useState<Booking | null>(null);
+  const [confirmHandoverChecked, setConfirmHandoverChecked] = useState(false);
+  const [confirmingHandover, setConfirmingHandover] = useState(false);
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [proofUrlInput, setProofUrlInput] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -152,20 +155,38 @@ export function MyBookingsPage() {
     }
   };
 
-  const handleConfirmGearCondition = async (booking: Booking) => {
-    if (!db || !booking.preRentalChecklist) return;
+  const openConfirmHandoverDialog = (booking: Booking) => {
+    setConfirmHandoverTarget(booking);
+    setConfirmHandoverChecked(false);
+  };
+
+  const handleConfirmGearCondition = async () => {
+    if (!db || !confirmHandoverTarget || !confirmHandoverTarget.preRentalChecklist) return;
+    setConfirmingHandover(true);
     try {
-      await updateDoc(doc(db, 'bookings', booking.id), {
+      await updateDoc(doc(db, 'bookings', confirmHandoverTarget.id), {
         preRentalChecklist: {
-          ...booking.preRentalChecklist,
+          ...confirmHandoverTarget.preRentalChecklist,
           confirmedByUserAt: Timestamp.now(),
         },
       });
       await queryClient.invalidateQueries({ queryKey: ['bookings'] });
-      toast.success(`Handover condition confirmed for ${booking.invoiceNumber}.`);
+      await queryClient.invalidateQueries({ queryKey: ['sidebar-badges'] });
+      toast.success(
+        tx(
+          `Handover condition confirmed for ${confirmHandoverTarget.invoiceNumber}.`,
+          `Kondisi serah terima dikonfirmasi untuk ${confirmHandoverTarget.invoiceNumber}.`
+        )
+      );
+      setConfirmHandoverTarget(null);
+      setConfirmHandoverChecked(false);
     } catch (error) {
       console.error('Confirm handover error:', error);
-      toast.error('Failed to confirm handover checklist.');
+      toast.error(
+        tx('Failed to confirm handover checklist.', 'Gagal mengonfirmasi checklist serah terima.')
+      );
+    } finally {
+      setConfirmingHandover(false);
     }
   };
 
@@ -269,7 +290,7 @@ export function MyBookingsPage() {
                         <Button
                           size="sm"
                           variant="mono"
-                          onClick={() => void handleConfirmGearCondition(booking)}
+                          onClick={() => openConfirmHandoverDialog(booking)}
                         >
                           <ClipboardCheck className="h-3.5 w-3.5" strokeWidth={1.5} />
                           {tx('Confirm Gear Condition', 'Konfirmasi Kondisi Alat')}
@@ -497,17 +518,17 @@ export function MyBookingsPage() {
                       }}
                     >
                       <Upload className="h-3.5 w-3.5" strokeWidth={1.5} />
-                      Upload Proof
+                      {tx('Upload Proof', 'Unggah Bukti')}
                     </Button>
                   ) : null}
                   {canConfirm ? (
                     <Button
                       size="sm"
                       variant="mono"
-                      onClick={() => void handleConfirmGearCondition(selectedBooking)}
+                      onClick={() => openConfirmHandoverDialog(selectedBooking)}
                     >
                       <ClipboardCheck className="h-3.5 w-3.5" strokeWidth={1.5} />
-                      Confirm Gear Condition
+                      {tx('Confirm Gear Condition', 'Konfirmasi Kondisi Alat')}
                     </Button>
                   ) : null}
                 </>
@@ -516,6 +537,135 @@ export function MyBookingsPage() {
           />
         );
       })()}
+
+      {/* Pre-Rental Handover Confirmation Dialog */}
+      <Dialog
+        open={Boolean(confirmHandoverTarget)}
+        onOpenChange={(open) => {
+          if (!open && !confirmingHandover) {
+            setConfirmHandoverTarget(null);
+            setConfirmHandoverChecked(false);
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <ClipboardCheck className="h-4 w-4 text-zinc-900" strokeWidth={1.5} />
+              {tx('Confirm Gear Handover Condition', 'Konfirmasi Kondisi Serah Terima Alat')}
+            </DialogTitle>
+            <DialogDescription className="font-mono text-xs">
+              {confirmHandoverTarget?.invoiceNumber} ·{' '}
+              {tx(
+                'Verify unit serial numbers & admin baseline notes before signing off.',
+                'Periksa nomor seri unit & catatan kondisi dari cabang sebelum menyetujui.'
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          {confirmHandoverTarget ? (
+            <div className="space-y-4 text-xs">
+              {/* Allocated Units */}
+              <div className="space-y-1.5">
+                <p className="font-mono text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                  {tx(
+                    `Equipment Handed Over (${confirmHandoverTarget.items.length} Units)`,
+                    `Alat yang Diserahkan (${confirmHandoverTarget.items.length} Unit)`
+                  )}
+                </p>
+                <div className="space-y-1.5 rounded-md border border-zinc-200 bg-zinc-50 p-2.5">
+                  {confirmHandoverTarget.items.map((item) => (
+                    <div
+                      key={item.unitId}
+                      className="flex items-center justify-between gap-2 text-xs"
+                    >
+                      <span className="font-medium text-zinc-900">{item.equipmentName}</span>
+                      <SerialNumberTag serialNumber={item.serialNumber} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Admin Pre-Rental Notes & Photos */}
+              <div className="space-y-1.5">
+                <p className="font-mono text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                  {tx('Branch Pre-Rental Checklist Notes', 'Catatan Checklist Pra-Sewa Cabang')}
+                </p>
+                <div className="rounded-md border border-zinc-200 bg-white p-3 leading-relaxed text-zinc-700">
+                  {confirmHandoverTarget.preRentalChecklist?.notes || '—'}
+                </div>
+                {(confirmHandoverTarget.preRentalChecklist?.photos?.length ?? 0) > 0 ? (
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {confirmHandoverTarget.preRentalChecklist?.photos.map((url, idx) => (
+                      <a
+                        key={url}
+                        href={url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block h-14 w-14 overflow-hidden rounded border border-zinc-200"
+                      >
+                        <img
+                          src={url}
+                          alt={`Handover ${idx + 1}`}
+                          className="h-full w-full object-cover"
+                        />
+                      </a>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+
+              {/* Mandatory Acknowledgment Checkbox */}
+              <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-zinc-200 bg-zinc-50/80 p-3 text-xs leading-relaxed text-zinc-800">
+                <input
+                  type="checkbox"
+                  checked={confirmHandoverChecked}
+                  onChange={(e) => setConfirmHandoverChecked(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-zinc-300 accent-zinc-900"
+                />
+                <span>
+                  {tx(
+                    'I have physically inspected the listed units, serial numbers, and included accessories and agree that their condition matches the pre-rental checklist above.',
+                    'Saya telah memeriksa secara fisik unit, nomor seri, dan kelengkapan aksesoris di atas serta menyetujui bahwa kondisinya sesuai dengan catatan checklist pra-sewa.'
+                  )}
+                </span>
+              </label>
+
+              <p className="text-[11px] text-zinc-500">
+                {tx(
+                  'This digital sign-off timestamp is permanent and will appear on your BAST handover record.',
+                  'Timestamp konfirmasi digital ini bersifat permanen dan akan tercatat di dokumen BAST serah terima.'
+                )}
+              </p>
+            </div>
+          ) : null}
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={confirmingHandover}
+              onClick={() => {
+                setConfirmHandoverTarget(null);
+                setConfirmHandoverChecked(false);
+              }}
+            >
+              {tx('Cancel', 'Batal')}
+            </Button>
+            <Button
+              type="button"
+              variant="mono"
+              disabled={!confirmHandoverChecked || confirmingHandover}
+              onClick={() => void handleConfirmGearCondition()}
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={1.5} />
+              {confirmingHandover
+                ? tx('Confirming...', 'Mengonfirmasi...')
+                : tx('Yes, Confirm Handover', 'Ya, Konfirmasi Kondisi Alat')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
