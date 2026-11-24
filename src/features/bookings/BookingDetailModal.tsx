@@ -4,6 +4,7 @@ import {
   Building2,
   CalendarClock,
   CheckCircle2,
+  ChevronDown,
   ClipboardCheck,
   Clock,
   CreditCard,
@@ -34,6 +35,12 @@ import { MembershipBadge } from '@/components/shared/MembershipBadge';
 import { SerialNumberTag } from '@/components/shared/SerialNumberTag';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Separator } from '@/components/ui/separator';
 import {
   Dialog,
@@ -646,47 +653,99 @@ export function BookingDetailModal({
           </div>
 
           {/* Sticky Footer */}
-          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-zinc-200 bg-zinc-50/80 px-6 py-3.5">
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="bg-white"
-                onClick={() => void generateInvoicePdf({ booking, tenant, renter, unitsById })}
-              >
-                <FileDown className="h-3.5 w-3.5" strokeWidth={1.5} />
-                {tx('Download Invoice PNG', 'Unduh Invoice PNG')}
-              </Button>
-              {['confirmed', 'active_rent', 'overdue', 'completed'].includes(
-                booking.bookingStatus
-              ) ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="bg-white"
-                  onClick={() => void generateHandoverPdf({ booking, tenant, renter, unitsById })}
-                >
-                  <ClipboardCheck className="h-3.5 w-3.5" strokeWidth={1.5} />
-                  {tx('Download BAST PNG', 'Unduh BAST PNG')}
-                </Button>
-              ) : null}
-            </div>
+          {(() => {
+            const hasBast = ['confirmed', 'active_rent', 'overdue', 'completed'].includes(
+              booking.bookingStatus
+            );
+            return (
+              <div className="flex shrink-0 items-center justify-between gap-3 border-t border-zinc-200 bg-white px-6 py-3">
+                {/* Left: Documents */}
+                <div className="flex items-center">
+                  {hasBast ? (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 gap-1.5 whitespace-nowrap bg-white text-xs text-zinc-700"
+                        >
+                          <FileDown className="h-3.5 w-3.5 text-zinc-500" strokeWidth={1.5} />
+                          {tx('Documents', 'Dokumen')}
+                          <ChevronDown className="h-3 w-3 text-zinc-400" strokeWidth={1.75} />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start" side="top" className="w-56">
+                        <DropdownMenuItem
+                          className="cursor-pointer py-2"
+                          onClick={() =>
+                            void generateInvoicePdf({ booking, tenant, renter, unitsById })
+                          }
+                        >
+                          <FileDown className="h-3.5 w-3.5 shrink-0 text-zinc-500" strokeWidth={1.5} />
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium text-zinc-900">
+                              {tx('Download Invoice', 'Unduh Invoice')}
+                            </p>
+                            <p className="truncate font-mono text-[10px] text-zinc-400">
+                              PNG · {booking.invoiceNumber}
+                            </p>
+                          </div>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="cursor-pointer py-2"
+                          onClick={() =>
+                            void generateHandoverPdf({ booking, tenant, renter, unitsById })
+                          }
+                        >
+                          <ClipboardCheck
+                            className="h-3.5 w-3.5 shrink-0 text-zinc-500"
+                            strokeWidth={1.5}
+                          />
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium text-zinc-900">
+                              {tx('Download BAST', 'Unduh BAST')}
+                            </p>
+                            <p className="truncate font-mono text-[10px] text-zinc-400">
+                              {tx('Handover Record (PNG)', 'Berita Acara Serah Terima')}
+                            </p>
+                          </div>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 gap-1.5 whitespace-nowrap bg-white text-xs text-zinc-700"
+                      onClick={() =>
+                        void generateInvoicePdf({ booking, tenant, renter, unitsById })
+                      }
+                    >
+                      <FileDown className="h-3.5 w-3.5 text-zinc-500" strokeWidth={1.5} />
+                      {tx('Invoice PNG', 'Invoice PNG')}
+                    </Button>
+                  )}
+                </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              {footerActions}
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="bg-white"
-                onClick={() => onOpenChange(false)}
-              >
-                {tx('Close', 'Tutup')}
-              </Button>
-            </div>
-          </div>
+                {/* Right: Primary & Secondary Actions */}
+                <div className="flex items-center justify-end gap-2">
+                  {footerActions ?? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 whitespace-nowrap bg-white text-xs text-zinc-700"
+                      onClick={() => onOpenChange(false)}
+                    >
+                      {tx('Close', 'Tutup')}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
         </DialogContent>
       </Dialog>
 

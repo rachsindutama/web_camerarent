@@ -11,14 +11,17 @@ import {
   where,
 } from 'firebase/firestore';
 import {
+  AlertTriangle,
   CalendarClock,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  ClipboardCheck,
   Clock,
   Eye,
   FileDown,
   Search,
+  ShieldAlert,
   Store,
   Truck,
   XCircle,
@@ -30,8 +33,15 @@ import { expireStalePendingBookings, getPaymentExpiryInfo } from '@/lib/bookingE
 import { generateInvoicePdf } from '@/lib/invoicePdf';
 import { useAuth } from '@/hooks/useAuth';
 import { useI18n } from '@/hooks/useI18n';
+import { calculateOverdueFine } from '@/hooks/useOverdueCalc';
 import { usePlatformSettings } from '@/hooks/usePlatformSettings';
 import { useTenant } from '@/hooks/useTenant';
+import {
+  applyOverdueFineOp,
+  completeCleanReturnOp,
+  savePreRentalChecklistOp,
+  submitDamageReportOp,
+} from '@/features/bookings/bookingInspectionOps';
 import { BookingDetailModal } from '@/features/bookings/BookingDetailModal';
 import { CurrencyText } from '@/components/shared/CurrencyText';
 import { ImagePreviewModal } from '@/components/shared/ImagePreviewModal';
@@ -40,8 +50,26 @@ import { SerialNumberTag } from '@/components/shared/SerialNumberTag';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -50,9 +78,11 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import type { Booking, BookingStatus, UserProfile } from '@/types/schema';
+import type { Booking, BookingStatus, DamageReport, UserProfile } from '@/types/schema';
 
 const PAGE_SIZE = 10;
+
+type BookingsTabFilter = 'all' | BookingStatus | 'damage_reports';
 
 function formatCompactDate(ts: Timestamp): string {
   return ts.toDate().toLocaleDateString('en-GB', {
@@ -63,7 +93,10 @@ function formatCompactDate(ts: Timestamp): string {
   });
 }
 
-function formatPaymentLabel(status: Booking['paymentStatus'], tx: (en: string, id: string) => string): string {
+function formatPaymentLabel(
+  status: Booking['paymentStatus'],
+  tx: (en: string, id: string) => string
+): string {
   switch (status) {
     case 'paid':
       return tx('Paid', 'Lunas');
@@ -83,7 +116,7 @@ export function AdminBookingsPage() {
   const { settings } = usePlatformSettings();
   const { activeTenantId, activeTenant, isAllTenants, tenantById } = useTenant();
 
-  const [statusFilter, setStatusFilter] = useState<'all' | BookingStatus>('all');
+  const [statusFilter, setStatusFilter] = useState<BookingsTabFilter>('all');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -91,6 +124,23 @@ export function AdminBookingsPage() {
   const [receiptPreview, setReceiptPreview] = useState<{ url: string; label: string } | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const expiredSweepIdsRef = useRef<Set<string>>(new Set());
+
+  // Pre-rental handover dialog (triggered from Booking Detail Modal)
+  const [handoverTarget, setHandoverTarget] = useState<Booking | null>(null);
+  const [handoverNotes, setHandoverNotes] = useState(
+    'Sensor clean, shutter count verified, all batteries charged 100%, lens elements scratch-free.'
+  );
+  const [handoverPhotosText, setHandoverPhotosText] = useState('');
+  const [savingHandover, setSavingHandover] = useState(false);
+
+  // Post-rental damage assessment dialog (triggered from Booking Detail Modal)
+  const [damageTarget, setDamageTarget] = useState<Booking | null>(null);
+  const [damageUnitId, setDamageUnitId] = useState('');
+  const [damageSeverity, setDamageSeverity] = useState<DamageReport['severity']>('minor');
+  const [damageDesc, setDamageDesc] = useState('');
+  const [damageRepairCost, setDamageRepairCost] = useState(500000);
+  const [damagePhotosText, setDamagePhotosText] = useState('');
+  const [savingDamage, setSavingDamage] = useState(false);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNowMs(Date.now()), 30_000);
@@ -129,6 +179,29 @@ export function AdminBookingsPage() {
         );
     },
   });
+
+  const { data: damageReports = [] } = useQuery<DamageReport[]>({
+    queryKey: ['damage_reports', isAllTenants ? 'all' : activeTenantId],
+    enabled: Boolean(db && (isAllTenants || activeTenantId)),
+    queryFn: async () => {
+      if (!db || (!isAllTenants && !activeTenantId)) return [];
+      const q = isAllTenants
+        ? collection(db, 'damage_reports')
+        : query(collection(db, 'damage_reports'), where('tenantId', '==', activeTenantId));
+      const snap = await getDocs(q);
+      return snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }) as DamageReport)
+        .sort((a, b) => (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0));
+    },
+  });
+
+  const bookingsById = useMemo(() => {
+    const map: Record<string, Booking> = {};
+    bookings.forEach((b) => {
+      map[b.id] = b;
+    });
+    return map;
+  }, [bookings]);
 
   useEffect(() => {
     const candidates = bookings.filter(
@@ -173,6 +246,7 @@ export function AdminBookingsPage() {
   }, [bookings]);
 
   const filtered = useMemo(() => {
+    if (statusFilter === 'damage_reports') return [];
     const q = search.trim().toLowerCase();
     return bookings.filter((b) => {
       if (statusFilter !== 'all' && b.bookingStatus !== statusFilter) return false;
@@ -191,6 +265,21 @@ export function AdminBookingsPage() {
     });
   }, [bookings, statusFilter, search, rentersById, tenantById]);
 
+  const filteredDamageReports = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return damageReports;
+    return damageReports.filter((rep) => {
+      const b = bookingsById[rep.bookingId];
+      const renterName = b ? rentersById[b.userId]?.displayName?.toLowerCase() ?? '' : '';
+      return (
+        rep.description.toLowerCase().includes(q) ||
+        rep.severity.toLowerCase().includes(q) ||
+        (b?.invoiceNumber ?? rep.bookingId).toLowerCase().includes(q) ||
+        renterName.includes(q)
+      );
+    });
+  }, [damageReports, search, bookingsById, rentersById]);
+
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const paginated = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
@@ -201,12 +290,23 @@ export function AdminBookingsPage() {
         icon={CalendarClock}
         title={tx('No active rental branch selected', 'Belum ada cabang rental dipilih')}
         description={tx(
-          'Select a tenant branch to manage incoming reservations.',
-          'Pilih cabang untuk mengelola pemesanan masuk.'
+          'Select a tenant branch to manage incoming reservations & inspections.',
+          'Pilih cabang untuk mengelola pemesanan & inspeksi.'
         )}
       />
     );
   }
+
+  const invalidateAllBookingQueries = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['bookings'] }),
+      queryClient.invalidateQueries({ queryKey: ['transactions'] }),
+      queryClient.invalidateQueries({ queryKey: ['equipment_units'] }),
+      queryClient.invalidateQueries({ queryKey: ['availability'] }),
+      queryClient.invalidateQueries({ queryKey: ['damage_reports'] }),
+      queryClient.invalidateQueries({ queryKey: ['sidebar-badges'] }),
+    ]);
+  };
 
   const handleApprovePayment = async (booking: Booking) => {
     if (!db || !userProfile) return;
@@ -254,9 +354,7 @@ export function AdminBookingsPage() {
         });
       }
 
-      await queryClient.invalidateQueries({ queryKey: ['bookings'] });
-      await queryClient.invalidateQueries({ queryKey: ['transactions'] });
-      await queryClient.invalidateQueries({ queryKey: ['sidebar-badges'] });
+      await invalidateAllBookingQueries();
       toast.success(
         tx(
           `${booking.invoiceNumber} confirmed. Revenue & Deposit Liability logged.`,
@@ -280,9 +378,7 @@ export function AdminBookingsPage() {
         cancelledAt: Timestamp.now(),
       });
       await syncAvailabilitySlotStatus(booking.id, 'cancelled');
-      await queryClient.invalidateQueries({ queryKey: ['bookings'] });
-      await queryClient.invalidateQueries({ queryKey: ['availability'] });
-      await queryClient.invalidateQueries({ queryKey: ['sidebar-badges'] });
+      await invalidateAllBookingQueries();
       toast.success(
         tx(
           `${booking.invoiceNumber} cancelled. Serial units released.`,
@@ -297,13 +393,153 @@ export function AdminBookingsPage() {
     }
   };
 
+  const openPreRentalHandover = (booking: Booking) => {
+    setHandoverTarget(booking);
+    setHandoverNotes(
+      booking.preRentalChecklist?.notes ??
+        'Sensor clean, shutter count verified, all batteries charged 100%, optical elements clear.'
+    );
+    setHandoverPhotosText((booking.preRentalChecklist?.photos ?? []).join('\n'));
+  };
+
+  const handleSavePreRental = async (dispatchActiveRent: boolean) => {
+    if (!handoverTarget) return;
+    setSavingHandover(true);
+    try {
+      const photos = handoverPhotosText
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      await savePreRentalChecklistOp(handoverTarget, {
+        notes: handoverNotes,
+        photos,
+        dispatchActiveRent,
+      });
+      await invalidateAllBookingQueries();
+      toast.success(
+        dispatchActiveRent
+          ? tx(
+              `${handoverTarget.invoiceNumber} dispatched to Active Rent.`,
+              `${handoverTarget.invoiceNumber} diserahkan ke status Sedang Disewa.`
+            )
+          : tx(
+              `Pre-rental checklist saved for ${handoverTarget.invoiceNumber}.`,
+              `Checklist pra-sewa disimpan untuk ${handoverTarget.invoiceNumber}.`
+            )
+      );
+      setHandoverTarget(null);
+    } catch (error) {
+      console.error('Pre-rental handover error:', error);
+      toast.error(
+        tx('Failed to update pre-rental checklist.', 'Gagal memperbarui checklist serah terima.')
+      );
+    } finally {
+      setSavingHandover(false);
+    }
+  };
+
+  const handleApplyOverdueFine = async (booking: Booking, fineAmount: number) => {
+    if (!userProfile) return;
+    setBusyId(booking.id);
+    try {
+      await applyOverdueFineOp(booking, fineAmount, userProfile.uid);
+      await invalidateAllBookingQueries();
+      toast.success(
+        tx('Booking flagged OVERDUE and fine recorded.', 'Booking ditandai OVERDUE dan denda tercatat.')
+      );
+    } catch (error) {
+      console.error('Overdue update error:', error);
+      toast.error(tx('Failed to apply overdue fine.', 'Gagal menerapkan denda keterlambatan.'));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleCleanReturn = async (booking: Booking) => {
+    const bookingTenant = tenantById[booking.tenantId] ?? activeTenant;
+    if (!userProfile || !bookingTenant) return;
+    setBusyId(booking.id);
+    try {
+      const { finalOverdueFine } = await completeCleanReturnOp(
+        booking,
+        bookingTenant,
+        userProfile.uid
+      );
+      await invalidateAllBookingQueries();
+      toast.success(
+        finalOverdueFine > 0
+          ? tx(
+              `${booking.invoiceNumber} completed with overdue fine Rp ${finalOverdueFine.toLocaleString('id-ID')} posted to Cash Flow.`,
+              `${booking.invoiceNumber} selesai dengan denda telat Rp ${finalOverdueFine.toLocaleString('id-ID')} & tercatat ke Buku Kas.`
+            )
+          : tx(
+              `${booking.invoiceNumber} completed. Units returned to available & deposit refunded.`,
+              `${booking.invoiceNumber} selesai. Unit kembali tersedia & deposit direfund.`
+            )
+      );
+    } catch (error) {
+      console.error('Clean return error:', error);
+      toast.error(tx('Failed to complete clean return.', 'Gagal menyelesaikan pengembalian.'));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const openDamageAssessment = (booking: Booking) => {
+    setDamageTarget(booking);
+    setDamageUnitId(booking.items[0]?.unitId ?? '');
+    setDamageSeverity('minor');
+    setDamageRepairCost(500000);
+    setDamageDesc('');
+    setDamagePhotosText('');
+  };
+
+  const handleSubmitDamageReport = async () => {
+    if (!userProfile || !damageTarget || !damageUnitId) {
+      toast.error(tx('Select the damaged physical unit.', 'Pilih unit fisik yang mengalami kerusakan.'));
+      return;
+    }
+    setSavingDamage(true);
+    try {
+      const evidencePhotos = damagePhotosText
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      await submitDamageReportOp(
+        damageTarget,
+        {
+          unitId: damageUnitId,
+          severity: damageSeverity,
+          description: damageDesc,
+          repairCost: damageRepairCost,
+          evidencePhotos,
+        },
+        userProfile.uid
+      );
+      await invalidateAllBookingQueries();
+      toast.success(
+        tx(
+          'Damage report filed, unit moved to maintenance, and ledger updated.',
+          'Laporan kerusakan dicatat, unit dipindah ke maintenance, dan Buku Kas diperbarui.'
+        )
+      );
+      setDamageTarget(null);
+      setDamageDesc('');
+    } catch (error) {
+      console.error('Damage report error:', error);
+      toast.error(tx('Failed to file damage report.', 'Gagal mencatat laporan kerusakan.'));
+    } finally {
+      setSavingDamage(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       {/* Header + Search */}
       <div className="flex flex-col gap-3 border-b border-zinc-200 pb-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-base font-semibold tracking-tight text-zinc-950">
-            {tx('Booking Queue & Payment Verification', 'Antrean Booking & Verifikasi Pembayaran')}
+            {tx('Bookings, Verification & QC Inspections', 'Booking, Verifikasi & Inspeksi QC')}
           </h2>
           <p className="mt-0.5 text-xs text-zinc-500">
             {tx('Scope:', 'Cakupan:')}{' '}
@@ -312,8 +548,8 @@ export function AdminBookingsPage() {
             </span>{' '}
             ·{' '}
             {tx(
-              'Click any row to inspect units, accessories, timeline, and documents.',
-              'Klik baris mana saja untuk melihat detail unit, aksesoris, timeline, dan dokumen.'
+              'Click any booking to verify payment, log pre-rental handover, process returns, or file damage reports.',
+              'Klik booking mana saja untuk verifikasi bayar, inspeksi serah terima pra-sewa, pengembalian, atau laporan kerusakan.'
             )}
           </p>
         </div>
@@ -335,11 +571,11 @@ export function AdminBookingsPage() {
         </div>
       </div>
 
-      {/* Filter Tabs */}
+      {/* Filter Tabs (including Damage Reports) */}
       <Tabs
         value={statusFilter}
         onValueChange={(v) => {
-          setStatusFilter(v as typeof statusFilter);
+          setStatusFilter(v as BookingsTabFilter);
           setPage(1);
         }}
       >
@@ -354,7 +590,7 @@ export function AdminBookingsPage() {
             {tx('Pending', 'Menunggu')} ({counts.pending_payment})
           </TabsTrigger>
           <TabsTrigger value="confirmed" className="text-xs">
-            {tx('Confirmed', 'Dikonfirmasi')} ({counts.confirmed})
+            {tx('Handover', 'Serah Terima')} ({counts.confirmed})
           </TabsTrigger>
           <TabsTrigger value="active_rent" className="text-xs">
             {tx('Active', 'Aktif')} ({counts.active_rent})
@@ -368,11 +604,77 @@ export function AdminBookingsPage() {
           <TabsTrigger value="cancelled" className="text-xs">
             {tx('Cancelled', 'Batal')} ({counts.cancelled})
           </TabsTrigger>
+          <TabsTrigger value="damage_reports" className="text-xs">
+            {tx('Damage Reports', 'Kerusakan')} ({damageReports.length})
+          </TabsTrigger>
         </TabsList>
       </Tabs>
 
-      {/* Compact Professional Table */}
-      {isLoading ? (
+      {/* Main Content: Damage Reports View OR Compact Bookings Table */}
+      {statusFilter === 'damage_reports' ? (
+        filteredDamageReports.length === 0 ? (
+          <EmptyState
+            icon={ShieldAlert}
+            title={tx('No damage incidents filed', 'Belum ada laporan kerusakan')}
+            description={tx(
+              'Post-rental damage assessments and deposit deductions filed from any booking will appear here.',
+              'Penilaian kerusakan pasca-sewa dan pemotongan deposit dari booking akan tercatat di sini.'
+            )}
+          />
+        ) : (
+          <div className="space-y-3">
+            {filteredDamageReports.map((rep) => {
+              const linked = bookingsById[rep.bookingId];
+              const renter = linked ? rentersById[linked.userId] : null;
+              const affectedItem = linked?.items.find((i) => i.unitId === rep.unitId);
+              return (
+                <Card
+                  key={rep.id}
+                  role={linked ? 'button' : undefined}
+                  tabIndex={linked ? 0 : undefined}
+                  onClick={() => linked && setDetailBookingId(linked.id)}
+                  className={`shadow-none transition-colors ${
+                    linked ? 'cursor-pointer hover:border-zinc-400' : ''
+                  }`}
+                >
+                  <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4 text-xs">
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <StatusBadge status="damaged" label={rep.severity.toUpperCase()} />
+                        <span className="font-mono font-semibold text-zinc-950">
+                          {linked?.invoiceNumber ?? rep.bookingId}
+                        </span>
+                        {renter ? (
+                          <span className="text-zinc-600">· {renter.displayName}</span>
+                        ) : null}
+                        {affectedItem ? (
+                          <SerialNumberTag serialNumber={affectedItem.serialNumber} />
+                        ) : null}
+                      </div>
+                      <p className="text-zinc-800">{rep.description}</p>
+                    </div>
+                    <div className="text-right font-mono text-[11px]">
+                      <p className="font-semibold text-zinc-950">
+                        {tx('Repair:', 'Perbaikan:')} <CurrencyText amount={rep.repairCost} />
+                      </p>
+                      <p className="text-zinc-500">
+                        {tx('From Deposit:', 'Potong Deposit:')}{' '}
+                        <CurrencyText amount={rep.deductedFromDeposit} />
+                      </p>
+                      {rep.extraFineAmount > 0 ? (
+                        <p className="text-red-700">
+                          {tx('Extra Fine:', 'Denda Tambahan:')}{' '}
+                          <CurrencyText amount={rep.extraFineAmount} />
+                        </p>
+                      ) : null}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )
+      ) : isLoading ? (
         <div className="rounded-md border border-zinc-200 bg-white p-8 text-center font-mono text-xs text-zinc-400">
           {tx('LOADING BOOKING QUEUE...', 'MEMUAT ANTREAN BOOKING...')}
         </div>
@@ -415,7 +717,6 @@ export function AdminBookingsPage() {
                     onClick={() => setDetailBookingId(b.id)}
                     className="group cursor-pointer"
                   >
-                    {/* Col 1: Invoice, Renter, Schedule */}
                     <TableCell className="py-3">
                       <div className="flex items-center gap-1.5">
                         <span className="font-mono text-xs font-semibold text-zinc-950">
@@ -434,7 +735,6 @@ export function AdminBookingsPage() {
                       </p>
                     </TableCell>
 
-                    {/* Col 2: Compact Gear Summary (uniform row height) */}
                     <TableCell className="py-3">
                       {firstItem ? (
                         <div className="space-y-1">
@@ -455,7 +755,6 @@ export function AdminBookingsPage() {
                       )}
                     </TableCell>
 
-                    {/* Col 3: Compact Logistics */}
                     <TableCell className="py-3">
                       <div className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-zinc-700">
                         {b.logisticsType === 'delivery' ? (
@@ -482,7 +781,6 @@ export function AdminBookingsPage() {
                       )}
                     </TableCell>
 
-                    {/* Col 4: Amount / Deposit */}
                     <TableCell className="whitespace-nowrap py-3 text-right">
                       <div className="text-xs font-semibold text-zinc-950">
                         <CurrencyText amount={b.totalAmount} />
@@ -508,12 +806,14 @@ export function AdminBookingsPage() {
                       ) : null}
                     </TableCell>
 
-                    {/* Col 5: Status & Payment */}
                     <TableCell className="whitespace-nowrap py-3">
                       <div className="flex flex-col items-start gap-1">
                         <StatusBadge status={b.bookingStatus} />
                         <span className="font-mono text-[10px] text-zinc-400">
                           {formatPaymentLabel(b.paymentStatus, tx)}
+                          {b.bookingStatus === 'confirmed' && b.preRentalChecklist?.confirmedByUserAt
+                            ? ` · ${tx('QC OK', 'QC OK')}`
+                            : ''}
                         </span>
                         {expiry.applies ? (
                           <span
@@ -530,7 +830,6 @@ export function AdminBookingsPage() {
                       </div>
                     </TableCell>
 
-                    {/* Col 6: Compact Uniform Actions */}
                     <TableCell
                       className="whitespace-nowrap py-3 text-right"
                       onClick={(e) => e.stopPropagation()}
@@ -579,7 +878,7 @@ export function AdminBookingsPage() {
                           size="icon"
                           className="h-7 w-7 text-zinc-400 group-hover:text-zinc-900"
                           onClick={() => setDetailBookingId(b.id)}
-                          title={tx('View Booking Details', 'Lihat Detail Booking')}
+                          title={tx('Open Details & QC Actions', 'Buka Detail & Aksi QC')}
                         >
                           <ChevronRight className="h-4 w-4" strokeWidth={1.5} />
                         </Button>
@@ -591,7 +890,6 @@ export function AdminBookingsPage() {
             </TableBody>
           </Table>
 
-          {/* Compact Pagination */}
           {totalPages > 1 ? (
             <div className="flex items-center justify-between text-xs text-zinc-500">
               <span>
@@ -643,49 +941,307 @@ export function AdminBookingsPage() {
         title={tx('Payment Proof Verification', 'Verifikasi Bukti Pembayaran')}
       />
 
+      {/* Unified Booking Detail + Pre-Rental & Post-Rental Inspection Actions */}
       {(() => {
         const selectedBooking = bookings.find((b) => b.id === detailBookingId) ?? null;
+        const selectedTenant = selectedBooking
+          ? tenantById[selectedBooking.tenantId] ?? activeTenant
+          : activeTenant;
         const canVerify =
           selectedBooking?.bookingStatus === 'pending_payment' ||
           selectedBooking?.bookingStatus === 'waiting_verification';
+        const isConfirmed = selectedBooking?.bookingStatus === 'confirmed';
+        const isActiveOrOverdue =
+          selectedBooking?.bookingStatus === 'active_rent' ||
+          selectedBooking?.bookingStatus === 'overdue';
+        const overdueCalc =
+          selectedBooking && isActiveOrOverdue
+            ? calculateOverdueFine(selectedBooking, selectedTenant)
+            : null;
+
+        const hasActions = Boolean(selectedBooking && (canVerify || isConfirmed || isActiveOrOverdue));
 
         return (
           <BookingDetailModal
             open={Boolean(selectedBooking)}
             onOpenChange={(open) => !open && setDetailBookingId(null)}
             booking={selectedBooking}
-            tenant={
-              selectedBooking
-                ? tenantById[selectedBooking.tenantId] ?? activeTenant
-                : activeTenant
-            }
+            tenant={selectedTenant}
             renter={selectedBooking ? rentersById[selectedBooking.userId] ?? null : null}
             footerActions={
-              selectedBooking && canVerify ? (
+              selectedBooking && hasActions ? (
                 <>
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    disabled={busyId === selectedBooking.id}
-                    onClick={() => void handleCancelBooking(selectedBooking)}
-                  >
-                    <XCircle className="h-3.5 w-3.5" strokeWidth={1.5} />
-                    {tx('Cancel Booking', 'Batalkan Booking')}
-                  </Button>
-                  <Button
-                    size="sm"
-                    disabled={busyId === selectedBooking.id}
-                    onClick={() => void handleApprovePayment(selectedBooking)}
-                  >
-                    <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={1.5} />
-                    {tx('Verify & Confirm', 'Verifikasi & Konfirmasi')}
-                  </Button>
+                  {canVerify ? (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 whitespace-nowrap text-xs text-red-600 hover:bg-red-50 hover:text-red-700"
+                        disabled={busyId === selectedBooking.id}
+                        onClick={() => void handleCancelBooking(selectedBooking)}
+                      >
+                        <XCircle className="h-3.5 w-3.5" strokeWidth={1.5} />
+                        {tx('Cancel', 'Batalkan')}
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="h-8 whitespace-nowrap text-xs"
+                        disabled={busyId === selectedBooking.id}
+                        onClick={() => void handleApprovePayment(selectedBooking)}
+                      >
+                        <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={1.5} />
+                        {tx('Verify & Confirm', 'Verifikasi & Konfirmasi')}
+                      </Button>
+                    </>
+                  ) : null}
+
+                  {isConfirmed ? (
+                    <Button
+                      size="sm"
+                      className="h-8 whitespace-nowrap text-xs"
+                      onClick={() => openPreRentalHandover(selectedBooking)}
+                    >
+                      <ClipboardCheck className="h-3.5 w-3.5" strokeWidth={1.5} />
+                      {tx('Inspect & Dispatch', 'Inspeksi & Serahkan')}
+                    </Button>
+                  ) : null}
+
+                  {isActiveOrOverdue ? (
+                    <>
+                      {overdueCalc?.isOverdue && selectedBooking.bookingStatus !== 'overdue' ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 whitespace-nowrap border-red-200 bg-white text-xs text-red-600 hover:bg-red-50 hover:text-red-700"
+                          disabled={busyId === selectedBooking.id}
+                          onClick={() =>
+                            void handleApplyOverdueFine(selectedBooking, overdueCalc.estimatedFine)
+                          }
+                        >
+                          <AlertTriangle className="h-3.5 w-3.5" strokeWidth={1.5} />
+                          {tx('Flag Overdue', 'Tandai Overdue')}
+                        </Button>
+                      ) : null}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 whitespace-nowrap text-xs text-red-600 hover:bg-red-50 hover:text-red-700"
+                        disabled={busyId === selectedBooking.id}
+                        onClick={() => openDamageAssessment(selectedBooking)}
+                      >
+                        <ShieldAlert className="h-3.5 w-3.5" strokeWidth={1.5} />
+                        {tx('Report Damage', 'Lapor Kerusakan')}
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="h-8 whitespace-nowrap text-xs"
+                        disabled={busyId === selectedBooking.id}
+                        onClick={() => void handleCleanReturn(selectedBooking)}
+                      >
+                        <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={1.5} />
+                        {overdueCalc?.isOverdue && selectedBooking.overdueFine === 0
+                          ? tx('Return + Fine', 'Kembali + Denda')
+                          : tx('Return & Refund', 'Kembali & Refund')}
+                      </Button>
+                    </>
+                  ) : null}
                 </>
-              ) : null
+              ) : undefined
             }
           />
         );
       })()}
+
+      {/* Pre-Rental Handover Modal */}
+      <Dialog
+        open={Boolean(handoverTarget)}
+        onOpenChange={(o) => !o && !savingHandover && setHandoverTarget(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {tx('Pre-Rental Handover', 'Serah Terima Pra-Sewa')} — {handoverTarget?.invoiceNumber}
+            </DialogTitle>
+            <DialogDescription>
+              {tx(
+                'Log baseline gear condition before handing over serialized equipment.',
+                'Catat kondisi awal perangkat sebelum menyerahkan unit bernomor seri.'
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label>
+                {tx(
+                  'Handover Condition Notes & Accessories Check',
+                  'Catatan Kondisi & Kelengkapan Aksesoris'
+                )}
+              </Label>
+              <Textarea
+                value={handoverNotes}
+                onChange={(e) => setHandoverNotes(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>
+                {tx(
+                  'Handover Photo URLs (one per line, optional)',
+                  'URL Foto Serah Terima (satu per baris, opsional)'
+                )}
+              </Label>
+              <Textarea
+                placeholder="https://..."
+                value={handoverPhotosText}
+                onChange={(e) => setHandoverPhotosText(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={savingHandover}
+              onClick={() => void handleSavePreRental(false)}
+            >
+              {tx('Save Checklist Only', 'Simpan Checklist Saja')}
+            </Button>
+            <Button disabled={savingHandover} onClick={() => void handleSavePreRental(true)}>
+              {tx('Save & Start Active Rent', 'Simpan & Mulai Masa Sewa')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Post-Rental Damage Assessment Modal */}
+      <Dialog
+        open={Boolean(damageTarget)}
+        onOpenChange={(o) => !o && !savingDamage && setDamageTarget(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {tx('Post-Rental Damage Assessment', 'Penilaian Kerusakan Pasca-Sewa')}
+            </DialogTitle>
+            <DialogDescription>
+              {damageTarget?.invoiceNumber} · {tx('Deposit held:', 'Deposit ditahan:')}{' '}
+              <CurrencyText amount={damageTarget?.deposit ?? 0} />
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label>{tx('Affected Physical Unit (SN)', 'Unit Fisik Terdampak (SN)')}</Label>
+              <Select value={damageUnitId} onValueChange={setDamageUnitId}>
+                <SelectTrigger>
+                  <SelectValue placeholder={tx('Select unit...', 'Pilih unit...')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {damageTarget?.items.map((item) => (
+                    <SelectItem key={item.unitId} value={item.unitId}>
+                      {item.equipmentName} ({item.serialNumber})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label>{tx('Severity', 'Tingkat Kerusakan')}</Label>
+                <Select
+                  value={damageSeverity}
+                  onValueChange={(v) => setDamageSeverity(v as DamageReport['severity'])}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="minor">{tx('Minor', 'Ringan')}</SelectItem>
+                    <SelectItem value="major">{tx('Major', 'Berat')}</SelectItem>
+                    <SelectItem value="total_loss">{tx('Total Loss', 'Hilang / Rusak Total')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label>{tx('Repair Cost (IDR)', 'Biaya Perbaikan (IDR)')}</Label>
+                <Input
+                  type="number"
+                  className="font-mono"
+                  value={damageRepairCost}
+                  onChange={(e) => setDamageRepairCost(Number(e.target.value))}
+                />
+              </div>
+            </div>
+
+            {damageTarget ? (
+              <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3 font-mono text-[11px] space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">{tx('Deducted from Deposit', 'Potong Deposit')}</span>
+                  <CurrencyText amount={Math.min(Math.max(0, damageRepairCost), damageTarget.deposit)} />
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">{tx('Remaining Deposit Refund', 'Sisa Refund Deposit')}</span>
+                  <CurrencyText
+                    amount={Math.max(0, damageTarget.deposit - Math.max(0, damageRepairCost))}
+                    className="text-emerald-700"
+                  />
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">{tx('Extra Fine Billed', 'Tagihan Denda Tambahan')}</span>
+                  <CurrencyText
+                    amount={Math.max(0, Math.max(0, damageRepairCost) - damageTarget.deposit)}
+                    className="text-red-700"
+                  />
+                </div>
+              </div>
+            ) : null}
+
+            <div className="space-y-1">
+              <Label>{tx('Damage Description', 'Deskripsi Kerusakan')}</Label>
+              <Textarea
+                placeholder={tx(
+                  'Describe physical damage, scratch, or missing accessory...',
+                  'Jelaskan kerusakan fisik, goresan, atau aksesoris yang hilang...'
+                )}
+                value={damageDesc}
+                onChange={(e) => setDamageDesc(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label>
+                {tx(
+                  'Evidence Photo URLs (one per line, optional)',
+                  'URL Foto Bukti Kerusakan (satu per baris, opsional)'
+                )}
+              </Label>
+              <Textarea
+                placeholder="https://..."
+                value={damagePhotosText}
+                onChange={(e) => setDamagePhotosText(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={savingDamage}
+              onClick={() => setDamageTarget(null)}
+            >
+              {tx('Cancel', 'Batal')}
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={savingDamage}
+              onClick={() => void handleSubmitDamageReport()}
+            >
+              {savingDamage
+                ? tx('Submitting...', 'Menyimpan...')
+                : tx('File Damage Report & Settle', 'Simpan Laporan & Selesaikan')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

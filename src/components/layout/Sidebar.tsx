@@ -5,7 +5,6 @@ import {
   Package,
   CalendarClock,
   Truck,
-  ClipboardCheck,
   ReceiptText,
   MessageSquare,
   FileCheck2,
@@ -60,7 +59,6 @@ const NAV_GROUPS: NavGroup[] = [
       { labelEn: 'Kit Bundles', labelId: 'Paket Kit', to: '/admin/bundles', icon: Package },
       { labelEn: 'Bookings', labelId: 'Booking', to: '/admin/bookings', icon: CalendarClock, badgeKey: 'bookings' },
       { labelEn: 'Delivery & Pickup', labelId: 'Antar-Jemput', to: '/admin/logistics', icon: Truck, badgeKey: 'logistics' },
-      { labelEn: 'Inspections', labelId: 'Inspeksi QC', to: '/admin/inspections', icon: ClipboardCheck, badgeKey: 'inspections' },
       { labelEn: 'Cash Flow Ledger', labelId: 'Buku Kas', to: '/admin/finance', icon: ReceiptText, roles: ['superadmin', 'admin'] },
       { labelEn: 'Branch Staff', labelId: 'Staff & Karyawan', to: '/admin/staff', icon: Briefcase, roles: ['superadmin', 'admin'] },
       { labelEn: 'Members', labelId: 'Member', to: '/admin/members', icon: Users, badgeKey: 'members', roles: ['superadmin', 'admin'] },
@@ -105,9 +103,7 @@ export function Sidebar() {
               .map((item) => {
               const Icon = item.icon;
               const count = item.badgeKey ? badges[item.badgeKey] : 0;
-              const isUrgent =
-                (item.badgeKey === 'inspections' && badges.overdueCount > 0) ||
-                (item.badgeKey === 'bookings' && role === 'user' && badges.overdueCount > 0);
+              const isUrgent = item.badgeKey === 'bookings' && badges.overdueCount > 0;
 
               return (
                 <NavLink

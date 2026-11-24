@@ -17,6 +17,7 @@ import {
   Clock,
   FileDown,
   ShieldAlert,
+  User,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { db } from '@/lib/firebase';
@@ -53,7 +54,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import type { Booking, DamageReport } from '@/types/schema';
+import type { Booking, DamageReport, UserProfile } from '@/types/schema';
 
 export function InspectionsPage() {
   const { tx } = useI18n();
@@ -91,6 +92,21 @@ export function InspectionsPage() {
           ['confirmed', 'active_rent', 'overdue'].includes(b.bookingStatus)
         )
         .sort((a, b) => a.startDate.toMillis() - b.startDate.toMillis());
+    },
+  });
+
+  const { data: rentersById = {} } = useQuery<Record<string, UserProfile>>({
+    queryKey: ['inspections-users'],
+    enabled: Boolean(db),
+    staleTime: 60_000,
+    queryFn: async () => {
+      if (!db) return {};
+      const snap = await getDocs(collection(db, 'users'));
+      const map: Record<string, UserProfile> = {};
+      snap.docs.forEach((d) => {
+        map[d.id] = { uid: d.id, ...d.data() } as UserProfile;
+      });
+      return map;
     },
   });
 
@@ -486,12 +502,25 @@ export function InspectionsPage() {
               )}
             />
           ) : (
-            preRentalBookings.map((booking) => (
+            preRentalBookings.map((booking) => {
+              const renter = rentersById[booking.userId] ?? null;
+              return (
               <Card key={booking.id} className="shadow-none">
                 <CardHeader className="border-b border-zinc-100 pb-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <CardTitle className="font-mono text-sm">{booking.invoiceNumber}</CardTitle>
+                      {renter ? (
+                        <span className="inline-flex items-center gap-1 rounded border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[11px] font-medium text-zinc-800">
+                          <User className="h-3 w-3 text-zinc-400" strokeWidth={1.5} />
+                          {renter.displayName}
+                          {renter.phone ? (
+                            <span className="font-mono text-[10px] text-zinc-500">
+                              · {renter.phone}
+                            </span>
+                          ) : null}
+                        </span>
+                      ) : null}
                       <StatusBadge status={booking.bookingStatus} />
                       {booking.preRentalChecklist?.confirmedByUserAt ? (
                         <StatusBadge
@@ -513,6 +542,7 @@ export function InspectionsPage() {
                           void generateHandoverPdf({
                             booking,
                             tenant: tenantById[booking.tenantId] ?? activeTenant,
+                            renter,
                           })
                         }
                       >
@@ -552,7 +582,8 @@ export function InspectionsPage() {
                   </span>
                 </CardContent>
               </Card>
-            ))
+              );
+            })
           )}
         </TabsContent>
 
@@ -570,6 +601,7 @@ export function InspectionsPage() {
             postRentalBookings.map((booking) => {
               const bookingTenant = tenantById[booking.tenantId] ?? activeTenant;
               const overdue = calculateOverdueFine(booking, bookingTenant);
+              const renter = rentersById[booking.userId] ?? null;
 
               return (
                 <Card
@@ -578,10 +610,21 @@ export function InspectionsPage() {
                 >
                   <CardHeader className="border-b border-zinc-100 pb-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <CardTitle className="font-mono text-sm">
                           {booking.invoiceNumber}
                         </CardTitle>
+                        {renter ? (
+                          <span className="inline-flex items-center gap-1 rounded border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[11px] font-medium text-zinc-800">
+                            <User className="h-3 w-3 text-zinc-400" strokeWidth={1.5} />
+                            {renter.displayName}
+                            {renter.phone ? (
+                              <span className="font-mono text-[10px] text-zinc-500">
+                                · {renter.phone}
+                              </span>
+                            ) : null}
+                          </span>
+                        ) : null}
                         {isAllTenants && bookingTenant ? (
                           <span className="rounded bg-secondary px-2 py-0.5 text-[11px] font-medium text-secondary-foreground">
                             {bookingTenant.name}
@@ -608,11 +651,12 @@ export function InspectionsPage() {
                             void generateHandoverPdf({
                               booking,
                               tenant: bookingTenant,
+                              renter,
                             })
                           }
                         >
                           <FileDown className="h-3.5 w-3.5" strokeWidth={1.5} />
-                          BAST
+                          BAST PNG
                         </Button>
                         {overdue.isOverdue && booking.bookingStatus !== 'overdue' ? (
                           <Button

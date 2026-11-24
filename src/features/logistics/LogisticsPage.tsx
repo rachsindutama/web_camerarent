@@ -13,10 +13,13 @@ import {
 } from 'firebase/firestore';
 import {
   ArrowRight,
+  Check,
   ExternalLink,
   MapPin,
   Navigation,
+  Phone,
   Truck,
+  User,
   UserCheck,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -114,6 +117,21 @@ export function LogisticsPage() {
       return snap.docs
         .map((d) => ({ id: d.id, ...d.data() }) as TenantStaff)
         .sort((a, b) => a.name.localeCompare(b.name));
+    },
+  });
+
+  const { data: rentersById = {} } = useQuery<Record<string, UserProfile>>({
+    queryKey: ['logistics-users'],
+    enabled: Boolean(db),
+    staleTime: 60_000,
+    queryFn: async () => {
+      if (!db) return {};
+      const snap = await getDocs(collection(db, 'users'));
+      const map: Record<string, UserProfile> = {};
+      snap.docs.forEach((d) => {
+        map[d.id] = { uid: d.id, ...d.data() } as UserProfile;
+      });
+      return map;
     },
   });
 
@@ -345,91 +363,134 @@ export function LogisticsPage() {
               selectedCourierByBooking[booking.id] ?? booking.courierId ?? '';
             const bookingTenant = tenantById[booking.tenantId] ?? activeTenant;
             const courierOptions = getCourierOptionsForTenant(booking.tenantId);
+            const renter = rentersById[booking.userId] ?? null;
+            const visibleItems = booking.items.slice(0, 2);
+            const extraItemsCount = Math.max(0, booking.items.length - visibleItems.length);
+            const waPhone = renter?.phone
+              ? renter.phone.replace(/\D/g, '').replace(/^0/, '62')
+              : '';
+            const waHref = waPhone
+              ? `https://wa.me/${waPhone}?text=${encodeURIComponent(
+                  tx(
+                    `Hello ${renter?.displayName ?? ''}, courier update for booking ${booking.invoiceNumber} (${bookingTenant?.name ?? 'CameraRent'}).`,
+                    `Halo ${renter?.displayName ?? ''}, koordinasi kurir untuk booking ${booking.invoiceNumber} (${bookingTenant?.name ?? 'CameraRent'}).`
+                  )
+                )}`
+              : null;
 
             return (
-              <Card key={booking.id} className="shadow-none">
-                <CardHeader className="border-b border-zinc-100 pb-3">
+              <Card key={booking.id} className="overflow-hidden shadow-none">
+                {/* Clean Header Row */}
+                <CardHeader className="border-b border-zinc-100 bg-zinc-50/50 px-4 py-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2.5">
-                      <CardTitle className="font-mono text-sm">{booking.invoiceNumber}</CardTitle>
-                      {isAllTenants && bookingTenant ? (
-                        <span className="rounded bg-secondary px-2 py-0.5 text-[11px] font-medium text-secondary-foreground">
-                          {bookingTenant.name}
-                        </span>
-                      ) : null}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <CardTitle className="font-mono text-xs font-semibold text-zinc-950">
+                        {booking.invoiceNumber}
+                      </CardTitle>
                       <StatusBadge status={booking.bookingStatus} />
                       {booking.membershipTier === 'premium' ? (
                         <MembershipBadge tier="premium" />
                       ) : null}
-                      <span className="font-mono text-[11px] text-zinc-500">
-                        {tx('Fee:', 'Ongkir:')} <CurrencyText amount={booking.deliveryFee} />
+                      {isAllTenants && bookingTenant ? (
+                        <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-[11px] text-zinc-600">
+                          {bookingTenant.name}
+                        </span>
+                      ) : null}
+                      <span className="text-zinc-300">|</span>
+                      <span className="inline-flex items-center gap-1 text-xs font-medium text-zinc-900">
+                        <User className="h-3 w-3 text-zinc-400" strokeWidth={1.5} />
+                        {renter?.displayName ?? booking.userId}
+                      </span>
+                      {waHref && renter?.phone ? (
+                        <a
+                          href={waHref}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 rounded border border-zinc-200 bg-white px-1.5 py-0.5 font-mono text-[10.5px] text-zinc-600 transition-colors hover:border-zinc-400 hover:text-zinc-950"
+                          title={tx('Chat recipient on WhatsApp', 'Hubungi penerima via WhatsApp')}
+                        >
+                          <Phone className="h-2.5 w-2.5 text-zinc-400" strokeWidth={1.5} />
+                          {renter.phone}
+                        </a>
+                      ) : null}
+                    </div>
+                    <div className="flex items-center gap-3 font-mono text-[11px] text-zinc-500">
+                      <span>
+                        {formatDateTime(booking.startDate)} → {formatDateTime(booking.endDate)}
+                      </span>
+                      <span className="font-semibold text-zinc-900">
+                        <CurrencyText amount={booking.deliveryFee} />
                       </span>
                     </div>
-                    <span className="font-mono text-[11px] text-zinc-500">
-                      {formatDateTime(booking.startDate)} → {formatDateTime(booking.endDate)}
-                    </span>
                   </div>
                 </CardHeader>
-                <CardContent className="space-y-4 pt-4 text-xs">
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
-                    <div className="space-y-1 md:col-span-5">
-                      <p className="flex items-center gap-1 font-mono text-[10px] uppercase text-zinc-400">
-                        <MapPin className="h-3 w-3" strokeWidth={1.5} />
-                        {tx('Destination Address', 'Alamat Tujuan')}
-                      </p>
-                      <p className="text-zinc-800">{booking.deliveryAddress ?? '—'}</p>
-                      {booking.deliveryCoordinates ? (
-                        <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                          <span className="font-mono text-[10px] text-zinc-500">
-                            {booking.deliveryCoordinates.lat.toFixed(5)},{' '}
-                            {booking.deliveryCoordinates.lng.toFixed(5)}
-                            {booking.deliveryDistanceKm ? ` · ${booking.deliveryDistanceKm} km` : ''}
+
+                <CardContent className="space-y-4 px-4 py-3.5 text-xs">
+                  {/* Single Compact Operations Row */}
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    {/* Left: Address + Map Links + Compact SNs */}
+                    <div className="min-w-0 flex-1 space-y-1.5">
+                      <div className="flex items-start gap-1.5 text-zinc-800">
+                        <MapPin
+                          className="mt-0.5 h-3.5 w-3.5 shrink-0 text-zinc-400"
+                          strokeWidth={1.5}
+                        />
+                        <p className="line-clamp-1 font-medium">
+                          {booking.deliveryAddress ?? '—'}
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 pl-5">
+                        {booking.deliveryDistanceKm ? (
+                          <span className="font-mono text-[11px] text-zinc-500">
+                            {booking.deliveryDistanceKm} km
                           </span>
-                          <button
-                            type="button"
-                            onClick={() => setMapBooking(booking)}
-                            className="inline-flex items-center gap-1 text-[10px] font-medium text-primary hover:underline"
-                          >
-                            <Navigation className="h-2.5 w-2.5" strokeWidth={1.5} />
-                            {tx('View Map Pin', 'Lihat Pin Peta')}
-                          </button>
-                          <a
-                            href={buildGoogleMapsDirectionUrl(
-                              bookingTenant?.coordinates ?? { lat: -6.2088, lng: 106.8456 },
-                              booking.deliveryCoordinates
-                            )}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1 text-[10px] text-zinc-600 hover:underline"
-                          >
-                            Google Maps
-                            <ExternalLink className="h-2.5 w-2.5" strokeWidth={1.5} />
-                          </a>
-                        </div>
-                      ) : null}
-                      <div className="flex flex-wrap gap-1 pt-1">
-                        {booking.items.map((item) => (
+                        ) : null}
+                        {booking.deliveryCoordinates ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => setMapBooking(booking)}
+                              className="inline-flex items-center gap-1 text-[11px] font-medium text-zinc-700 hover:text-zinc-950 hover:underline"
+                            >
+                              <Navigation className="h-3 w-3 text-zinc-400" strokeWidth={1.5} />
+                              {tx('Map Pin', 'Pin Peta')}
+                            </button>
+                            <a
+                              href={buildGoogleMapsDirectionUrl(
+                                bookingTenant?.coordinates ?? { lat: -6.2088, lng: 106.8456 },
+                                booking.deliveryCoordinates
+                              )}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-0.5 text-[11px] text-zinc-500 hover:text-zinc-900 hover:underline"
+                            >
+                              Google Maps
+                              <ExternalLink className="h-2.5 w-2.5" strokeWidth={1.5} />
+                            </a>
+                          </>
+                        ) : null}
+                        <span className="text-zinc-300">·</span>
+                        {visibleItems.map((item) => (
                           <SerialNumberTag key={item.unitId} serialNumber={item.serialNumber} />
                         ))}
+                        {extraItemsCount > 0 ? (
+                          <span className="inline-flex items-center rounded border border-zinc-200 bg-zinc-100 px-1.5 py-0.5 font-mono text-[10px] font-medium text-zinc-600">
+                            +{extraItemsCount} {tx('more', 'lagi')}
+                          </span>
+                        ) : null}
                       </div>
                     </div>
 
-                    <div className="space-y-1.5 md:col-span-4">
-                      <p className="font-mono text-[10px] uppercase text-zinc-400">
-                        {tx('Assigned Courier (Branch Staff)', 'Kurir Ditugaskan (Karyawan Cabang)')}
-                      </p>
-
+                    {/* Right: Inline Courier Assign + Primary Next Step CTA */}
+                    <div className="flex flex-wrap items-center gap-2 lg:shrink-0">
                       {courierOptions.length === 0 ? (
-                        <div className="rounded border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] text-amber-900">
-                          {tx(
-                            'No active branch staff yet. Add staff in ',
-                            'Belum ada karyawan cabang aktif. Tambahkan di menu '
-                          )}
-                          <Link to="/admin/staff" className="font-semibold underline">
-                            {tx('Staff & Employees', 'Staff & Karyawan')}
-                          </Link>
-                          .
-                        </div>
+                        <Link
+                          to="/admin/staff"
+                          className="rounded border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-900 hover:underline"
+                        >
+                          {tx('Add staff in Staff & Admins', 'Tambah staff di menu Staff')}
+                        </Link>
                       ) : (
                         <div className="flex items-center gap-1.5">
                           <Select
@@ -442,12 +503,12 @@ export function LogisticsPage() {
                               }))
                             }
                           >
-                            <SelectTrigger className="flex-1 bg-white">
+                            <SelectTrigger className="h-8 w-44 bg-white text-xs">
                               <SelectValue
                                 placeholder={
                                   booking.courierName
-                                    ? `${booking.courierName} (${tx('saved', 'tersimpan')})`
-                                    : tx('Select branch staff...', 'Pilih karyawan cabang...')
+                                    ? booking.courierName
+                                    : tx('Assign courier...', 'Pilih kurir...')
                                 }
                               />
                             </SelectTrigger>
@@ -462,6 +523,7 @@ export function LogisticsPage() {
                           <Button
                             variant="outline"
                             size="sm"
+                            className="h-8 px-2.5 text-xs"
                             disabled={isCompleted || !activeSelectedId}
                             onClick={() => void handleAssignCourier(booking)}
                           >
@@ -471,46 +533,29 @@ export function LogisticsPage() {
                         </div>
                       )}
 
-                      {booking.courierName ? (
-                        <p className="font-mono text-[10px] text-zinc-500">
-                          {tx('Assigned:', 'Terpilih:')}{' '}
-                          <span className="text-zinc-900">{booking.courierName}</span>
-                          {booking.courierPhone ? ` · ${booking.courierPhone}` : ''}
-                        </p>
-                      ) : null}
-                    </div>
-
-                    <div className="flex items-end justify-end md:col-span-3">
                       {nextStep && !isCompleted ? (
                         <Button
                           size="sm"
+                          className="h-8 px-3 text-xs"
                           onClick={() => void handleAdvanceStatus(booking, nextStep.key)}
                         >
                           {nextStep.label}
                           <ArrowRight className="h-3.5 w-3.5" strokeWidth={1.5} />
                         </Button>
                       ) : (
-                        <div className="text-right">
-                          <span className="block font-mono text-[11px] font-medium text-emerald-700">
-                            {tx('DISPATCH CYCLE COMPLETE', 'SIKLUS DISPATCH SELESAI')}
-                          </span>
-                          {booking.returnedAt || booking.courierTimestamps?.returned ? (
-                            <span className="font-mono text-[10px] text-zinc-500">
-                              {tx('Returned:', 'Dikembalikan:')}{' '}
-                              {formatDateTime(
-                                booking.returnedAt ?? booking.courierTimestamps?.returned
-                              )}
-                            </span>
-                          ) : null}
-                        </div>
+                        <span className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2.5 py-1 font-mono text-[10.5px] font-medium text-emerald-700">
+                          <Check className="h-3 w-3" strokeWidth={2} />
+                          {tx('Completed', 'Selesai')}
+                        </span>
                       )}
                     </div>
                   </div>
 
-                  {/* Horizontal Checkpoint Stepper */}
-                  <div className="grid grid-cols-2 gap-1.5 pt-1 sm:grid-cols-5">
+                  {/* Minimalist 5-Step Progress Rail */}
+                  <div className="grid grid-cols-2 gap-2 border-t border-zinc-100 pt-3 sm:grid-cols-5">
                     {courierSteps.map((step, idx) => {
                       const done = idx <= currentIdx;
+                      const isCurrent = idx === currentIdx;
                       const stepTs = booking.courierTimestamps?.[step.key];
                       return (
                         <button
@@ -518,22 +563,36 @@ export function LogisticsPage() {
                           type="button"
                           disabled={isCompleted}
                           onClick={() => void handleAdvanceStatus(booking, step.key)}
-                          className={`rounded border px-2 py-1.5 text-left transition-colors disabled:cursor-not-allowed ${
-                            done
-                              ? 'border-zinc-900 bg-zinc-900 text-white'
-                              : 'border-zinc-200 bg-zinc-50 text-zinc-500 hover:bg-zinc-100'
-                          }`}
+                          className="group text-left disabled:cursor-not-allowed"
                         >
-                          <span className="block font-mono text-[9px] opacity-70">0{idx + 1}</span>
-                          <span className="block truncate text-[11px] font-medium">
-                            {step.label}
-                          </span>
-                          <span
-                            className={`mt-0.5 block truncate font-mono text-[9px] ${
-                              done ? 'text-zinc-300' : 'text-zinc-400'
-                            }`}
-                          >
-                            {stepTs ? formatDateTime(stepTs) : done ? tx('Done', 'Selesai') : '—'}
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              className={`h-1.5 flex-1 rounded-full transition-colors ${
+                                done
+                                  ? 'bg-zinc-900'
+                                  : 'bg-zinc-200 group-hover:bg-zinc-300'
+                              }`}
+                            />
+                          </div>
+                          <div className="mt-1.5 flex items-center justify-between gap-1">
+                            <span
+                              className={`truncate text-[11px] ${
+                                isCurrent
+                                  ? 'font-semibold text-zinc-950'
+                                  : done
+                                    ? 'font-medium text-zinc-700'
+                                    : 'text-zinc-400 group-hover:text-zinc-600'
+                              }`}
+                            >
+                              {step.label}
+                            </span>
+                          </div>
+                          <span className="block truncate font-mono text-[9.5px] text-zinc-400">
+                            {stepTs
+                              ? formatDateTime(stepTs)
+                              : done
+                                ? tx('Done', 'Selesai')
+                                : '—'}
                           </span>
                         </button>
                       );

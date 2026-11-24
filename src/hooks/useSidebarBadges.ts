@@ -95,10 +95,12 @@ export function useSidebarBadges(): SidebarBadgeCounts {
       ]);
 
       const bookings = bookingsSnap.docs.map((d) => d.data() as Booking);
-      const pendingBookings = bookings.filter(
-        (b) => b.bookingStatus === 'waiting_verification' || b.bookingStatus === 'pending_payment'
-      ).length;
       const overdueCount = bookings.filter((b) => b.bookingStatus === 'overdue').length;
+      const actionableBookings = bookings.filter((b) =>
+        ['waiting_verification', 'pending_payment', 'confirmed', 'overdue'].includes(
+          b.bookingStatus
+        )
+      ).length;
       const inspectionQueue = bookings.filter(
         (b) => b.bookingStatus === 'overdue' || b.bookingStatus === 'confirmed'
       ).length;
@@ -118,7 +120,7 @@ export function useSidebarBadges(): SidebarBadgeCounts {
         : 0;
 
       return {
-        bookings: pendingBookings,
+        bookings: actionableBookings,
         inspections: inspectionQueue,
         overdueCount,
         logistics: activeLogistics,

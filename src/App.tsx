@@ -17,7 +17,6 @@ import { BundlesPage } from '@/features/inventory/BundlesPage';
 import { MyBookingsPage } from '@/features/bookings/MyBookingsPage';
 import { AdminBookingsPage } from '@/features/bookings/AdminBookingsPage';
 import { LogisticsPage } from '@/features/logistics/LogisticsPage';
-import { InspectionsPage } from '@/features/inspections/InspectionsPage';
 import { FinancePage } from '@/features/finance/FinancePage';
 import { StaffPage } from '@/features/staff/StaffPage';
 import { MembersPage } from '@/features/members/MembersPage';
@@ -87,7 +86,7 @@ export function App() {
               <Route path="/admin/bundles" element={<BundlesPage />} />
               <Route path="/admin/bookings" element={<AdminBookingsPage />} />
               <Route path="/admin/logistics" element={<LogisticsPage />} />
-              <Route path="/admin/inspections" element={<InspectionsPage />} />
+              <Route path="/admin/inspections" element={<Navigate to="/admin/bookings" replace />} />
               <Route path="/admin/chat" element={<ChatPage mode="admin" />} />
             </Route>
 

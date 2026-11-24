@@ -499,6 +499,8 @@ export function MyBookingsPage() {
           selectedBooking?.paymentStatus === 'unpaid' &&
           selectedBooking?.bookingStatus !== 'cancelled';
 
+        const hasActions = Boolean(selectedBooking && (canUpload || canConfirm));
+
         return (
           <BookingDetailModal
             open={Boolean(selectedBooking)}
@@ -507,11 +509,12 @@ export function MyBookingsPage() {
             tenant={selectedTenant}
             renter={userProfile}
             footerActions={
-              selectedBooking ? (
+              selectedBooking && hasActions ? (
                 <>
                   {canUpload ? (
                     <Button
                       size="sm"
+                      className="h-8 whitespace-nowrap text-xs"
                       onClick={() => {
                         setProofTarget(selectedBooking);
                         setProofUrlInput(selectedBooking.paymentProofUrl ?? '');
@@ -525,6 +528,7 @@ export function MyBookingsPage() {
                     <Button
                       size="sm"
                       variant="mono"
+                      className="h-8 whitespace-nowrap text-xs"
                       onClick={() => openConfirmHandoverDialog(selectedBooking)}
                     >
                       <ClipboardCheck className="h-3.5 w-3.5" strokeWidth={1.5} />
@@ -532,7 +536,7 @@ export function MyBookingsPage() {
                     </Button>
                   ) : null}
                 </>
-              ) : null
+              ) : undefined
             }
           />
         );
