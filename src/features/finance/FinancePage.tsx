@@ -665,7 +665,7 @@ export function FinancePage() {
                 size="sm"
                 className="bg-white"
                 onClick={() =>
-                  generateInvoicePdf({
+                  void generateInvoicePdf({
                     booking: linkedBooking,
                     tenant: activeTenant,
                     renter: linkedRenter,

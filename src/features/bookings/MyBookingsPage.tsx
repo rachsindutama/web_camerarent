@@ -285,7 +285,7 @@ export function MyBookingsPage() {
                         variant="outline"
                         size="sm"
                         onClick={() =>
-                          generateInvoicePdf({ booking, tenant, renter: userProfile })
+                          void generateInvoicePdf({ booking, tenant, renter: userProfile })
                         }
                       >
                         <FileDown className="h-3.5 w-3.5" strokeWidth={1.5} />

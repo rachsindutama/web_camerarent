@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   Building2,
   CalendarClock,
@@ -19,6 +20,7 @@ import { calculateRentalDays } from '@/lib/availability';
 import { buildGoogleMapsDirectionUrl } from '@/lib/geo';
 import { generateHandoverPdf } from '@/lib/handoverPdf';
 import { generateInvoicePdf } from '@/lib/invoicePdf';
+import { resolveBookingUnitsMap } from '@/lib/pdfUnits';
 import { formatDateTime } from '@/lib/utils';
 import { useI18n } from '@/hooks/useI18n';
 import { calculateOverdueFine } from '@/hooks/useOverdueCalc';
@@ -40,7 +42,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import type { Booking, Tenant, UserProfile } from '@/types/schema';
+import type { Booking, EquipmentUnit, Tenant, UserProfile } from '@/types/schema';
 
 interface BookingDetailModalProps {
   booking: Booking | null;
@@ -67,6 +69,13 @@ export function BookingDetailModal({
     index: number;
   }>({ open: false, title: 'Document Preview', images: [], index: 0 });
   const [mapPreviewOpen, setMapPreviewOpen] = useState(false);
+
+  const { data: unitsById = {} } = useQuery<Record<string, EquipmentUnit>>({
+    queryKey: ['booking-units', booking?.id ?? 'none'],
+    enabled: Boolean(open && booking),
+    staleTime: 60_000,
+    queryFn: async () => (booking ? resolveBookingUnitsMap(booking) : {}),
+  });
 
   if (!booking) return null;
 
@@ -301,7 +310,9 @@ export function BookingDetailModal({
                 <table className="w-full text-xs">
                   <thead className="border-b border-zinc-200 bg-zinc-50 font-mono text-[10px] uppercase text-zinc-500">
                     <tr>
-                      <th className="px-3.5 py-2 text-left">{tx('Equipment', 'Alat')}</th>
+                      <th className="px-3.5 py-2 text-left">
+                        {tx('Equipment & Included Accessories', 'Alat & Kelengkapan Aksesoris')}
+                      </th>
                       <th className="px-3.5 py-2 text-left">Serial Number</th>
                       <th className="px-3.5 py-2 text-right">{tx('Daily Rate', 'Tarif / Hari')}</th>
                       <th className="px-3.5 py-2 text-right">
@@ -311,22 +322,38 @@ export function BookingDetailModal({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-100">
-                    {booking.items.map((item) => (
-                      <tr key={item.unitId}>
-                        <td className="px-3.5 py-2.5 font-medium text-zinc-950">
-                          {item.equipmentName}
-                        </td>
-                        <td className="px-3.5 py-2.5">
-                          <SerialNumberTag serialNumber={item.serialNumber} />
-                        </td>
-                        <td className="px-3.5 py-2.5 text-right text-zinc-600">
-                          <CurrencyText amount={item.dailyRate} />
-                        </td>
-                        <td className="px-3.5 py-2.5 text-right font-medium text-zinc-950">
-                          <CurrencyText amount={item.dailyRate * rentalDays} />
-                        </td>
-                      </tr>
-                    ))}
+                    {booking.items.map((item) => {
+                      const unit = unitsById[item.unitId];
+                      const accessories = unit?.accessoriesIncluded ?? [];
+                      return (
+                        <tr key={item.unitId}>
+                          <td className="px-3.5 py-2.5 align-top">
+                            <p className="font-medium text-zinc-950">{item.equipmentName}</p>
+                            {accessories.length > 0 ? (
+                              <div className="mt-1.5 flex flex-wrap gap-1">
+                                {accessories.map((acc) => (
+                                  <span
+                                    key={acc}
+                                    className="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 text-[10px] text-zinc-600"
+                                  >
+                                    {acc}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null}
+                          </td>
+                          <td className="px-3.5 py-2.5 align-top">
+                            <SerialNumberTag serialNumber={item.serialNumber} />
+                          </td>
+                          <td className="px-3.5 py-2.5 text-right align-top text-zinc-600">
+                            <CurrencyText amount={item.dailyRate} />
+                          </td>
+                          <td className="px-3.5 py-2.5 text-right align-top font-medium text-zinc-950">
+                            <CurrencyText amount={item.dailyRate * rentalDays} />
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -626,7 +653,7 @@ export function BookingDetailModal({
                 variant="outline"
                 size="sm"
                 className="bg-white"
-                onClick={() => generateInvoicePdf({ booking, tenant, renter })}
+                onClick={() => void generateInvoicePdf({ booking, tenant, renter, unitsById })}
               >
                 <FileDown className="h-3.5 w-3.5" strokeWidth={1.5} />
                 {tx('Download A4 Invoice PDF', 'Unduh Invoice PDF A4')}
@@ -639,7 +666,7 @@ export function BookingDetailModal({
                   variant="outline"
                   size="sm"
                   className="bg-white"
-                  onClick={() => void generateHandoverPdf({ booking, tenant, renter })}
+                  onClick={() => void generateHandoverPdf({ booking, tenant, renter, unitsById })}
                 >
                   <ClipboardCheck className="h-3.5 w-3.5" strokeWidth={1.5} />
                   {tx('Download BAST PDF', 'Unduh BAST PDF')}

@@ -418,7 +418,7 @@ export function AdminBookingsPage() {
                       variant="outline"
                       size="icon"
                       onClick={() =>
-                        generateInvoicePdf({
+                        void generateInvoicePdf({
                           booking: b,
                           tenant: tenantById[b.tenantId] ?? activeTenant,
                           renter: rentersById[b.userId] ?? null,
