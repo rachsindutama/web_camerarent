@@ -6,6 +6,8 @@ import {
   doc,
   getDocs,
   query,
+  setDoc,
+  Timestamp,
   updateDoc,
   where,
 } from 'firebase/firestore';
@@ -56,6 +58,12 @@ import {
 } from '@/components/ui/table';
 import type { StaffRole, TenantStaff, UserProfile, UserRole } from '@/types/schema';
 
+type UnifiedAccountRole = UserRole | StaffRole;
+
+function isOperationalStaffRole(role: string): role is StaffRole {
+  return role === 'courier' || role === 'technician' || role === 'admin_ops';
+}
+
 function getInitials(name: string): string {
   return name
     .trim()
@@ -96,8 +104,9 @@ export function StaffPage() {
   // Assign RBAC Role Dialog (Superadmin) + Searchable Paginated Account Picker
   const [assignAdminOpen, setAssignAdminOpen] = useState(false);
   const [selectedUserUid, setSelectedUserUid] = useState('');
-  const [assignRole, setAssignRole] = useState<UserRole>('admin');
+  const [assignRole, setAssignRole] = useState<UnifiedAccountRole>('admin');
   const [assignTenantId, setAssignTenantId] = useState('');
+  const [assignVehicleInfo, setAssignVehicleInfo] = useState('');
   const [accountPickerOpen, setAccountPickerOpen] = useState(false);
   const [accountSearch, setAccountSearch] = useState('');
   const [accountRoleFilter, setAccountRoleFilter] = useState<'all' | UserRole>('all');
@@ -112,8 +121,9 @@ export function StaffPage() {
     displayName: '',
     phone: '',
     nik: '',
-    role: 'admin' as UserRole,
+    role: 'admin' as UnifiedAccountRole,
     tenantId: '',
+    vehicleInfo: '',
   });
 
   const { data: branchStaff = [], isLoading: loadingStaff } = useQuery<TenantStaff[]>({
@@ -187,6 +197,13 @@ export function StaffPage() {
   const detailStaff = branchStaff.find((s) => s.id === detailStaffId) ?? null;
   const detailAdmin = allUsers.find((u) => u.uid === detailAdminUid) ?? null;
 
+  // Map linked operational staff records by userId so one account never duplicates in the table
+  const linkedStaffByUid = branchStaff.reduce<Record<string, TenantStaff>>((acc, s) => {
+    if (s.userId) acc[s.userId] = s;
+    return acc;
+  }, {});
+  const detailAdminLinkedStaff = detailAdmin ? linkedStaffByUid[detailAdmin.uid] ?? null : null;
+
   const fallbackTenantId = activeTenantId ?? allTenants[0]?.id ?? '';
 
   const canEditAdminAccount = (admin: UserProfile) =>
@@ -196,6 +213,7 @@ export function StaffPage() {
     setSelectedUserUid('');
     setAssignRole('admin');
     setAssignTenantId(fallbackTenantId);
+    setAssignVehicleInfo('');
     setAccountPickerOpen(false);
     setAccountSearch('');
     setAccountRoleFilter('all');
@@ -215,30 +233,101 @@ export function StaffPage() {
   };
 
   const openAdminDetail = (admin: UserProfile) => {
+    const linked = linkedStaffByUid[admin.uid] ?? null;
     setDetailAdminUid(admin.uid);
     setAdminModalTab('detail');
     setAdminEditForm({
       displayName: admin.displayName,
       phone: admin.phone || '',
       nik: admin.nik || '',
-      role: admin.role,
-      tenantId: admin.tenantId || fallbackTenantId,
+      role: linked ? linked.role : admin.role,
+      tenantId: admin.tenantId || linked?.tenantId || fallbackTenantId,
+      vehicleInfo: linked?.vehicleInfo ?? '',
     });
   };
 
+  const getEffectiveRoleLabel = (role: UnifiedAccountRole, tenantId?: string | null): string => {
+    if (role === 'superadmin') return 'Superadmin';
+    if (role === 'admin') {
+      return isAllTenants && tenantId && tenantById[tenantId]
+        ? `Admin · ${tenantById[tenantId].name}`
+        : 'Branch Admin';
+    }
+    if (isOperationalStaffRole(role)) return staffRoleLabels[role];
+    return 'Member';
+  };
+
+  const syncLinkedStaffRecord = async (params: {
+    uid: string;
+    name: string;
+    email: string;
+    phone: string;
+    nextRole: UnifiedAccountRole;
+    tenantId: string;
+    vehicleInfo?: string;
+  }) => {
+    if (!db) return;
+    const existingSnap = await getDocs(
+      query(collection(db, 'tenant_staff'), where('userId', '==', params.uid))
+    );
+
+    if (isOperationalStaffRole(params.nextRole)) {
+      const targetDocRef =
+        existingSnap.docs[0]?.ref ?? doc(db, 'tenant_staff', `user_${params.uid}`);
+      const existingData = existingSnap.docs[0]?.data() as Partial<TenantStaff> | undefined;
+      await setDoc(
+        targetDocRef,
+        {
+          tenantId: params.tenantId,
+          userId: params.uid,
+          name: params.name,
+          email: params.email,
+          phone: params.phone,
+          role: params.nextRole,
+          vehicleInfo: (params.vehicleInfo ?? '').trim(),
+          isActive: existingData?.isActive ?? true,
+          createdAt: existingData?.createdAt ?? Timestamp.now(),
+        },
+        { merge: true }
+      );
+      // Clean up any accidental extra duplicates
+      for (const extraDoc of existingSnap.docs.slice(1)) {
+        await deleteDoc(extraDoc.ref);
+      }
+    } else {
+      for (const linkedDoc of existingSnap.docs) {
+        await deleteDoc(linkedDoc.ref);
+      }
+    }
+  };
+
   type UnifiedTeamRow =
-    | { kind: 'admin'; key: string; sortRank: number; name: string; admin: UserProfile }
+    | {
+        kind: 'admin';
+        key: string;
+        sortRank: number;
+        name: string;
+        admin: UserProfile;
+        linkedStaff: TenantStaff | null;
+      }
     | { kind: 'staff'; key: string; sortRank: number; name: string; staff: TenantStaff };
 
+  const adminUidSet = new Set(branchAdmins.map((a) => a.uid));
+  const standaloneStaff = branchStaff.filter((s) => !s.userId || !adminUidSet.has(s.userId));
+
   const unifiedTeam: UnifiedTeamRow[] = [
-    ...branchAdmins.map((admin) => ({
-      kind: 'admin' as const,
-      key: `admin-${admin.uid}`,
-      sortRank: admin.role === 'superadmin' ? 0 : 1,
-      name: admin.displayName,
-      admin,
-    })),
-    ...branchStaff.map((staff) => ({
+    ...branchAdmins.map((admin) => {
+      const linkedStaff = linkedStaffByUid[admin.uid] ?? null;
+      return {
+        kind: 'admin' as const,
+        key: `admin-${admin.uid}`,
+        sortRank: admin.role === 'superadmin' ? 0 : linkedStaff ? 2 : 1,
+        name: admin.displayName,
+        admin,
+        linkedStaff,
+      };
+    }),
+    ...standaloneStaff.map((staff) => ({
       kind: 'staff' as const,
       key: `staff-${staff.id}`,
       sortRank: 2,
@@ -247,17 +336,24 @@ export function StaffPage() {
     })),
   ].sort((a, b) => a.sortRank - b.sortRank || a.name.localeCompare(b.name));
 
+  const operationalCount =
+    standaloneStaff.length +
+    branchAdmins.filter((a) => Boolean(linkedStaffByUid[a.uid])).length;
+  const pureAdminCount = branchAdmins.length - branchAdmins.filter((a) => Boolean(linkedStaffByUid[a.uid])).length;
+
   const filteredTeam = unifiedTeam.filter((row) => {
     const q = search.trim().toLowerCase();
     if (row.kind === 'admin') {
       const a = row.admin;
-      if (roleFilter !== 'all' && roleFilter !== a.role) return false;
+      const effectiveRole: UnifiedAccountRole = row.linkedStaff ? row.linkedStaff.role : a.role;
+      if (roleFilter !== 'all' && roleFilter !== effectiveRole) return false;
       if (!q) return true;
       return (
         a.displayName.toLowerCase().includes(q) ||
         a.email.toLowerCase().includes(q) ||
         (a.phone ?? '').toLowerCase().includes(q) ||
-        (a.nik ?? '').toLowerCase().includes(q)
+        (a.nik ?? '').toLowerCase().includes(q) ||
+        (row.linkedStaff?.vehicleInfo ?? '').toLowerCase().includes(q)
       );
     }
     const s = row.staff;
@@ -350,15 +446,29 @@ export function StaffPage() {
       return;
     }
 
-    if (isSuperAdmin && adminEditForm.role === 'admin' && !adminEditForm.tenantId) {
+    const needsBranch =
+      adminEditForm.role === 'admin' || isOperationalStaffRole(adminEditForm.role);
+    if (isSuperAdmin && needsBranch && !adminEditForm.tenantId) {
       toast.error(
-        tx('Select a branch for the Branch Admin role.', 'Pilih cabang untuk role Branch Admin.')
+        tx('Select a branch for this staff/admin role.', 'Pilih cabang untuk role staff/admin ini.')
       );
       return;
     }
 
     setSavingAdminEdit(true);
     try {
+      const isSelf = detailAdmin.uid === userProfile?.uid;
+      const nextUnifiedRole: UnifiedAccountRole = isSelf
+        ? detailAdminLinkedStaff
+          ? detailAdminLinkedStaff.role
+          : detailAdmin.role
+        : adminEditForm.role;
+      const nextUserRole: UserRole = isOperationalStaffRole(nextUnifiedRole)
+        ? 'admin'
+        : nextUnifiedRole;
+      const targetTenantId =
+        nextUserRole === 'admin' ? adminEditForm.tenantId || fallbackTenantId : null;
+
       const payload: {
         displayName: string;
         phone: string;
@@ -371,14 +481,26 @@ export function StaffPage() {
         nik: cleanNik,
       };
       if (isSuperAdmin) {
-        const isSelf = detailAdmin.uid === userProfile?.uid;
-        const nextRole = isSelf ? detailAdmin.role : adminEditForm.role;
-        payload.role = nextRole;
-        payload.tenantId = nextRole === 'admin' ? adminEditForm.tenantId || fallbackTenantId : null;
+        payload.role = nextUserRole;
+        payload.tenantId = targetTenantId;
       }
 
       await updateDoc(doc(db, 'users', detailAdmin.uid), payload);
+
+      if (isSuperAdmin) {
+        await syncLinkedStaffRecord({
+          uid: detailAdmin.uid,
+          name: cleanName,
+          email: detailAdmin.email,
+          phone: cleanPhone,
+          nextRole: nextUnifiedRole,
+          tenantId: targetTenantId ?? fallbackTenantId,
+          vehicleInfo: adminEditForm.vehicleInfo,
+        });
+      }
+
       await queryClient.invalidateQueries({ queryKey: ['staff-users'] });
+      await queryClient.invalidateQueries({ queryKey: ['tenant_staff'] });
       await queryClient.invalidateQueries({ queryKey: ['tenant_admin_staff'] });
       await queryClient.invalidateQueries({ queryKey: ['members'] });
       toast.success(tx(`${cleanName}'s profile saved.`, `Profil ${cleanName} disimpan.`));
@@ -399,31 +521,60 @@ export function StaffPage() {
 
   const handleAssignAccountRole = async () => {
     if (!db || !selectedUserUid) return;
-    if (assignRole === 'admin' && !assignTenantId) {
+    const targetUser = assignableUsers.find((u) => u.uid === selectedUserUid);
+    if (!targetUser) return;
+
+    const needsBranch = assignRole === 'admin' || isOperationalStaffRole(assignRole);
+    if (needsBranch && !assignTenantId) {
       toast.error(
-        tx('Select a branch for the Branch Admin role.', 'Pilih cabang untuk role Branch Admin.')
+        tx('Select a branch for this staff/admin role.', 'Pilih cabang untuk role staff/admin ini.')
       );
       return;
     }
+
+    const nextUserRole: UserRole = isOperationalStaffRole(assignRole) ? 'admin' : assignRole;
+    const targetTenantId = needsBranch ? assignTenantId : null;
+
     try {
       await updateDoc(doc(db, 'users', selectedUserUid), {
-        role: assignRole,
-        tenantId: assignRole === 'admin' ? assignTenantId : null,
+        role: nextUserRole,
+        tenantId: targetTenantId,
       });
+
+      await syncLinkedStaffRecord({
+        uid: selectedUserUid,
+        name: targetUser.displayName,
+        email: targetUser.email,
+        phone: targetUser.phone || '',
+        nextRole: assignRole,
+        tenantId: targetTenantId ?? fallbackTenantId,
+        vehicleInfo: assignVehicleInfo,
+      });
+
       await queryClient.invalidateQueries({ queryKey: ['staff-users'] });
+      await queryClient.invalidateQueries({ queryKey: ['tenant_staff'] });
       await queryClient.invalidateQueries({ queryKey: ['tenant_admin_staff'] });
       await queryClient.invalidateQueries({ queryKey: ['members'] });
+
+      const branchLabel =
+        allTenants.find((t) => t.id === assignTenantId)?.name ??
+        activeTenant?.name ??
+        tx('Branch', 'Cabang');
       const roleLabel =
         assignRole === 'superadmin'
           ? 'Superadmin'
           : assignRole === 'admin'
-            ? `Branch Admin (${allTenants.find((t) => t.id === assignTenantId)?.name ?? activeTenant?.name ?? tx('Branch', 'Cabang')})`
-            : 'Member (User)';
+            ? `Branch Admin (${branchLabel})`
+            : isOperationalStaffRole(assignRole)
+              ? `${staffRoleLabels[assignRole]} (${branchLabel})`
+              : 'Member (User)';
+
       toast.success(
         tx(`Account role updated to ${roleLabel}.`, `Role akun diperbarui menjadi ${roleLabel}.`)
       );
       setAssignAdminOpen(false);
       setSelectedUserUid('');
+      setAssignVehicleInfo('');
     } catch (error) {
       console.error('Assign role error:', error);
       toast.error(tx('Failed to update account role.', 'Gagal memperbarui role akun.'));
@@ -437,19 +588,28 @@ export function StaffPage() {
         role: 'user',
         tenantId: null,
       });
+      await syncLinkedStaffRecord({
+        uid: adminUser.uid,
+        name: adminUser.displayName,
+        email: adminUser.email,
+        phone: adminUser.phone || '',
+        nextRole: 'user',
+        tenantId: fallbackTenantId,
+      });
       await queryClient.invalidateQueries({ queryKey: ['staff-users'] });
+      await queryClient.invalidateQueries({ queryKey: ['tenant_staff'] });
       await queryClient.invalidateQueries({ queryKey: ['tenant_admin_staff'] });
       await queryClient.invalidateQueries({ queryKey: ['members'] });
       setDetailAdminUid(null);
       toast.success(
         tx(
-          `Branch Admin access revoked from ${adminUser.displayName}.`,
-          `Akses Admin cabang dicabut dari ${adminUser.displayName}.`
+          `Branch staff/admin access revoked from ${adminUser.displayName}.`,
+          `Akses staff/admin cabang dicabut dari ${adminUser.displayName}.`
         )
       );
     } catch (error) {
       console.error('Revoke branch admin error:', error);
-      toast.error(tx('Failed to revoke Admin access.', 'Gagal mencabut akses Admin.'));
+      toast.error(tx('Failed to revoke access.', 'Gagal mencabut akses.'));
     }
   };
 
@@ -520,8 +680,8 @@ export function StaffPage() {
           </div>
 
           <span className="text-xs text-muted-foreground">
-            {unifiedTeam.length} {tx('total', 'total')} · {branchAdmins.length}{' '}
-            {tx('admins', 'admin')} · {branchStaff.length} {tx('operational', 'operasional')}
+            {unifiedTeam.length} {tx('total', 'total')} · {pureAdminCount}{' '}
+            {tx('admins', 'admin')} · {operationalCount} {tx('operational', 'operasional')}
           </span>
         </div>
 
@@ -564,6 +724,8 @@ export function StaffPage() {
               {filteredTeam.map((row) => {
                 if (row.kind === 'admin') {
                   const admin = row.admin;
+                  const linked = row.linkedStaff;
+                  const effectiveRole: UnifiedAccountRole = linked ? linked.role : admin.role;
                   const branchName =
                     admin.tenantId && tenantById[admin.tenantId]
                       ? tenantById[admin.tenantId].name
@@ -577,7 +739,13 @@ export function StaffPage() {
                     >
                       <TableCell>
                         <div className="flex items-center gap-3">
-                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-xs font-medium text-white">
+                          <div
+                            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-medium ${
+                              linked
+                                ? 'bg-muted text-muted-foreground'
+                                : 'bg-zinc-900 text-white'
+                            }`}
+                          >
                             {getInitials(admin.displayName)}
                           </div>
                           <div className="min-w-0">
@@ -594,16 +762,14 @@ export function StaffPage() {
                       <TableCell>
                         <span
                           className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-md px-2 py-0.5 text-xs font-medium ${
-                            admin.role === 'superadmin'
+                            effectiveRole === 'superadmin'
                               ? 'bg-primary text-primary-foreground'
-                              : 'bg-secondary text-secondary-foreground'
+                              : isOperationalStaffRole(effectiveRole)
+                                ? 'border border-zinc-200 bg-zinc-50 text-zinc-700'
+                                : 'bg-secondary text-secondary-foreground'
                           }`}
                         >
-                          {admin.role === 'superadmin'
-                            ? 'Superadmin'
-                            : isAllTenants && branchName
-                              ? `Admin · ${branchName}`
-                              : 'Branch Admin'}
+                          {getEffectiveRoleLabel(effectiveRole, admin.tenantId)}
                         </span>
                       </TableCell>
                       <TableCell className="tabular-nums">
@@ -611,13 +777,21 @@ export function StaffPage() {
                           {admin.phone || '—'}
                         </div>
                         <div className="font-mono text-[11px] text-muted-foreground">
-                          {admin.nik ? `NIK ${admin.nik}` : '—'}
+                          {linked?.vehicleInfo
+                            ? linked.vehicleInfo
+                            : admin.nik
+                              ? `NIK ${admin.nik}`
+                              : '—'}
                         </div>
                       </TableCell>
                       <TableCell>
                         <StatusBadge
-                          status="active"
-                          label={tx('Active', 'Aktif')}
+                          status={linked && !linked.isActive ? 'suspended' : 'active'}
+                          label={
+                            linked && !linked.isActive
+                              ? tx('Inactive', 'Nonaktif')
+                              : tx('Active', 'Aktif')
+                          }
                         />
                       </TableCell>
                       <TableCell className="text-right">
@@ -779,9 +953,13 @@ export function StaffPage() {
                             key={u.uid}
                             type="button"
                             onClick={() => {
+                              const linked = linkedStaffByUid[u.uid];
                               setSelectedUserUid(u.uid);
-                              setAssignRole(u.role === 'user' ? 'admin' : u.role);
-                              setAssignTenantId(u.tenantId || fallbackTenantId);
+                              setAssignRole(
+                                linked ? linked.role : u.role === 'user' ? 'admin' : u.role
+                              );
+                              setAssignTenantId(u.tenantId || linked?.tenantId || fallbackTenantId);
+                              setAssignVehicleInfo(linked?.vehicleInfo ?? '');
                               setAccountPickerOpen(false);
                             }}
                             className={`flex w-full items-center justify-between gap-2 px-2.5 py-2 text-left text-xs transition-colors hover:bg-muted/60 ${
@@ -851,22 +1029,28 @@ export function StaffPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label>{tx('Access Role', 'Role Akses')}</Label>
-              <Select value={assignRole} onValueChange={(v) => setAssignRole(v as UserRole)}>
+              <Label>{tx('Role / Position', 'Role / Jabatan')}</Label>
+              <Select
+                value={assignRole}
+                onValueChange={(v) => setAssignRole(v as UnifiedAccountRole)}
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="superadmin">Platform Superadmin</SelectItem>
+                  <SelectItem value="admin">Branch Admin</SelectItem>
+                  <SelectItem value="courier">{staffRoleLabels.courier}</SelectItem>
+                  <SelectItem value="technician">{staffRoleLabels.technician}</SelectItem>
+                  <SelectItem value="admin_ops">{staffRoleLabels.admin_ops}</SelectItem>
                   <SelectItem value="user">
-                    {tx('Member / Renter (user)', 'Member / Penyewa (user)')}
+                    {tx('Member / Renter (Revoke Staff)', 'Member / Penyewa (Cabut Staff)')}
                   </SelectItem>
-                  <SelectItem value="admin">Branch Admin (admin)</SelectItem>
-                  <SelectItem value="superadmin">Platform Superadmin (superadmin)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
-            {assignRole === 'admin' ? (
+            {assignRole === 'admin' || isOperationalStaffRole(assignRole) ? (
               <div className="space-y-1.5">
                 <Label>{tx('Assigned Branch', 'Cabang Ditugaskan')}</Label>
                 <Select value={assignTenantId} onValueChange={setAssignTenantId}>
@@ -881,6 +1065,17 @@ export function StaffPage() {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+            ) : null}
+
+            {assignRole === 'courier' ? (
+              <div className="space-y-1.5">
+                <Label>{tx('Vehicle & Plate (Optional)', 'Kendaraan & Plat Nomor (Opsional)')}</Label>
+                <Input
+                  placeholder={tx('e.g. Honda Vario · L 4412 XY', 'mis. Honda Vario · L 4412 XY')}
+                  value={assignVehicleInfo}
+                  onChange={(e) => setAssignVehicleInfo(e.target.value)}
+                />
               </div>
             ) : null}
           </div>
@@ -1098,7 +1293,11 @@ export function StaffPage() {
                             : 'bg-secondary text-secondary-foreground'
                         }`}
                       >
-                        {detailAdmin.role === 'superadmin' ? 'Superadmin' : 'Branch Admin'}
+                        {detailAdminLinkedStaff
+                          ? staffRoleLabels[detailAdminLinkedStaff.role]
+                          : detailAdmin.role === 'superadmin'
+                            ? 'Superadmin'
+                            : 'Branch Admin'}
                       </span>
                     </div>
                   </div>
@@ -1230,47 +1429,88 @@ export function StaffPage() {
                       </div>
 
                       {isSuperAdmin ? (
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                          <div className="space-y-1.5">
-                            <Label>{tx('Access Role', 'Role Akses')}</Label>
-                            <Select
-                              value={adminEditForm.role}
-                              disabled={detailAdmin.uid === userProfile?.uid}
-                              onValueChange={(v) =>
-                                setAdminEditForm((prev) => ({ ...prev, role: v as UserRole }))
-                              }
-                            >
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="user">Member (user)</SelectItem>
-                                <SelectItem value="admin">Branch Admin (admin)</SelectItem>
-                                <SelectItem value="superadmin">Superadmin (superadmin)</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-
-                          {adminEditForm.role === 'admin' ? (
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                             <div className="space-y-1.5">
-                              <Label>{tx('Assigned Branch', 'Cabang Ditugaskan')}</Label>
+                              <Label>{tx('Role / Position', 'Role / Jabatan')}</Label>
                               <Select
-                                value={adminEditForm.tenantId}
+                                value={adminEditForm.role}
+                                disabled={detailAdmin.uid === userProfile?.uid}
                                 onValueChange={(v) =>
-                                  setAdminEditForm((prev) => ({ ...prev, tenantId: v }))
+                                  setAdminEditForm((prev) => ({
+                                    ...prev,
+                                    role: v as UnifiedAccountRole,
+                                  }))
                                 }
                               >
                                 <SelectTrigger>
-                                  <SelectValue placeholder={tx('Select branch...', 'Pilih cabang...')} />
+                                  <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  {allTenants.map((t) => (
-                                    <SelectItem key={t.id} value={t.id}>
-                                      {t.name}
-                                    </SelectItem>
-                                  ))}
+                                  <SelectItem value="superadmin">Platform Superadmin</SelectItem>
+                                  <SelectItem value="admin">Branch Admin</SelectItem>
+                                  <SelectItem value="courier">{staffRoleLabels.courier}</SelectItem>
+                                  <SelectItem value="technician">
+                                    {staffRoleLabels.technician}
+                                  </SelectItem>
+                                  <SelectItem value="admin_ops">
+                                    {staffRoleLabels.admin_ops}
+                                  </SelectItem>
+                                  <SelectItem value="user">
+                                    {tx('Member / Renter (Revoke)', 'Member / Penyewa (Cabut)')}
+                                  </SelectItem>
                                 </SelectContent>
                               </Select>
+                            </div>
+
+                            {adminEditForm.role === 'admin' ||
+                            isOperationalStaffRole(adminEditForm.role) ? (
+                              <div className="space-y-1.5">
+                                <Label>{tx('Assigned Branch', 'Cabang Ditugaskan')}</Label>
+                                <Select
+                                  value={adminEditForm.tenantId}
+                                  onValueChange={(v) =>
+                                    setAdminEditForm((prev) => ({ ...prev, tenantId: v }))
+                                  }
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue
+                                      placeholder={tx('Select branch...', 'Pilih cabang...')}
+                                    />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {allTenants.map((t) => (
+                                      <SelectItem key={t.id} value={t.id}>
+                                        {t.name}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            ) : null}
+                          </div>
+
+                          {adminEditForm.role === 'courier' ? (
+                            <div className="space-y-1.5">
+                              <Label>
+                                {tx(
+                                  'Vehicle & Plate (Optional)',
+                                  'Kendaraan & Plat Nomor (Opsional)'
+                                )}
+                              </Label>
+                              <Input
+                                placeholder={tx(
+                                  'e.g. Honda Vario · L 4412 XY',
+                                  'mis. Honda Vario · L 4412 XY'
+                                )}
+                                value={adminEditForm.vehicleInfo}
+                                onChange={(e) =>
+                                  setAdminEditForm((prev) => ({
+                                    ...prev,
+                                    vehicleInfo: e.target.value,
+                                  }))
+                                }
+                              />
                             </div>
                           ) : null}
                         </div>
