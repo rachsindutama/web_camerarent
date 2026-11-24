@@ -17,6 +17,12 @@ service cloud.firestore {
     function isTenantAdmin(tenantId) {
       return hasUserDoc() && userDoc().role == 'admin' && userDoc().tenantId == tenantId;
     }
+    function isTenantStaff(tenantId) {
+      return hasUserDoc() && userDoc().role == 'staff' && userDoc().tenantId == tenantId;
+    }
+    function isTenantOperator(tenantId) {
+      return isTenantAdmin(tenantId) || isTenantStaff(tenantId);
+    }
     function isEligibleRenter() {
       return hasUserDoc() && userDoc().isBlacklisted == false && userDoc().kycStatus == 'verified';
     }
@@ -46,7 +52,7 @@ service cloud.firestore {
       allow read: if isSignedIn() && (
         request.auth.uid == uid ||
         isSuperAdmin() ||
-        (hasUserDoc() && userDoc().role == 'admin')
+        (hasUserDoc() && userDoc().role in ['admin', 'staff'])
       );
       allow create: if isSignedIn() && request.auth.uid == uid
                     && request.resource.data.role == 'user'
@@ -76,17 +82,17 @@ service cloud.firestore {
     // EQUIPMENT, UNITS & BUNDLES
     match /equipment/{id} {
       allow read: if true;
-      allow create, update: if isSuperAdmin() || isTenantAdmin(request.resource.data.tenantId);
+      allow create, update: if isSuperAdmin() || isTenantOperator(request.resource.data.tenantId);
       allow delete: if isSuperAdmin() || isTenantAdmin(resource.data.tenantId);
     }
     match /equipment_units/{id} {
       allow read: if true;
-      allow create, update: if isSuperAdmin() || isTenantAdmin(request.resource.data.tenantId);
+      allow create, update: if isSuperAdmin() || isTenantOperator(request.resource.data.tenantId);
       allow delete: if isSuperAdmin() || isTenantAdmin(resource.data.tenantId);
     }
     match /bundles/{id} {
       allow read: if true;
-      allow create, update: if isSuperAdmin() || isTenantAdmin(request.resource.data.tenantId);
+      allow create, update: if isSuperAdmin() || isTenantOperator(request.resource.data.tenantId);
       allow delete: if isSuperAdmin() || isTenantAdmin(resource.data.tenantId);
     }
 
@@ -94,13 +100,13 @@ service cloud.firestore {
     match /bookings/{bookingId} {
       allow read: if isSignedIn() && (
         resource.data.userId == request.auth.uid ||
-        isTenantAdmin(resource.data.tenantId) ||
+        isTenantOperator(resource.data.tenantId) ||
         isSuperAdmin()
       );
       allow create: if (isEligibleRenter() && request.resource.data.userId == request.auth.uid)
                     || isSuperAdmin()
-                    || isTenantAdmin(request.resource.data.tenantId);
-      allow update: if isSuperAdmin() || isTenantAdmin(resource.data.tenantId) || (
+                    || isTenantOperator(request.resource.data.tenantId);
+      allow update: if isSuperAdmin() || isTenantOperator(resource.data.tenantId) || (
         // User can upload payment proof or confirm preRentalChecklist
         resource.data.userId == request.auth.uid &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['paymentProofUrl', 'paymentStatus', 'preRentalChecklist'])
@@ -118,8 +124,8 @@ service cloud.firestore {
     // AVAILABILITY SLOTS (PII-free unit reservation locks for live catalog checks)
     match /availability_slots/{slotId} {
       allow read: if true;
-      allow create: if isEligibleRenter() || isSuperAdmin() || isTenantAdmin(request.resource.data.tenantId);
-      allow update: if isSuperAdmin() || (resource != null && isTenantAdmin(resource.data.tenantId)) || (
+      allow create: if isEligibleRenter() || isSuperAdmin() || isTenantOperator(request.resource.data.tenantId);
+      allow update: if isSuperAdmin() || (resource != null && isTenantOperator(resource.data.tenantId)) || (
         isSignedIn() &&
         get(/databases/$(database)/documents/bookings/$(slotId)).data.userId == request.auth.uid &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) &&
@@ -132,16 +138,16 @@ service cloud.firestore {
     match /damage_reports/{reportId} {
       allow read: if isSignedIn() && (
         isSuperAdmin() ||
-        isTenantAdmin(resource.data.tenantId) ||
+        isTenantOperator(resource.data.tenantId) ||
         get(/databases/$(database)/documents/bookings/$(resource.data.bookingId)).data.userId == request.auth.uid
       );
-      allow write: if isSuperAdmin() || isTenantAdmin(request.resource.data.tenantId);
+      allow write: if isSuperAdmin() || isTenantOperator(request.resource.data.tenantId);
     }
 
     // TRANSACTIONS (Immutable ledger - no updates or deletes)
     match /transactions/{txId} {
       allow read: if isSuperAdmin() || isTenantAdmin(resource.data.tenantId);
-      allow create: if isSuperAdmin() || isTenantAdmin(request.resource.data.tenantId);
+      allow create: if isSuperAdmin() || isTenantOperator(request.resource.data.tenantId);
       allow update, delete: if false;
     }
 
@@ -151,16 +157,26 @@ service cloud.firestore {
         isSuperAdmin() ||
         resource == null ||
         resource.data.userId == request.auth.uid ||
-        isTenantAdmin(resource.data.tenantId)
+        isTenantOperator(resource.data.tenantId)
       );
       match /messages/{msgId} {
+        function hasParentChat() {
+          return exists(/databases/$(database)/documents/chats/$(chatId));
+        }
         function isChatParticipant() {
-          return isSuperAdmin() ||
-            get(/databases/$(database)/documents/chats/$(chatId)).data.userId == request.auth.uid ||
-            isTenantAdmin(get(/databases/$(database)/documents/chats/$(chatId)).data.tenantId);
+          return isSuperAdmin() || (
+            hasParentChat() && (
+              get(/databases/$(database)/documents/chats/$(chatId)).data.userId == request.auth.uid ||
+              isTenantOperator(get(/databases/$(database)/documents/chats/$(chatId)).data.tenantId)
+            )
+          );
         }
 
-        allow read, create: if isSignedIn() && isChatParticipant();
+        allow read: if isSignedIn() && (
+          isChatParticipant() ||
+          (!hasParentChat() && chatId.matches('^[^_]+_' + request.auth.uid + '$'))
+        );
+        allow create: if isSignedIn() && isChatParticipant();
 
         allow update: if isSignedIn() && isChatParticipant() && (
           // Any participant can mark readBy or Delete for Me (deletedFor)

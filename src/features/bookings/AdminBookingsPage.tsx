@@ -122,7 +122,11 @@ export function AdminBookingsPage() {
       const snap = await getDocs(q);
       return snap.docs
         .map((d) => ({ id: d.id, ...d.data() }) as Booking)
-        .sort((a, b) => b.createdAt.toMillis() - a.createdAt.toMillis());
+        .sort(
+          (a, b) =>
+            b.startDate.toMillis() - a.startDate.toMillis() ||
+            b.createdAt.toMillis() - a.createdAt.toMillis()
+        );
     },
   });
 

@@ -1,6 +1,6 @@
 import { Timestamp } from 'firebase/firestore';
 
-export type UserRole = 'superadmin' | 'admin' | 'user';
+export type UserRole = 'superadmin' | 'admin' | 'staff' | 'user';
 export type StaffRole = 'courier' | 'technician' | 'admin_ops';
 export type MembershipTier = 'basic' | 'premium';
 export type KycStatus = 'unverified' | 'pending' | 'verified' | 'rejected';

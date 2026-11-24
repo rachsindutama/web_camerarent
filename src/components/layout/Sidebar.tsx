@@ -30,6 +30,7 @@ interface NavItem {
   to: string;
   icon: LucideIcon;
   badgeKey?: BadgeKey;
+  roles?: UserRole[];
 }
 
 interface NavGroup {
@@ -52,7 +53,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     headingEn: 'Rental Operations',
     headingId: 'Operasional Rental',
-    roles: ['superadmin', 'admin'],
+    roles: ['superadmin', 'admin', 'staff'],
     items: [
       { labelEn: 'Gear Catalog', labelId: 'Katalog Gear', to: '/', icon: LayoutGrid },
       { labelEn: 'Inventory & SN', labelId: 'Inventaris & SN', to: '/admin/inventory', icon: Camera },
@@ -60,9 +61,9 @@ const NAV_GROUPS: NavGroup[] = [
       { labelEn: 'Bookings', labelId: 'Booking', to: '/admin/bookings', icon: CalendarClock, badgeKey: 'bookings' },
       { labelEn: 'Delivery & Pickup', labelId: 'Antar-Jemput', to: '/admin/logistics', icon: Truck, badgeKey: 'logistics' },
       { labelEn: 'Inspections', labelId: 'Inspeksi QC', to: '/admin/inspections', icon: ClipboardCheck, badgeKey: 'inspections' },
-      { labelEn: 'Cash Flow Ledger', labelId: 'Buku Kas', to: '/admin/finance', icon: ReceiptText },
-      { labelEn: 'Branch Staff', labelId: 'Staff & Karyawan', to: '/admin/staff', icon: Briefcase },
-      { labelEn: 'Members', labelId: 'Member', to: '/admin/members', icon: Users, badgeKey: 'members' },
+      { labelEn: 'Cash Flow Ledger', labelId: 'Buku Kas', to: '/admin/finance', icon: ReceiptText, roles: ['superadmin', 'admin'] },
+      { labelEn: 'Branch Staff', labelId: 'Staff & Karyawan', to: '/admin/staff', icon: Briefcase, roles: ['superadmin', 'admin'] },
+      { labelEn: 'Members', labelId: 'Member', to: '/admin/members', icon: Users, badgeKey: 'members', roles: ['superadmin', 'admin'] },
       { labelEn: 'Client Chat', labelId: 'Chat Klien', to: '/admin/chat', icon: MessageSquare, badgeKey: 'chat' },
     ],
   },
@@ -99,7 +100,9 @@ export function Sidebar() {
             <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
               {tx(group.headingEn, group.headingId)}
             </div>
-            {group.items.map((item) => {
+            {group.items
+              .filter((item) => !item.roles || item.roles.includes(role))
+              .map((item) => {
               const Icon = item.icon;
               const count = item.badgeKey ? badges[item.badgeKey] : 0;
               const isUrgent =

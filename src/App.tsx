@@ -81,17 +81,21 @@ export function App() {
               <Route path="/superadmin/settings" element={<SettingsPage />} />
             </Route>
 
-            {/* Tenant Admin + Superadmin operational routes */}
-            <Route element={<RoleGuard allowedRoles={['superadmin', 'admin']} />}>
+            {/* Branch operational routes (Superadmin + Admin + Staff) */}
+            <Route element={<RoleGuard allowedRoles={['superadmin', 'admin', 'staff']} />}>
               <Route path="/admin/inventory" element={<InventoryPage />} />
               <Route path="/admin/bundles" element={<BundlesPage />} />
               <Route path="/admin/bookings" element={<AdminBookingsPage />} />
               <Route path="/admin/logistics" element={<LogisticsPage />} />
               <Route path="/admin/inspections" element={<InspectionsPage />} />
+              <Route path="/admin/chat" element={<ChatPage mode="admin" />} />
+            </Route>
+
+            {/* Branch management routes (Superadmin + Admin only) */}
+            <Route element={<RoleGuard allowedRoles={['superadmin', 'admin']} />}>
               <Route path="/admin/finance" element={<FinancePage />} />
               <Route path="/admin/staff" element={<StaffPage />} />
               <Route path="/admin/members" element={<MembersPage />} />
-              <Route path="/admin/chat" element={<ChatPage mode="admin" />} />
             </Route>
 
             {/* Renter portal routes (strictly role === 'user') */}

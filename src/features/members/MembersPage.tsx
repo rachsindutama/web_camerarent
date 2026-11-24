@@ -176,8 +176,9 @@ export function MembersPage() {
       );
       return;
     }
-    if (memberEditForm.role === 'admin' && !memberEditForm.tenantId) {
-      toast.error(tx('Select a branch for the Branch Admin role.', 'Pilih cabang untuk role Branch Admin.'));
+    const needsBranch = memberEditForm.role === 'admin' || memberEditForm.role === 'staff';
+    if (needsBranch && !memberEditForm.tenantId) {
+      toast.error(tx('Select a branch for this role.', 'Pilih cabang untuk role ini.'));
       return;
     }
 
@@ -188,18 +189,24 @@ export function MembersPage() {
         phone: cleanPhone,
         nik: cleanNik,
         role: memberEditForm.role,
-        tenantId: memberEditForm.role === 'admin' ? memberEditForm.tenantId : null,
+        tenantId: needsBranch ? memberEditForm.tenantId : null,
         membershipTier: memberEditForm.membershipTier,
         kycStatus: memberEditForm.kycStatus,
       });
       await queryClient.invalidateQueries({ queryKey: ['members'] });
       await queryClient.invalidateQueries({ queryKey: ['staff-users'] });
       await queryClient.invalidateQueries({ queryKey: ['tenant_admin_staff'] });
+      const roleName =
+        memberEditForm.role === 'superadmin'
+          ? 'Superadmin'
+          : memberEditForm.role === 'admin'
+            ? 'Admin'
+            : 'Staff';
       toast.success(
         memberEditForm.role !== 'user'
           ? tx(
-              `${cleanName} promoted to ${memberEditForm.role === 'superadmin' ? 'Superadmin' : 'Branch Admin'} (view in Staff & Employees).`,
-              `${cleanName} dipromosikan ke ${memberEditForm.role === 'superadmin' ? 'Superadmin' : 'Branch Admin'} (lihat di menu Staff & Karyawan).`
+              `${cleanName} promoted to ${roleName} (view in Staff & Employees).`,
+              `${cleanName} dipromosikan ke ${roleName} (lihat di menu Staff & Karyawan).`
             )
           : tx(`${cleanName}'s profile saved.`, `Profil ${cleanName} disimpan.`)
       );
@@ -657,14 +664,15 @@ export function MembersPage() {
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="user">Member (user)</SelectItem>
-                              <SelectItem value="admin">Branch Admin (admin)</SelectItem>
-                              <SelectItem value="superadmin">Superadmin (superadmin)</SelectItem>
+                              <SelectItem value="user">User</SelectItem>
+                              <SelectItem value="staff">Staff</SelectItem>
+                              <SelectItem value="admin">Admin</SelectItem>
+                              <SelectItem value="superadmin">Superadmin</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
 
-                        {memberEditForm.role === 'admin' ? (
+                        {memberEditForm.role === 'admin' || memberEditForm.role === 'staff' ? (
                           <div className="space-y-1.5">
                             <Label>{tx('Assigned Branch', 'Cabang Ditugaskan')}</Label>
                             <Select

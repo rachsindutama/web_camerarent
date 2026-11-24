@@ -123,14 +123,16 @@ export function LogisticsPage() {
     queryFn: async () => {
       if (!db || (!isAllTenants && !activeTenantId)) return [];
       const q = isAllTenants
-        ? query(collection(db, 'users'), where('role', '==', 'admin'))
-        : query(
-            collection(db, 'users'),
-            where('tenantId', '==', activeTenantId),
-            where('role', '==', 'admin')
-          );
+        ? collection(db, 'users')
+        : query(collection(db, 'users'), where('tenantId', '==', activeTenantId));
       const snap = await getDocs(q);
-      return snap.docs.map((d) => ({ uid: d.id, ...d.data() }) as UserProfile);
+      return snap.docs
+        .map((d) => ({ uid: d.id, ...d.data() }) as UserProfile)
+        .filter((u) => u.role === 'staff' || u.role === 'admin')
+        .sort((a, b) => {
+          if (a.role !== b.role) return a.role === 'staff' ? -1 : 1;
+          return a.displayName.localeCompare(b.displayName);
+        });
     },
   });
 
@@ -149,10 +151,10 @@ export function LogisticsPage() {
     const fromAdmins: SelectableCourierOption[] = branchAdmins
       .filter((u) => u.tenantId === tenantId && !linkedStaffUids.has(u.uid))
       .map((u) => ({
-        id: `admin_${u.uid}`,
+        id: `user_${u.uid}`,
         name: u.displayName,
         phone: u.phone ?? '',
-        label: `${u.displayName} · Branch Admin`,
+        label: `${u.displayName} · ${u.role === 'staff' ? 'Staff' : 'Admin'}`,
       }));
 
     return [...fromStaff, ...fromAdmins];

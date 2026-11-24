@@ -6,8 +6,6 @@ import {
   doc,
   getDocs,
   query,
-  setDoc,
-  Timestamp,
   updateDoc,
   where,
 } from 'firebase/firestore';
@@ -56,74 +54,69 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import type { StaffRole, TenantStaff, UserProfile, UserRole } from '@/types/schema';
+import type { TenantStaff, UserProfile, UserRole } from '@/types/schema';
 
-type UnifiedAccountRole = UserRole | StaffRole;
+type TeamFilterRole = 'all' | 'superadmin' | 'admin' | 'staff';
 
-function isOperationalStaffRole(role: string): role is StaffRole {
-  return role === 'courier' || role === 'technician' || role === 'admin_ops';
-}
+const ROLE_LABELS: Record<UserRole, string> = {
+  superadmin: 'Superadmin',
+  admin: 'Admin',
+  staff: 'Staff',
+  user: 'User',
+};
 
 function getInitials(name: string): string {
-  return name
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((p) => p[0]?.toUpperCase() ?? '')
-    .join('') || 'S';
+  return (
+    name
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((p) => p[0]?.toUpperCase() ?? '')
+      .join('') || 'S'
+  );
 }
 
 export function StaffPage() {
   const { tx } = useI18n();
   const queryClient = useQueryClient();
-  const staffRoleLabels: Record<StaffRole, string> = {
-    courier: tx('Delivery Courier', 'Kurir Antar-Jemput'),
-    technician: tx('Gear Technician / QC', 'Teknisi / QC Gear'),
-    admin_ops: tx('Operations Admin', 'Admin Operasional'),
-  };
   const { userProfile } = useAuth();
   const { activeTenantId, activeTenant, allTenants, isAllTenants, tenantById } = useTenant();
   const isSuperAdmin = userProfile?.role === 'superadmin';
 
   const [search, setSearch] = useState('');
-  const [roleFilter, setRoleFilter] = useState<
-    'all' | 'superadmin' | 'admin' | StaffRole
-  >('all');
+  const [roleFilter, setRoleFilter] = useState<TeamFilterRole>('all');
 
-  // Operational Staff Detail & Edit Dialog
+  // Legacy tenant_staff Detail & Edit Dialog
   const [detailStaffId, setDetailStaffId] = useState<string | null>(null);
   const [staffModalTab, setStaffModalTab] = useState<'detail' | 'edit'>('detail');
   const [savingStaffEdit, setSavingStaffEdit] = useState(false);
   const [editStaffForm, setEditStaffForm] = useState({
     name: '',
     phone: '',
-    role: 'courier' as StaffRole,
     vehicleInfo: '',
   });
 
-  // Assign RBAC Role Dialog (Superadmin) + Searchable Paginated Account Picker
-  const [assignAdminOpen, setAssignAdminOpen] = useState(false);
+  // Assign Role Dialog (Superadmin) + Searchable Paginated Account Picker
+  const [assignRoleOpen, setAssignRoleOpen] = useState(false);
   const [selectedUserUid, setSelectedUserUid] = useState('');
-  const [assignRole, setAssignRole] = useState<UnifiedAccountRole>('admin');
+  const [assignRole, setAssignRole] = useState<UserRole>('staff');
   const [assignTenantId, setAssignTenantId] = useState('');
-  const [assignVehicleInfo, setAssignVehicleInfo] = useState('');
   const [accountPickerOpen, setAccountPickerOpen] = useState(false);
   const [accountSearch, setAccountSearch] = useState('');
   const [accountRoleFilter, setAccountRoleFilter] = useState<'all' | UserRole>('all');
   const [accountPage, setAccountPage] = useState(1);
   const ACCOUNT_PAGE_SIZE = 5;
 
-  // Admin / Superadmin Detail & Edit Dialog
-  const [detailAdminUid, setDetailAdminUid] = useState<string | null>(null);
-  const [adminModalTab, setAdminModalTab] = useState<'detail' | 'edit'>('detail');
-  const [savingAdminEdit, setSavingAdminEdit] = useState(false);
-  const [adminEditForm, setAdminEditForm] = useState({
+  // Account Detail & Edit Dialog (Superadmin / Admin / Staff)
+  const [detailAccountUid, setDetailAccountUid] = useState<string | null>(null);
+  const [accountModalTab, setAccountModalTab] = useState<'detail' | 'edit'>('detail');
+  const [savingAccountEdit, setSavingAccountEdit] = useState(false);
+  const [accountEditForm, setAccountEditForm] = useState({
     displayName: '',
     phone: '',
     nik: '',
-    role: 'admin' as UnifiedAccountRole,
+    role: 'staff' as UserRole,
     tenantId: '',
-    vehicleInfo: '',
   });
 
   const { data: branchStaff = [], isLoading: loadingStaff } = useQuery<TenantStaff[]>({
@@ -141,7 +134,7 @@ export function StaffPage() {
     },
   });
 
-  const { data: allUsers = [], isLoading: loadingAdmins } = useQuery<UserProfile[]>({
+  const { data: allUsers = [], isLoading: loadingUsers } = useQuery<UserProfile[]>({
     queryKey: ['staff-users', isAllTenants ? 'all' : activeTenantId],
     enabled: Boolean(db && (isAllTenants || activeTenantId)),
     queryFn: async () => {
@@ -157,21 +150,77 @@ export function StaffPage() {
         icon={Users}
         title={tx('No active branch selected', 'Belum ada cabang aktif')}
         description={tx(
-          'Select a rental branch in the topbar first to manage staff and branch admins.',
-          'Pilih cabang rental di bagian atas terlebih dahulu untuk mengelola karyawan dan admin.'
+          'Select a rental branch in the topbar first to manage staff and admins.',
+          'Pilih cabang rental di bagian atas terlebih dahulu untuk mengelola staff dan admin.'
         )}
       />
     );
   }
 
-  const branchAdmins = allUsers.filter(
+  const teamAccounts = allUsers.filter(
     (u) =>
       u.role === 'superadmin' ||
-      (u.role === 'admin' && (isAllTenants || u.tenantId === activeTenantId))
+      ((u.role === 'admin' || u.role === 'staff') &&
+        (isAllTenants || u.tenantId === activeTenantId))
   );
+
+  const accountUidSet = new Set(teamAccounts.map((u) => u.uid));
+  const standaloneStaff = branchStaff.filter((s) => !s.userId || !accountUidSet.has(s.userId));
+
+  type UnifiedTeamRow =
+    | { kind: 'account'; key: string; sortRank: number; name: string; account: UserProfile }
+    | { kind: 'legacy_staff'; key: string; sortRank: number; name: string; staff: TenantStaff };
+
+  const unifiedTeam: UnifiedTeamRow[] = [
+    ...teamAccounts.map((account) => ({
+      kind: 'account' as const,
+      key: `acc-${account.uid}`,
+      sortRank: account.role === 'superadmin' ? 0 : account.role === 'admin' ? 1 : 2,
+      name: account.displayName,
+      account,
+    })),
+    ...standaloneStaff.map((staff) => ({
+      kind: 'legacy_staff' as const,
+      key: `staff-${staff.id}`,
+      sortRank: 2,
+      name: staff.name,
+      staff,
+    })),
+  ].sort((a, b) => a.sortRank - b.sortRank || a.name.localeCompare(b.name));
+
+  const superadminCount = teamAccounts.filter((u) => u.role === 'superadmin').length;
+  const adminCount = teamAccounts.filter((u) => u.role === 'admin').length;
+  const staffCount =
+    teamAccounts.filter((u) => u.role === 'staff').length + standaloneStaff.length;
+
+  const filteredTeam = unifiedTeam.filter((row) => {
+    const q = search.trim().toLowerCase();
+    if (row.kind === 'account') {
+      const a = row.account;
+      if (roleFilter !== 'all' && roleFilter !== a.role) return false;
+      if (!q) return true;
+      return (
+        a.displayName.toLowerCase().includes(q) ||
+        a.email.toLowerCase().includes(q) ||
+        (a.phone ?? '').toLowerCase().includes(q) ||
+        (a.nik ?? '').toLowerCase().includes(q)
+      );
+    }
+    const s = row.staff;
+    if (roleFilter !== 'all' && roleFilter !== 'staff') return false;
+    if (!q) return true;
+    return (
+      s.name.toLowerCase().includes(q) ||
+      (s.email ?? '').toLowerCase().includes(q) ||
+      s.phone.toLowerCase().includes(q) ||
+      (s.vehicleInfo ?? '').toLowerCase().includes(q)
+    );
+  });
+
   const assignableUsers = allUsers
     .filter((u) => u.uid !== userProfile?.uid)
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
+
   const filteredAssignableUsers = assignableUsers.filter((u) => {
     if (accountRoleFilter !== 'all' && u.role !== accountRoleFilter) return false;
     const q = accountSearch.trim().toLowerCase();
@@ -183,6 +232,7 @@ export function StaffPage() {
       (u.phone ?? '').includes(q)
     );
   });
+
   const totalAccountPages = Math.max(
     1,
     Math.ceil(filteredAssignableUsers.length / ACCOUNT_PAGE_SIZE)
@@ -192,33 +242,25 @@ export function StaffPage() {
     (safeAccountPage - 1) * ACCOUNT_PAGE_SIZE,
     safeAccountPage * ACCOUNT_PAGE_SIZE
   );
+
   const selectedAssignableUser =
     assignableUsers.find((u) => u.uid === selectedUserUid) ?? null;
   const detailStaff = branchStaff.find((s) => s.id === detailStaffId) ?? null;
-  const detailAdmin = allUsers.find((u) => u.uid === detailAdminUid) ?? null;
-
-  // Map linked operational staff records by userId so one account never duplicates in the table
-  const linkedStaffByUid = branchStaff.reduce<Record<string, TenantStaff>>((acc, s) => {
-    if (s.userId) acc[s.userId] = s;
-    return acc;
-  }, {});
-  const detailAdminLinkedStaff = detailAdmin ? linkedStaffByUid[detailAdmin.uid] ?? null : null;
-
+  const detailAccount = allUsers.find((u) => u.uid === detailAccountUid) ?? null;
   const fallbackTenantId = activeTenantId ?? allTenants[0]?.id ?? '';
+  const isLoadingTeam = loadingStaff || loadingUsers;
 
-  const canEditAdminAccount = (admin: UserProfile) =>
-    isSuperAdmin || admin.uid === userProfile?.uid;
+  const canEditAccount = (acc: UserProfile) => isSuperAdmin || acc.uid === userProfile?.uid;
 
   const openAssignRoleDialog = () => {
     setSelectedUserUid('');
-    setAssignRole('admin');
+    setAssignRole('staff');
     setAssignTenantId(fallbackTenantId);
-    setAssignVehicleInfo('');
     setAccountPickerOpen(false);
     setAccountSearch('');
     setAccountRoleFilter('all');
     setAccountPage(1);
-    setAssignAdminOpen(true);
+    setAssignRoleOpen(true);
   };
 
   const openStaffDetail = (staff: TenantStaff) => {
@@ -227,157 +269,28 @@ export function StaffPage() {
     setEditStaffForm({
       name: staff.name,
       phone: staff.phone,
-      role: staff.role,
       vehicleInfo: staff.vehicleInfo ?? '',
     });
   };
 
-  const openAdminDetail = (admin: UserProfile) => {
-    const linked = linkedStaffByUid[admin.uid] ?? null;
-    setDetailAdminUid(admin.uid);
-    setAdminModalTab('detail');
-    setAdminEditForm({
-      displayName: admin.displayName,
-      phone: admin.phone || '',
-      nik: admin.nik || '',
-      role: linked ? linked.role : admin.role,
-      tenantId: admin.tenantId || linked?.tenantId || fallbackTenantId,
-      vehicleInfo: linked?.vehicleInfo ?? '',
+  const openAccountDetail = (acc: UserProfile) => {
+    setDetailAccountUid(acc.uid);
+    setAccountModalTab('detail');
+    setAccountEditForm({
+      displayName: acc.displayName,
+      phone: acc.phone || '',
+      nik: acc.nik || '',
+      role: acc.role,
+      tenantId: acc.tenantId || fallbackTenantId,
     });
   };
-
-  const getEffectiveRoleLabel = (role: UnifiedAccountRole, tenantId?: string | null): string => {
-    if (role === 'superadmin') return 'Superadmin';
-    if (role === 'admin') {
-      return isAllTenants && tenantId && tenantById[tenantId]
-        ? `Admin · ${tenantById[tenantId].name}`
-        : 'Branch Admin';
-    }
-    if (isOperationalStaffRole(role)) return staffRoleLabels[role];
-    return 'Member';
-  };
-
-  const syncLinkedStaffRecord = async (params: {
-    uid: string;
-    name: string;
-    email: string;
-    phone: string;
-    nextRole: UnifiedAccountRole;
-    tenantId: string;
-    vehicleInfo?: string;
-  }) => {
-    if (!db) return;
-    const existingSnap = await getDocs(
-      query(collection(db, 'tenant_staff'), where('userId', '==', params.uid))
-    );
-
-    if (isOperationalStaffRole(params.nextRole)) {
-      const targetDocRef =
-        existingSnap.docs[0]?.ref ?? doc(db, 'tenant_staff', `user_${params.uid}`);
-      const existingData = existingSnap.docs[0]?.data() as Partial<TenantStaff> | undefined;
-      await setDoc(
-        targetDocRef,
-        {
-          tenantId: params.tenantId,
-          userId: params.uid,
-          name: params.name,
-          email: params.email,
-          phone: params.phone,
-          role: params.nextRole,
-          vehicleInfo: (params.vehicleInfo ?? '').trim(),
-          isActive: existingData?.isActive ?? true,
-          createdAt: existingData?.createdAt ?? Timestamp.now(),
-        },
-        { merge: true }
-      );
-      // Clean up any accidental extra duplicates
-      for (const extraDoc of existingSnap.docs.slice(1)) {
-        await deleteDoc(extraDoc.ref);
-      }
-    } else {
-      for (const linkedDoc of existingSnap.docs) {
-        await deleteDoc(linkedDoc.ref);
-      }
-    }
-  };
-
-  type UnifiedTeamRow =
-    | {
-        kind: 'admin';
-        key: string;
-        sortRank: number;
-        name: string;
-        admin: UserProfile;
-        linkedStaff: TenantStaff | null;
-      }
-    | { kind: 'staff'; key: string; sortRank: number; name: string; staff: TenantStaff };
-
-  const adminUidSet = new Set(branchAdmins.map((a) => a.uid));
-  const standaloneStaff = branchStaff.filter((s) => !s.userId || !adminUidSet.has(s.userId));
-
-  const unifiedTeam: UnifiedTeamRow[] = [
-    ...branchAdmins.map((admin) => {
-      const linkedStaff = linkedStaffByUid[admin.uid] ?? null;
-      return {
-        kind: 'admin' as const,
-        key: `admin-${admin.uid}`,
-        sortRank: admin.role === 'superadmin' ? 0 : linkedStaff ? 2 : 1,
-        name: admin.displayName,
-        admin,
-        linkedStaff,
-      };
-    }),
-    ...standaloneStaff.map((staff) => ({
-      kind: 'staff' as const,
-      key: `staff-${staff.id}`,
-      sortRank: 2,
-      name: staff.name,
-      staff,
-    })),
-  ].sort((a, b) => a.sortRank - b.sortRank || a.name.localeCompare(b.name));
-
-  const operationalCount =
-    standaloneStaff.length +
-    branchAdmins.filter((a) => Boolean(linkedStaffByUid[a.uid])).length;
-  const pureAdminCount = branchAdmins.length - branchAdmins.filter((a) => Boolean(linkedStaffByUid[a.uid])).length;
-
-  const filteredTeam = unifiedTeam.filter((row) => {
-    const q = search.trim().toLowerCase();
-    if (row.kind === 'admin') {
-      const a = row.admin;
-      const effectiveRole: UnifiedAccountRole = row.linkedStaff ? row.linkedStaff.role : a.role;
-      if (roleFilter !== 'all' && roleFilter !== effectiveRole) return false;
-      if (!q) return true;
-      return (
-        a.displayName.toLowerCase().includes(q) ||
-        a.email.toLowerCase().includes(q) ||
-        (a.phone ?? '').toLowerCase().includes(q) ||
-        (a.nik ?? '').toLowerCase().includes(q) ||
-        (row.linkedStaff?.vehicleInfo ?? '').toLowerCase().includes(q)
-      );
-    }
-    const s = row.staff;
-    if (roleFilter !== 'all' && roleFilter !== s.role) return false;
-    if (!q) return true;
-    return (
-      s.name.toLowerCase().includes(q) ||
-      (s.email ?? '').toLowerCase().includes(q) ||
-      s.phone.toLowerCase().includes(q) ||
-      (s.vehicleInfo ?? '').toLowerCase().includes(q)
-    );
-  });
-
-  const isLoadingTeam = loadingStaff || loadingAdmins;
 
   const handleSaveStaffEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!db || !detailStaff) return;
     if (!editStaffForm.name.trim() || !editStaffForm.phone.trim()) {
       toast.error(
-        tx(
-          'Staff name and WhatsApp / phone number are required.',
-          'Nama dan nomor HP/WhatsApp karyawan wajib diisi.'
-        )
+        tx('Name and WhatsApp / phone number are required.', 'Nama dan nomor HP/WhatsApp wajib diisi.')
       );
       return;
     }
@@ -387,7 +300,6 @@ export function StaffPage() {
       await updateDoc(doc(db, 'tenant_staff', detailStaff.id), {
         name: editStaffForm.name.trim(),
         phone: editStaffForm.phone.trim(),
-        role: editStaffForm.role,
         vehicleInfo: editStaffForm.vehicleInfo.trim(),
       });
       await queryClient.invalidateQueries({ queryKey: ['tenant_staff'] });
@@ -397,9 +309,7 @@ export function StaffPage() {
       setStaffModalTab('detail');
     } catch (error) {
       console.error('Update staff error:', error);
-      toast.error(
-        tx('Failed to save staff changes.', 'Gagal menyimpan perubahan data karyawan.')
-      );
+      toast.error(tx('Failed to save staff changes.', 'Gagal menyimpan perubahan data staff.'));
     } finally {
       setSavingStaffEdit(false);
     }
@@ -421,16 +331,16 @@ export function StaffPage() {
     await deleteDoc(doc(db, 'tenant_staff', staff.id));
     await queryClient.invalidateQueries({ queryKey: ['tenant_staff'] });
     setDetailStaffId(null);
-    toast.success(tx(`Staff ${staff.name} deleted.`, `Karyawan ${staff.name} dihapus.`));
+    toast.success(tx(`Staff ${staff.name} deleted.`, `Staff ${staff.name} dihapus.`));
   };
 
-  const handleSaveAdminEdit = async (e: React.FormEvent) => {
+  const handleSaveAccountEdit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!db || !detailAdmin || !canEditAdminAccount(detailAdmin)) return;
+    if (!db || !detailAccount || !canEditAccount(detailAccount)) return;
 
-    const cleanName = adminEditForm.displayName.trim();
-    const cleanPhone = adminEditForm.phone.trim();
-    const cleanNik = adminEditForm.nik.replace(/\D/g, '');
+    const cleanName = accountEditForm.displayName.trim();
+    const cleanPhone = accountEditForm.phone.trim();
+    const cleanNik = accountEditForm.nik.replace(/\D/g, '');
 
     if (cleanName.length < 2) {
       toast.error(tx('Full name must be at least 2 characters.', 'Nama lengkap minimal 2 karakter.'));
@@ -446,28 +356,17 @@ export function StaffPage() {
       return;
     }
 
-    const needsBranch =
-      adminEditForm.role === 'admin' || isOperationalStaffRole(adminEditForm.role);
-    if (isSuperAdmin && needsBranch && !adminEditForm.tenantId) {
-      toast.error(
-        tx('Select a branch for this staff/admin role.', 'Pilih cabang untuk role staff/admin ini.')
-      );
+    const needsBranch = accountEditForm.role === 'admin' || accountEditForm.role === 'staff';
+    if (isSuperAdmin && needsBranch && !accountEditForm.tenantId) {
+      toast.error(tx('Select a branch for this role.', 'Pilih cabang untuk role ini.'));
       return;
     }
 
-    setSavingAdminEdit(true);
+    setSavingAccountEdit(true);
     try {
-      const isSelf = detailAdmin.uid === userProfile?.uid;
-      const nextUnifiedRole: UnifiedAccountRole = isSelf
-        ? detailAdminLinkedStaff
-          ? detailAdminLinkedStaff.role
-          : detailAdmin.role
-        : adminEditForm.role;
-      const nextUserRole: UserRole = isOperationalStaffRole(nextUnifiedRole)
-        ? 'admin'
-        : nextUnifiedRole;
-      const targetTenantId =
-        nextUserRole === 'admin' ? adminEditForm.tenantId || fallbackTenantId : null;
+      const isSelf = detailAccount.uid === userProfile?.uid;
+      const nextRole = isSelf ? detailAccount.role : accountEditForm.role;
+      const nextNeedsBranch = nextRole === 'admin' || nextRole === 'staff';
 
       const payload: {
         displayName: string;
@@ -481,134 +380,82 @@ export function StaffPage() {
         nik: cleanNik,
       };
       if (isSuperAdmin) {
-        payload.role = nextUserRole;
-        payload.tenantId = targetTenantId;
+        payload.role = nextRole;
+        payload.tenantId = nextNeedsBranch ? accountEditForm.tenantId || fallbackTenantId : null;
       }
 
-      await updateDoc(doc(db, 'users', detailAdmin.uid), payload);
-
-      if (isSuperAdmin) {
-        await syncLinkedStaffRecord({
-          uid: detailAdmin.uid,
-          name: cleanName,
-          email: detailAdmin.email,
-          phone: cleanPhone,
-          nextRole: nextUnifiedRole,
-          tenantId: targetTenantId ?? fallbackTenantId,
-          vehicleInfo: adminEditForm.vehicleInfo,
-        });
-      }
-
+      await updateDoc(doc(db, 'users', detailAccount.uid), payload);
       await queryClient.invalidateQueries({ queryKey: ['staff-users'] });
-      await queryClient.invalidateQueries({ queryKey: ['tenant_staff'] });
       await queryClient.invalidateQueries({ queryKey: ['tenant_admin_staff'] });
       await queryClient.invalidateQueries({ queryKey: ['members'] });
       toast.success(tx(`${cleanName}'s profile saved.`, `Profil ${cleanName} disimpan.`));
       if (payload.role === 'user') {
-        setDetailAdminUid(null);
+        setDetailAccountUid(null);
       } else {
-        setAdminModalTab('detail');
+        setAccountModalTab('detail');
       }
     } catch (error) {
-      console.error('Update admin profile error:', error);
+      console.error('Update account profile error:', error);
       toast.error(
         tx('Failed to save account profile changes.', 'Gagal menyimpan perubahan profil akun.')
       );
     } finally {
-      setSavingAdminEdit(false);
+      setSavingAccountEdit(false);
     }
   };
 
   const handleAssignAccountRole = async () => {
     if (!db || !selectedUserUid) return;
-    const targetUser = assignableUsers.find((u) => u.uid === selectedUserUid);
-    if (!targetUser) return;
-
-    const needsBranch = assignRole === 'admin' || isOperationalStaffRole(assignRole);
+    const needsBranch = assignRole === 'admin' || assignRole === 'staff';
     if (needsBranch && !assignTenantId) {
-      toast.error(
-        tx('Select a branch for this staff/admin role.', 'Pilih cabang untuk role staff/admin ini.')
-      );
+      toast.error(tx('Select a branch for this role.', 'Pilih cabang untuk role ini.'));
       return;
     }
-
-    const nextUserRole: UserRole = isOperationalStaffRole(assignRole) ? 'admin' : assignRole;
-    const targetTenantId = needsBranch ? assignTenantId : null;
-
     try {
       await updateDoc(doc(db, 'users', selectedUserUid), {
-        role: nextUserRole,
-        tenantId: targetTenantId,
+        role: assignRole,
+        tenantId: needsBranch ? assignTenantId : null,
       });
-
-      await syncLinkedStaffRecord({
-        uid: selectedUserUid,
-        name: targetUser.displayName,
-        email: targetUser.email,
-        phone: targetUser.phone || '',
-        nextRole: assignRole,
-        tenantId: targetTenantId ?? fallbackTenantId,
-        vehicleInfo: assignVehicleInfo,
-      });
-
       await queryClient.invalidateQueries({ queryKey: ['staff-users'] });
-      await queryClient.invalidateQueries({ queryKey: ['tenant_staff'] });
       await queryClient.invalidateQueries({ queryKey: ['tenant_admin_staff'] });
       await queryClient.invalidateQueries({ queryKey: ['members'] });
-
       const branchLabel =
         allTenants.find((t) => t.id === assignTenantId)?.name ??
         activeTenant?.name ??
         tx('Branch', 'Cabang');
-      const roleLabel =
-        assignRole === 'superadmin'
-          ? 'Superadmin'
-          : assignRole === 'admin'
-            ? `Branch Admin (${branchLabel})`
-            : isOperationalStaffRole(assignRole)
-              ? `${staffRoleLabels[assignRole]} (${branchLabel})`
-              : 'Member (User)';
-
+      const roleSummary = needsBranch
+        ? `${ROLE_LABELS[assignRole]} (${branchLabel})`
+        : ROLE_LABELS[assignRole];
       toast.success(
-        tx(`Account role updated to ${roleLabel}.`, `Role akun diperbarui menjadi ${roleLabel}.`)
+        tx(`Account role updated to ${roleSummary}.`, `Role akun diperbarui menjadi ${roleSummary}.`)
       );
-      setAssignAdminOpen(false);
+      setAssignRoleOpen(false);
       setSelectedUserUid('');
-      setAssignVehicleInfo('');
     } catch (error) {
       console.error('Assign role error:', error);
       toast.error(tx('Failed to update account role.', 'Gagal memperbarui role akun.'));
     }
   };
 
-  const handleRevokeBranchAdmin = async (adminUser: UserProfile) => {
+  const handleRevokeAccess = async (acc: UserProfile) => {
     if (!db) return;
     try {
-      await updateDoc(doc(db, 'users', adminUser.uid), {
+      await updateDoc(doc(db, 'users', acc.uid), {
         role: 'user',
         tenantId: null,
       });
-      await syncLinkedStaffRecord({
-        uid: adminUser.uid,
-        name: adminUser.displayName,
-        email: adminUser.email,
-        phone: adminUser.phone || '',
-        nextRole: 'user',
-        tenantId: fallbackTenantId,
-      });
       await queryClient.invalidateQueries({ queryKey: ['staff-users'] });
-      await queryClient.invalidateQueries({ queryKey: ['tenant_staff'] });
       await queryClient.invalidateQueries({ queryKey: ['tenant_admin_staff'] });
       await queryClient.invalidateQueries({ queryKey: ['members'] });
-      setDetailAdminUid(null);
+      setDetailAccountUid(null);
       toast.success(
         tx(
-          `Branch staff/admin access revoked from ${adminUser.displayName}.`,
-          `Akses staff/admin cabang dicabut dari ${adminUser.displayName}.`
+          `${ROLE_LABELS[acc.role]} access revoked from ${acc.displayName}.`,
+          `Akses ${ROLE_LABELS[acc.role]} dicabut dari ${acc.displayName}.`
         )
       );
     } catch (error) {
-      console.error('Revoke branch admin error:', error);
+      console.error('Revoke access error:', error);
       toast.error(tx('Failed to revoke access.', 'Gagal mencabut akses.'));
     }
   };
@@ -618,7 +465,7 @@ export function StaffPage() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="space-y-1">
           <h2 className="text-xl font-semibold tracking-tight text-foreground">
-            {tx('Staff & Employees', 'Staff & Karyawan')}
+            {tx('Staff & Admins', 'Staff & Admin')}
           </h2>
           <p className="text-sm text-muted-foreground">
             {tx('Branch', 'Cabang')}{' '}
@@ -627,8 +474,8 @@ export function StaffPage() {
             </span>{' '}
             —{' '}
             {tx(
-              'manage delivery couriers, QC technicians, and branch admin accounts.',
-              'kelola kurir antar-jemput, teknisi QC, dan akun admin cabang.'
+              'manage Superadmin, Admin, and Staff accounts in one directory.',
+              'kelola akun Superadmin, Admin, dan Staff dalam satu daftar.'
             )}
           </p>
         </div>
@@ -650,10 +497,7 @@ export function StaffPage() {
                 strokeWidth={1.5}
               />
               <Input
-                placeholder={tx(
-                  'Search name, email, phone, NIK, plate...',
-                  'Cari nama, email, HP, NIK, plat...'
-                )}
+                placeholder={tx('Search name, email, phone, NIK...', 'Cari nama, email, HP, NIK...')}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="pl-9"
@@ -661,44 +505,42 @@ export function StaffPage() {
             </div>
             <Select
               value={roleFilter}
-              onValueChange={(v) => setRoleFilter(v as typeof roleFilter)}
+              onValueChange={(v) => setRoleFilter(v as TeamFilterRole)}
             >
-              <SelectTrigger className="h-9 w-48">
+              <SelectTrigger className="h-9 w-40">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">
                   {tx('All Roles', 'Semua Role')} ({unifiedTeam.length})
                 </SelectItem>
-                <SelectItem value="superadmin">Superadmin</SelectItem>
-                <SelectItem value="admin">Branch Admin</SelectItem>
-                <SelectItem value="courier">{staffRoleLabels.courier}</SelectItem>
-                <SelectItem value="technician">{staffRoleLabels.technician}</SelectItem>
-                <SelectItem value="admin_ops">{staffRoleLabels.admin_ops}</SelectItem>
+                <SelectItem value="superadmin">Superadmin ({superadminCount})</SelectItem>
+                <SelectItem value="admin">Admin ({adminCount})</SelectItem>
+                <SelectItem value="staff">Staff ({staffCount})</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           <span className="text-xs text-muted-foreground">
-            {unifiedTeam.length} {tx('total', 'total')} · {pureAdminCount}{' '}
-            {tx('admins', 'admin')} · {operationalCount} {tx('operational', 'operasional')}
+            {unifiedTeam.length} {tx('total', 'total')} · {superadminCount} Superadmin ·{' '}
+            {adminCount} Admin · {staffCount} Staff
           </span>
         </div>
 
         {isLoadingTeam ? (
           <div className="rounded-lg border bg-card p-10 text-center text-sm text-muted-foreground">
-            {tx('Loading team directory...', 'Memuat daftar tim & karyawan...')}
+            {tx('Loading team directory...', 'Memuat daftar tim...')}
           </div>
         ) : filteredTeam.length === 0 ? (
           <EmptyState
             icon={Users}
             title={tx(
-              `No matching team members in ${isAllTenants ? 'all branches' : activeTenant?.name}`,
-              `Tidak ada anggota tim yang cocok di ${isAllTenants ? 'semua cabang' : activeTenant?.name}`
+              `No matching accounts in ${isAllTenants ? 'all branches' : activeTenant?.name}`,
+              `Tidak ada akun yang cocok di ${isAllTenants ? 'semua cabang' : activeTenant?.name}`
             )}
             description={tx(
-              'Try clearing your search filter or assign a branch admin / operational staff account.',
-              'Coba hapus filter pencarian atau atur role akun admin / karyawan operasional.'
+              'Try clearing your search filter or assign an account role.',
+              'Coba hapus filter pencarian atau atur role akun.'
             )}
             action={
               isSuperAdmin ? (
@@ -713,47 +555,45 @@ export function StaffPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{tx('Account / Employee', 'Akun / Karyawan')}</TableHead>
-                <TableHead>{tx('Role', 'Role / Jabatan')}</TableHead>
-                <TableHead>{tx('Contact & Details', 'Kontak & Detail')}</TableHead>
+                <TableHead>{tx('Account', 'Akun')}</TableHead>
+                <TableHead>{tx('Role', 'Role')}</TableHead>
+                <TableHead>{tx('Contact & NIK', 'Kontak & NIK')}</TableHead>
                 <TableHead>{tx('Status', 'Status')}</TableHead>
                 <TableHead className="w-10" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredTeam.map((row) => {
-                if (row.kind === 'admin') {
-                  const admin = row.admin;
-                  const linked = row.linkedStaff;
-                  const effectiveRole: UnifiedAccountRole = linked ? linked.role : admin.role;
+                if (row.kind === 'account') {
+                  const acc = row.account;
                   const branchName =
-                    admin.tenantId && tenantById[admin.tenantId]
-                      ? tenantById[admin.tenantId].name
+                    acc.tenantId && tenantById[acc.tenantId]
+                      ? tenantById[acc.tenantId].name
                       : null;
 
                   return (
                     <TableRow
                       key={row.key}
-                      onClick={() => openAdminDetail(admin)}
+                      onClick={() => openAccountDetail(acc)}
                       className="group cursor-pointer"
                     >
                       <TableCell>
                         <div className="flex items-center gap-3">
                           <div
                             className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-medium ${
-                              linked
-                                ? 'bg-muted text-muted-foreground'
-                                : 'bg-zinc-900 text-white'
+                              acc.role === 'superadmin'
+                                ? 'bg-zinc-900 text-white'
+                                : 'bg-muted text-muted-foreground'
                             }`}
                           >
-                            {getInitials(admin.displayName)}
+                            {getInitials(acc.displayName)}
                           </div>
                           <div className="min-w-0">
                             <p className="truncate font-medium text-foreground">
-                              {admin.displayName}
+                              {acc.displayName}
                             </p>
                             <p className="truncate text-xs text-muted-foreground">
-                              {admin.email}
+                              {acc.email}
                               {isAllTenants && branchName ? ` · ${branchName}` : ''}
                             </p>
                           </div>
@@ -762,37 +602,29 @@ export function StaffPage() {
                       <TableCell>
                         <span
                           className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-md px-2 py-0.5 text-xs font-medium ${
-                            effectiveRole === 'superadmin'
+                            acc.role === 'superadmin'
                               ? 'bg-primary text-primary-foreground'
-                              : isOperationalStaffRole(effectiveRole)
-                                ? 'border border-zinc-200 bg-zinc-50 text-zinc-700'
-                                : 'bg-secondary text-secondary-foreground'
+                              : acc.role === 'admin'
+                                ? 'bg-secondary text-secondary-foreground'
+                                : 'border border-zinc-200 bg-zinc-50 text-zinc-700'
                           }`}
                         >
-                          {getEffectiveRoleLabel(effectiveRole, admin.tenantId)}
+                          {ROLE_LABELS[acc.role]}
+                          {isAllTenants && branchName && acc.role !== 'superadmin'
+                            ? ` · ${branchName}`
+                            : ''}
                         </span>
                       </TableCell>
                       <TableCell className="tabular-nums">
                         <div className="text-xs font-medium text-foreground">
-                          {admin.phone || '—'}
+                          {acc.phone || '—'}
                         </div>
                         <div className="font-mono text-[11px] text-muted-foreground">
-                          {linked?.vehicleInfo
-                            ? linked.vehicleInfo
-                            : admin.nik
-                              ? `NIK ${admin.nik}`
-                              : '—'}
+                          {acc.nik ? `NIK ${acc.nik}` : '—'}
                         </div>
                       </TableCell>
                       <TableCell>
-                        <StatusBadge
-                          status={linked && !linked.isActive ? 'suspended' : 'active'}
-                          label={
-                            linked && !linked.isActive
-                              ? tx('Inactive', 'Nonaktif')
-                              : tx('Active', 'Aktif')
-                          }
-                        />
+                        <StatusBadge status="active" label={tx('Active', 'Aktif')} />
                       </TableCell>
                       <TableCell className="text-right">
                         <ChevronRight
@@ -831,7 +663,7 @@ export function StaffPage() {
                     </TableCell>
                     <TableCell>
                       <span className="inline-flex shrink-0 items-center whitespace-nowrap rounded-md border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-xs font-medium text-zinc-700">
-                        {staffRoleLabels[staff.role]}
+                        Staff
                       </span>
                     </TableCell>
                     <TableCell className="tabular-nums">
@@ -860,21 +692,21 @@ export function StaffPage() {
         )}
       </div>
 
-      {/* Assign RBAC Role & Branch Dialog */}
+      {/* Assign Account Role Dialog (4 Roles: User, Staff, Admin, Superadmin) */}
       <Dialog
-        open={assignAdminOpen}
+        open={assignRoleOpen}
         onOpenChange={(open) => {
-          setAssignAdminOpen(open);
+          setAssignRoleOpen(open);
           if (!open) setAccountPickerOpen(false);
         }}
       >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{tx('Assign Account Role & Access', 'Atur Role & Akses Akun')}</DialogTitle>
+            <DialogTitle>{tx('Assign Account Role', 'Atur Role Akun')}</DialogTitle>
             <DialogDescription>
               {tx(
-                'Assign a registered account as Member, Branch Admin, or Superadmin.',
-                'Tetapkan role login akun terdaftar sebagai Member, Branch Admin, atau Superadmin.'
+                'Choose a registered account and assign one of 4 roles: User, Staff, Admin, or Superadmin.',
+                'Pilih akun terdaftar dan tetapkan salah satu dari 4 role: User, Staff, Admin, atau Superadmin.'
               )}
             </DialogDescription>
           </DialogHeader>
@@ -904,7 +736,7 @@ export function StaffPage() {
               </button>
 
               {accountPickerOpen ? (
-                <div className="rounded-md border bg-popover p-2.5 shadow-md space-y-2.5">
+                <div className="space-y-2.5 rounded-md border bg-popover p-2.5 shadow-md">
                   <div className="flex items-center gap-2">
                     <div className="relative flex-1">
                       <Search
@@ -928,12 +760,13 @@ export function StaffPage() {
                         setAccountPage(1);
                       }}
                     >
-                      <SelectTrigger className="h-8 w-24 text-xs">
+                      <SelectTrigger className="h-8 w-28 text-xs">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">{tx('All', 'Semua')}</SelectItem>
                         <SelectItem value="user">User</SelectItem>
+                        <SelectItem value="staff">Staff</SelectItem>
                         <SelectItem value="admin">Admin</SelectItem>
                         <SelectItem value="superadmin">Superadmin</SelectItem>
                       </SelectContent>
@@ -953,13 +786,9 @@ export function StaffPage() {
                             key={u.uid}
                             type="button"
                             onClick={() => {
-                              const linked = linkedStaffByUid[u.uid];
                               setSelectedUserUid(u.uid);
-                              setAssignRole(
-                                linked ? linked.role : u.role === 'user' ? 'admin' : u.role
-                              );
-                              setAssignTenantId(u.tenantId || linked?.tenantId || fallbackTenantId);
-                              setAssignVehicleInfo(linked?.vehicleInfo ?? '');
+                              setAssignRole(u.role === 'user' ? 'staff' : u.role);
+                              setAssignTenantId(u.tenantId || fallbackTenantId);
                               setAccountPickerOpen(false);
                             }}
                             className={`flex w-full items-center justify-between gap-2 px-2.5 py-2 text-left text-xs transition-colors hover:bg-muted/60 ${
@@ -977,7 +806,7 @@ export function StaffPage() {
                             </div>
                             <div className="flex shrink-0 items-center gap-1.5">
                               <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-secondary-foreground">
-                                {u.role}
+                                {ROLE_LABELS[u.role]}
                               </span>
                               {isSelected ? (
                                 <Check className="h-3.5 w-3.5 text-foreground" strokeWidth={2} />
@@ -1029,28 +858,21 @@ export function StaffPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label>{tx('Role / Position', 'Role / Jabatan')}</Label>
-              <Select
-                value={assignRole}
-                onValueChange={(v) => setAssignRole(v as UnifiedAccountRole)}
-              >
+              <Label>{tx('Role', 'Role')}</Label>
+              <Select value={assignRole} onValueChange={(v) => setAssignRole(v as UserRole)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="superadmin">Platform Superadmin</SelectItem>
-                  <SelectItem value="admin">Branch Admin</SelectItem>
-                  <SelectItem value="courier">{staffRoleLabels.courier}</SelectItem>
-                  <SelectItem value="technician">{staffRoleLabels.technician}</SelectItem>
-                  <SelectItem value="admin_ops">{staffRoleLabels.admin_ops}</SelectItem>
-                  <SelectItem value="user">
-                    {tx('Member / Renter (Revoke Staff)', 'Member / Penyewa (Cabut Staff)')}
-                  </SelectItem>
+                  <SelectItem value="user">User</SelectItem>
+                  <SelectItem value="staff">Staff</SelectItem>
+                  <SelectItem value="admin">Admin</SelectItem>
+                  <SelectItem value="superadmin">Superadmin</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
-            {assignRole === 'admin' || isOperationalStaffRole(assignRole) ? (
+            {assignRole === 'admin' || assignRole === 'staff' ? (
               <div className="space-y-1.5">
                 <Label>{tx('Assigned Branch', 'Cabang Ditugaskan')}</Label>
                 <Select value={assignTenantId} onValueChange={setAssignTenantId}>
@@ -1067,20 +889,9 @@ export function StaffPage() {
                 </Select>
               </div>
             ) : null}
-
-            {assignRole === 'courier' ? (
-              <div className="space-y-1.5">
-                <Label>{tx('Vehicle & Plate (Optional)', 'Kendaraan & Plat Nomor (Opsional)')}</Label>
-                <Input
-                  placeholder={tx('e.g. Honda Vario · L 4412 XY', 'mis. Honda Vario · L 4412 XY')}
-                  value={assignVehicleInfo}
-                  onChange={(e) => setAssignVehicleInfo(e.target.value)}
-                />
-              </div>
-            ) : null}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setAssignAdminOpen(false)}>
+            <Button variant="outline" onClick={() => setAssignRoleOpen(false)}>
               {tx('Cancel', 'Batal')}
             </Button>
             <Button disabled={!selectedUserUid} onClick={() => void handleAssignAccountRole()}>
@@ -1090,7 +901,7 @@ export function StaffPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Operational Staff Detail & Edit Dialog */}
+      {/* Legacy tenant_staff Detail & Edit Dialog */}
       <Dialog open={Boolean(detailStaff)} onOpenChange={(o) => !o && setDetailStaffId(null)}>
         <DialogContent className="max-w-md gap-5">
           {detailStaff ? (
@@ -1103,7 +914,7 @@ export function StaffPage() {
                   <div className="min-w-0 flex-1">
                     <DialogTitle className="truncate">{detailStaff.name}</DialogTitle>
                     <DialogDescription className="mt-1">
-                      {staffRoleLabels[detailStaff.role]} ·{' '}
+                      Staff ·{' '}
                       {tenantById[detailStaff.tenantId]?.name ??
                         activeTenant?.name ??
                         tx('Branch', 'Cabang')}
@@ -1133,50 +944,42 @@ export function StaffPage() {
                   <dl className="divide-y divide-border text-sm">
                     {detailStaff.email ? (
                       <div className="flex items-center justify-between gap-4 py-2.5">
-                        <dt className="shrink-0 text-muted-foreground">
-                          {tx('Account Email', 'Email Akun')}
-                        </dt>
-                        <dd className="truncate text-foreground">{detailStaff.email}</dd>
+                        <dt className="shrink-0 text-muted-foreground">Email</dt>
+                        <dd className="truncate font-mono text-xs text-foreground">
+                          {detailStaff.email}
+                        </dd>
                       </div>
                     ) : null}
-                    <div className="flex items-center justify-between py-2.5">
-                      <dt className="text-muted-foreground">{tx('Role', 'Jabatan')}</dt>
-                      <dd className="font-medium text-foreground">
-                        {staffRoleLabels[detailStaff.role]}
-                      </dd>
-                    </div>
                     <div className="flex items-center justify-between py-2.5">
                       <dt className="text-muted-foreground">
                         {tx('WhatsApp / Phone', 'WhatsApp / HP')}
                       </dt>
                       <dd className="tabular-nums font-medium text-foreground">
-                        {detailStaff.phone || '—'}
+                        {detailStaff.phone}
                       </dd>
                     </div>
                     <div className="flex items-center justify-between py-2.5">
-                      <dt className="text-muted-foreground">
-                        {tx('Vehicle / Plate', 'Kendaraan / Plat')}
-                      </dt>
+                      <dt className="text-muted-foreground">{tx('Vehicle / Notes', 'Kendaraan / Catatan')}</dt>
                       <dd className="text-foreground">{detailStaff.vehicleInfo || '—'}</dd>
                     </div>
                     <div className="flex items-center justify-between py-2.5">
-                      <dt className="text-muted-foreground">{tx('Registered', 'Terdaftar')}</dt>
-                      <dd className="text-xs text-foreground">
+                      <dt className="text-muted-foreground">{tx('Added', 'Ditambahkan')}</dt>
+                      <dd className="tabular-nums text-xs text-muted-foreground">
                         {formatDateTime(detailStaff.createdAt)}
                       </dd>
                     </div>
                   </dl>
 
-                  <div className="space-y-2.5 border-t pt-4">
+                  <div className="space-y-3 border-t pt-4">
                     <WhatsAppButton
                       phone={detailStaff.phone}
                       message={tx(
-                        `Hello ${detailStaff.name}, branch operational coordination for ${tenantById[detailStaff.tenantId]?.name ?? activeTenant?.name ?? 'CameraRent'}.`,
-                        `Halo ${detailStaff.name}, koordinasi operasional cabang ${tenantById[detailStaff.tenantId]?.name ?? activeTenant?.name ?? 'CameraRent'}.`
+                        `Hello ${detailStaff.name}, operational coordination from ${tenantById[detailStaff.tenantId]?.name ?? activeTenant?.name ?? 'Branch'}.`,
+                        `Halo ${detailStaff.name}, koordinasi operasional dari ${tenantById[detailStaff.tenantId]?.name ?? activeTenant?.name ?? 'Cabang'}.`
                       )}
                       className="w-full"
                     />
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-2">
                       <Button
                         size="sm"
                         variant="outline"
@@ -1192,7 +995,7 @@ export function StaffPage() {
                         className="text-destructive hover:bg-destructive/10 hover:text-destructive"
                         onClick={() => void handleDeleteStaff(detailStaff)}
                       >
-                        {tx('Delete Employee', 'Hapus Karyawan')}
+                        {tx('Delete', 'Hapus')}
                       </Button>
                     </div>
                   </div>
@@ -1201,62 +1004,49 @@ export function StaffPage() {
                 <TabsContent value="edit" className="mt-4">
                   <form onSubmit={handleSaveStaffEdit} className="space-y-4">
                     <div className="space-y-1.5">
-                      <Label>{tx('Full Name', 'Nama Lengkap')}</Label>
+                      <Label htmlFor="staff-edit-name">{tx('Full Name', 'Nama Lengkap')}</Label>
                       <Input
+                        id="staff-edit-name"
                         value={editStaffForm.name}
                         onChange={(e) =>
                           setEditStaffForm((prev) => ({ ...prev, name: e.target.value }))
                         }
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <Label>{tx('WhatsApp / Phone', 'WhatsApp / HP')}</Label>
-                        <Input
-                          value={editStaffForm.phone}
-                          onChange={(e) =>
-                            setEditStaffForm((prev) => ({ ...prev, phone: e.target.value }))
-                          }
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label>{tx('Role', 'Jabatan')}</Label>
-                        <Select
-                          value={editStaffForm.role}
-                          onValueChange={(v) =>
-                            setEditStaffForm((prev) => ({ ...prev, role: v as StaffRole }))
-                          }
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="courier">{staffRoleLabels.courier}</SelectItem>
-                            <SelectItem value="technician">{staffRoleLabels.technician}</SelectItem>
-                            <SelectItem value="admin_ops">{staffRoleLabels.admin_ops}</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="staff-edit-phone">
+                        {tx('WhatsApp / Phone', 'WhatsApp / HP')}
+                      </Label>
+                      <Input
+                        id="staff-edit-phone"
+                        value={editStaffForm.phone}
+                        onChange={(e) =>
+                          setEditStaffForm((prev) => ({ ...prev, phone: e.target.value }))
+                        }
+                      />
                     </div>
                     <div className="space-y-1.5">
-                      <Label>{tx('Vehicle / Plate Number', 'Kendaraan / Plat Nomor')}</Label>
+                      <Label htmlFor="staff-edit-vehicle">
+                        {tx('Vehicle & Plate (Optional)', 'Kendaraan & Plat Nomor (Opsional)')}
+                      </Label>
                       <Input
+                        id="staff-edit-vehicle"
                         value={editStaffForm.vehicleInfo}
                         onChange={(e) =>
                           setEditStaffForm((prev) => ({ ...prev, vehicleInfo: e.target.value }))
                         }
-                        placeholder={tx('Optional', 'Opsional')}
                       />
                     </div>
                     <div className="flex justify-end gap-2 pt-2">
                       <Button
                         type="button"
                         variant="outline"
+                        size="sm"
                         onClick={() => setStaffModalTab('detail')}
                       >
                         {tx('Cancel', 'Batal')}
                       </Button>
-                      <Button type="submit" disabled={savingStaffEdit}>
+                      <Button type="submit" size="sm" disabled={savingStaffEdit}>
                         {savingStaffEdit
                           ? tx('Saving...', 'Menyimpan...')
                           : tx('Save Changes', 'Simpan Perubahan')}
@@ -1270,34 +1060,32 @@ export function StaffPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Admin / Superadmin Account Detail & Edit Dialog */}
-      <Dialog open={Boolean(detailAdmin)} onOpenChange={(o) => !o && setDetailAdminUid(null)}>
+      {/* Account Detail & Edit Dialog (Superadmin / Admin / Staff) */}
+      <Dialog open={Boolean(detailAccount)} onOpenChange={(o) => !o && setDetailAccountUid(null)}>
         <DialogContent className="max-w-md gap-5">
-          {detailAdmin ? (
+          {detailAccount ? (
             <>
               <DialogHeader>
                 <div className="flex items-start gap-3 pr-6">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium text-foreground">
-                    {getInitials(detailAdmin.displayName)}
+                    {getInitials(detailAccount.displayName)}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <DialogTitle className="truncate">{detailAdmin.displayName}</DialogTitle>
+                    <DialogTitle className="truncate">{detailAccount.displayName}</DialogTitle>
                     <DialogDescription className="mt-1 truncate">
-                      {detailAdmin.email}
+                      {detailAccount.email}
                     </DialogDescription>
                     <div className="mt-2">
                       <span
                         className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${
-                          detailAdmin.role === 'superadmin'
+                          detailAccount.role === 'superadmin'
                             ? 'bg-primary text-primary-foreground'
-                            : 'bg-secondary text-secondary-foreground'
+                            : detailAccount.role === 'admin'
+                              ? 'bg-secondary text-secondary-foreground'
+                              : 'border border-zinc-200 bg-zinc-50 text-zinc-700'
                         }`}
                       >
-                        {detailAdminLinkedStaff
-                          ? staffRoleLabels[detailAdminLinkedStaff.role]
-                          : detailAdmin.role === 'superadmin'
-                            ? 'Superadmin'
-                            : 'Branch Admin'}
+                        {ROLE_LABELS[detailAccount.role]}
                       </span>
                     </div>
                   </div>
@@ -1305,14 +1093,14 @@ export function StaffPage() {
               </DialogHeader>
 
               <Tabs
-                value={adminModalTab}
-                onValueChange={(v) => setAdminModalTab(v as 'detail' | 'edit')}
+                value={accountModalTab}
+                onValueChange={(v) => setAccountModalTab(v as 'detail' | 'edit')}
               >
                 <TabsList
-                  className={`grid w-full ${canEditAdminAccount(detailAdmin) ? 'grid-cols-2' : 'grid-cols-1'}`}
+                  className={`grid w-full ${canEditAccount(detailAccount) ? 'grid-cols-2' : 'grid-cols-1'}`}
                 >
                   <TabsTrigger value="detail">{tx('Details', 'Detail')}</TabsTrigger>
-                  {canEditAdminAccount(detailAdmin) ? (
+                  {canEditAccount(detailAccount) ? (
                     <TabsTrigger value="edit">{tx('Edit Profile', 'Edit Profil')}</TabsTrigger>
                   ) : null}
                 </TabsList>
@@ -1322,9 +1110,9 @@ export function StaffPage() {
                     <div className="flex items-center justify-between py-2.5">
                       <dt className="text-muted-foreground">{tx('Branch', 'Cabang')}</dt>
                       <dd className="font-medium text-foreground">
-                        {detailAdmin.role === 'superadmin'
+                        {detailAccount.role === 'superadmin'
                           ? tx('All Branches (Global)', 'Semua Cabang (Global)')
-                          : allTenants.find((t) => t.id === detailAdmin.tenantId)?.name ??
+                          : allTenants.find((t) => t.id === detailAccount.tenantId)?.name ??
                             activeTenant?.name ??
                             '—'}
                       </dd>
@@ -1334,59 +1122,62 @@ export function StaffPage() {
                         {tx('WhatsApp / Phone', 'WhatsApp / HP')}
                       </dt>
                       <dd className="tabular-nums font-medium text-foreground">
-                        {detailAdmin.phone || '—'}
+                        {detailAccount.phone || '—'}
                       </dd>
                     </div>
                     <div className="flex items-center justify-between py-2.5">
                       <dt className="text-muted-foreground">NIK</dt>
                       <dd className="font-mono text-xs font-medium text-foreground">
-                        {detailAdmin.nik || '—'}
+                        {detailAccount.nik || '—'}
                       </dd>
                     </div>
                     <div className="flex items-center justify-between gap-4 py-2.5">
                       <dt className="shrink-0 text-muted-foreground">UID</dt>
                       <dd className="truncate font-mono text-xs text-muted-foreground">
-                        {detailAdmin.uid}
+                        {detailAccount.uid}
                       </dd>
                     </div>
                   </dl>
 
-                  {detailAdmin.phone || (isSuperAdmin && detailAdmin.role === 'admin') ? (
+                  {detailAccount.phone ||
+                  (isSuperAdmin && detailAccount.role !== 'superadmin') ? (
                     <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-4">
                       <WhatsAppButton
-                        phone={detailAdmin.phone}
+                        phone={detailAccount.phone}
                         message={tx(
-                          `Hello ${detailAdmin.displayName}, CameraRent coordination.`,
-                          `Halo ${detailAdmin.displayName}, koordinasi CameraRent.`
+                          `Hello ${detailAccount.displayName}, CameraRent coordination.`,
+                          `Halo ${detailAccount.displayName}, koordinasi CameraRent.`
                         )}
                         className={
-                          isSuperAdmin && detailAdmin.role === 'admin' ? undefined : 'w-full'
+                          isSuperAdmin && detailAccount.role !== 'superadmin'
+                            ? undefined
+                            : 'w-full'
                         }
                       />
-                      {isSuperAdmin && detailAdmin.role === 'admin' ? (
+                      {isSuperAdmin && detailAccount.role !== 'superadmin' ? (
                         <Button
                           size="sm"
                           variant="ghost"
                           className="ml-auto text-destructive hover:bg-destructive/10 hover:text-destructive"
-                          onClick={() => void handleRevokeBranchAdmin(detailAdmin)}
+                          onClick={() => void handleRevokeAccess(detailAccount)}
                         >
-                          {tx('Revoke Admin Access', 'Cabut Akses Admin')}
+                          {tx('Revoke Access', 'Cabut Akses')}
                         </Button>
                       ) : null}
                     </div>
                   ) : null}
                 </TabsContent>
 
-                {canEditAdminAccount(detailAdmin) ? (
+                {canEditAccount(detailAccount) ? (
                   <TabsContent value="edit" className="mt-4">
-                    <form onSubmit={handleSaveAdminEdit} className="space-y-4">
+                    <form onSubmit={handleSaveAccountEdit} className="space-y-4">
                       <div className="space-y-1.5">
-                        <Label htmlFor="admin-edit-name">{tx('Full Name', 'Nama Lengkap')}</Label>
+                        <Label htmlFor="acc-edit-name">{tx('Full Name', 'Nama Lengkap')}</Label>
                         <Input
-                          id="admin-edit-name"
-                          value={adminEditForm.displayName}
+                          id="acc-edit-name"
+                          value={accountEditForm.displayName}
                           onChange={(e) =>
-                            setAdminEditForm((prev) => ({
+                            setAccountEditForm((prev) => ({
                               ...prev,
                               displayName: e.target.value,
                             }))
@@ -1396,29 +1187,29 @@ export function StaffPage() {
 
                       <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1.5">
-                          <Label htmlFor="admin-edit-phone">
+                          <Label htmlFor="acc-edit-phone">
                             {tx('WhatsApp / Phone', 'WhatsApp / HP')}
                           </Label>
                           <Input
-                            id="admin-edit-phone"
-                            value={adminEditForm.phone}
+                            id="acc-edit-phone"
+                            value={accountEditForm.phone}
                             onChange={(e) =>
-                              setAdminEditForm((prev) => ({ ...prev, phone: e.target.value }))
+                              setAccountEditForm((prev) => ({ ...prev, phone: e.target.value }))
                             }
                             placeholder="0812xxxxxxxx"
                           />
                         </div>
                         <div className="space-y-1.5">
-                          <Label htmlFor="admin-edit-nik">
+                          <Label htmlFor="acc-edit-nik">
                             {tx('National ID / NIK (16 Digits)', 'NIK (16 Digit)')}
                           </Label>
                           <Input
-                            id="admin-edit-nik"
+                            id="acc-edit-nik"
                             className="font-mono text-xs"
                             maxLength={16}
-                            value={adminEditForm.nik}
+                            value={accountEditForm.nik}
                             onChange={(e) =>
-                              setAdminEditForm((prev) => ({
+                              setAccountEditForm((prev) => ({
                                 ...prev,
                                 nik: e.target.value.replace(/\D/g, '').slice(0, 16),
                               }))
@@ -1429,88 +1220,48 @@ export function StaffPage() {
                       </div>
 
                       {isSuperAdmin ? (
-                        <div className="space-y-3">
-                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <div className="space-y-1.5">
+                            <Label>{tx('Role', 'Role')}</Label>
+                            <Select
+                              value={accountEditForm.role}
+                              disabled={detailAccount.uid === userProfile?.uid}
+                              onValueChange={(v) =>
+                                setAccountEditForm((prev) => ({ ...prev, role: v as UserRole }))
+                              }
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="user">User</SelectItem>
+                                <SelectItem value="staff">Staff</SelectItem>
+                                <SelectItem value="admin">Admin</SelectItem>
+                                <SelectItem value="superadmin">Superadmin</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          {accountEditForm.role === 'admin' || accountEditForm.role === 'staff' ? (
                             <div className="space-y-1.5">
-                              <Label>{tx('Role / Position', 'Role / Jabatan')}</Label>
+                              <Label>{tx('Assigned Branch', 'Cabang Ditugaskan')}</Label>
                               <Select
-                                value={adminEditForm.role}
-                                disabled={detailAdmin.uid === userProfile?.uid}
+                                value={accountEditForm.tenantId}
                                 onValueChange={(v) =>
-                                  setAdminEditForm((prev) => ({
-                                    ...prev,
-                                    role: v as UnifiedAccountRole,
-                                  }))
+                                  setAccountEditForm((prev) => ({ ...prev, tenantId: v }))
                                 }
                               >
                                 <SelectTrigger>
-                                  <SelectValue />
+                                  <SelectValue placeholder={tx('Select branch...', 'Pilih cabang...')} />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  <SelectItem value="superadmin">Platform Superadmin</SelectItem>
-                                  <SelectItem value="admin">Branch Admin</SelectItem>
-                                  <SelectItem value="courier">{staffRoleLabels.courier}</SelectItem>
-                                  <SelectItem value="technician">
-                                    {staffRoleLabels.technician}
-                                  </SelectItem>
-                                  <SelectItem value="admin_ops">
-                                    {staffRoleLabels.admin_ops}
-                                  </SelectItem>
-                                  <SelectItem value="user">
-                                    {tx('Member / Renter (Revoke)', 'Member / Penyewa (Cabut)')}
-                                  </SelectItem>
+                                  {allTenants.map((t) => (
+                                    <SelectItem key={t.id} value={t.id}>
+                                      {t.name}
+                                    </SelectItem>
+                                  ))}
                                 </SelectContent>
                               </Select>
-                            </div>
-
-                            {adminEditForm.role === 'admin' ||
-                            isOperationalStaffRole(adminEditForm.role) ? (
-                              <div className="space-y-1.5">
-                                <Label>{tx('Assigned Branch', 'Cabang Ditugaskan')}</Label>
-                                <Select
-                                  value={adminEditForm.tenantId}
-                                  onValueChange={(v) =>
-                                    setAdminEditForm((prev) => ({ ...prev, tenantId: v }))
-                                  }
-                                >
-                                  <SelectTrigger>
-                                    <SelectValue
-                                      placeholder={tx('Select branch...', 'Pilih cabang...')}
-                                    />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {allTenants.map((t) => (
-                                      <SelectItem key={t.id} value={t.id}>
-                                        {t.name}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                            ) : null}
-                          </div>
-
-                          {adminEditForm.role === 'courier' ? (
-                            <div className="space-y-1.5">
-                              <Label>
-                                {tx(
-                                  'Vehicle & Plate (Optional)',
-                                  'Kendaraan & Plat Nomor (Opsional)'
-                                )}
-                              </Label>
-                              <Input
-                                placeholder={tx(
-                                  'e.g. Honda Vario · L 4412 XY',
-                                  'mis. Honda Vario · L 4412 XY'
-                                )}
-                                value={adminEditForm.vehicleInfo}
-                                onChange={(e) =>
-                                  setAdminEditForm((prev) => ({
-                                    ...prev,
-                                    vehicleInfo: e.target.value,
-                                  }))
-                                }
-                              />
                             </div>
                           ) : null}
                         </div>
@@ -1520,12 +1271,13 @@ export function StaffPage() {
                         <Button
                           type="button"
                           variant="outline"
-                          onClick={() => setAdminModalTab('detail')}
+                          size="sm"
+                          onClick={() => setAccountModalTab('detail')}
                         >
                           {tx('Cancel', 'Batal')}
                         </Button>
-                        <Button type="submit" disabled={savingAdminEdit}>
-                          {savingAdminEdit
+                        <Button type="submit" size="sm" disabled={savingAccountEdit}>
+                          {savingAccountEdit
                             ? tx('Saving...', 'Menyimpan...')
                             : tx('Save Changes', 'Simpan Perubahan')}
                         </Button>

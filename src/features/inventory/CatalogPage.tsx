@@ -92,7 +92,10 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
   const activeTenant = scopedTenant ?? defaultTenant;
   const activeTenantId = activeTenant?.id ?? null;
   const isGuest = !userProfile;
-  const isOperator = userProfile?.role === 'superadmin' || userProfile?.role === 'admin';
+  const isOperator =
+    userProfile?.role === 'superadmin' ||
+    userProfile?.role === 'admin' ||
+    userProfile?.role === 'staff';
 
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<string>('all');

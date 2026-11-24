@@ -246,9 +246,11 @@ export function ChatPage({ mode }: ChatPageProps) {
     return () => unsub();
   }, [resolvedChatId]);
 
-  // Subscribe to messages for resolvedChatId
+  const activeThreadExists = Boolean(activeThreadDoc && activeThreadDoc.id === resolvedChatId);
+
+  // Subscribe to messages only after parent chat thread exists (avoids rules error on empty threads)
   useEffect(() => {
-    if (!db || !resolvedChatId) {
+    if (!db || !resolvedChatId || !activeThreadExists) {
       setMessages([]);
       return;
     }
@@ -271,7 +273,7 @@ export function ChatPage({ mode }: ChatPageProps) {
     );
 
     return () => unsub();
-  }, [resolvedChatId]);
+  }, [resolvedChatId, activeThreadExists]);
 
   // Mark incoming unread messages as read automatically (WhatsApp blue checkmarks)
   useEffect(() => {

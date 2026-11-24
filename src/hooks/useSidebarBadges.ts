@@ -29,7 +29,8 @@ export function useSidebarBadges(): SidebarBadgeCounts {
   const { userProfile } = useAuth();
   const { activeTenantId, isAllTenants } = useTenant();
   const role = userProfile?.role ?? 'user';
-  const isStaff = role === 'superadmin' || role === 'admin';
+  const isStaff = role === 'superadmin' || role === 'admin' || role === 'staff';
+  const canManageMembers = role === 'superadmin' || role === 'admin';
   const scopeKey = isStaff ? (isAllTenants && role === 'superadmin' ? 'all' : activeTenantId ?? 'none') : userProfile?.uid ?? 'guest';
 
   const { data } = useQuery<SidebarBadgeCounts>({
@@ -90,7 +91,7 @@ export function useSidebarBadges(): SidebarBadgeCounts {
       const [bookingsSnap, chatsSnap, membersSnap] = await Promise.all([
         getDocs(bookingsQuery),
         getDocs(chatsQuery),
-        getDocs(pendingMembersQuery),
+        canManageMembers ? getDocs(pendingMembersQuery) : Promise.resolve(null),
       ]);
 
       const bookings = bookingsSnap.docs.map((d) => d.data() as Booking);
@@ -112,7 +113,9 @@ export function useSidebarBadges(): SidebarBadgeCounts {
         .map((d) => d.data() as ChatThread)
         .filter((c) => Boolean(c.lastSenderId && c.lastSenderId !== userProfile.uid)).length;
 
-      const pendingMembers = membersSnap.docs.filter((d) => d.data().role === 'user').length;
+      const pendingMembers = membersSnap
+        ? membersSnap.docs.filter((d) => d.data().role === 'user').length
+        : 0;
 
       return {
         bookings: pendingBookings,

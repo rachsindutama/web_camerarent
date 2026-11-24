@@ -54,7 +54,8 @@ export function useTenant() {
     [isSuperAdmin, allTenants]
   );
 
-  const isLockedToTenant = userProfile?.role === 'admin' && Boolean(userProfile.tenantId);
+  const isLockedToTenant =
+    (userProfile?.role === 'admin' || userProfile?.role === 'staff') && Boolean(userProfile.tenantId);
 
   const {
     visitorLocation,

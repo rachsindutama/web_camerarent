@@ -12,6 +12,8 @@ export function getDefaultRouteForRole(role: UserRole): string {
       return '/superadmin/tenants';
     case 'admin':
       return '/admin/inventory';
+    case 'staff':
+      return '/admin/bookings';
     case 'user':
     default:
       return '/';
