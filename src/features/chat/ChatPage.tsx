@@ -196,6 +196,11 @@ export function ChatPage({ mode }: ChatPageProps) {
     },
   });
 
+  // Reset selected chat thread when branch scope changes
+  useEffect(() => {
+    setActiveChatId(null);
+  }, [activeTenantId, isAdminAllTenants]);
+
   // Admin: subscribe to all threads for activeTenantId (or all branches for Superadmin)
   useEffect(() => {
     if (mode !== 'admin' || !db || (!isAdminAllTenants && !activeTenantId)) return;
@@ -210,9 +215,6 @@ export function ChatPage({ mode }: ChatPageProps) {
           .map((d) => ({ id: d.id, ...d.data() }) as ChatThread)
           .sort((a, b) => (b.updatedAt?.toMillis?.() ?? 0) - (a.updatedAt?.toMillis?.() ?? 0));
         setThreads(list);
-        if (!activeChatId && list.length > 0) {
-          setActiveChatId(list[0].id);
-        }
       },
       (err) => {
         console.error('Chat threads listener error:', err);
@@ -220,7 +222,7 @@ export function ChatPage({ mode }: ChatPageProps) {
     );
 
     return () => unsub();
-  }, [mode, isAdminAllTenants, activeTenantId, activeChatId]);
+  }, [mode, isAdminAllTenants, activeTenantId]);
 
   // Subscribe to the active thread metadata (for clearedAtByUser)
   useEffect(() => {
@@ -641,6 +643,9 @@ export function ChatPage({ mode }: ChatPageProps) {
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex min-w-0 items-center gap-1.5">
+                          {thread.lastSenderId && thread.lastSenderId !== userProfile?.uid ? (
+                            <span className="h-2 w-2 shrink-0 rounded-full bg-zinc-900" />
+                          ) : null}
                           <span className="truncate text-xs font-medium text-zinc-900">
                             {member?.displayName ?? `USER // ${thread.userId.slice(0, 10)}`}
                           </span>
@@ -672,57 +677,93 @@ export function ChatPage({ mode }: ChatPageProps) {
         <div
           className={`flex min-h-0 flex-col ${mode === 'admin' ? 'lg:col-span-8' : 'lg:col-span-12'}`}
         >
-          {/* Chat Header */}
-          <div className="flex items-center justify-between gap-3 border-b border-zinc-200 bg-white px-4 py-2.5">
-            <div className="flex min-w-0 items-center gap-2">
-              <span className="truncate text-xs font-semibold text-zinc-950">
-                {activeParticipantName}
-              </span>
-              {activeParticipantTier === 'premium' ? <MembershipBadge tier="premium" /> : null}
-              <span className="hidden rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 font-mono text-[9px] uppercase text-emerald-700 sm:inline-block">
-                LIVE
-              </span>
+          {!resolvedChatId ? (
+            <div className="flex flex-1 flex-col items-center justify-center bg-zinc-50/40 p-8 text-center">
+              <div className="flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-400">
+                <MessageSquare className="h-5 w-5" strokeWidth={1.5} />
+              </div>
+              <p className="mt-3 text-sm font-medium text-zinc-900">
+                {tx('Select a conversation', 'Pilih percakapan')}
+              </p>
+              <p className="mt-1 max-w-xs text-xs text-zinc-500">
+                {tx(
+                  'Choose a client thread from the list on the left to read messages and reply.',
+                  'Klik salah satu percakapan klien di sebelah kiri untuk membaca pesan dan membalas.'
+                )}
+              </p>
             </div>
+          ) : (
+            <>
+              {/* Chat Header */}
+              <div className="flex items-center justify-between gap-3 border-b border-zinc-200 bg-white px-4 py-2.5">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="truncate text-xs font-semibold text-zinc-950">
+                    {activeParticipantName}
+                  </span>
+                  {activeParticipantTier === 'premium' ? <MembershipBadge tier="premium" /> : null}
+                  <span className="hidden rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 font-mono text-[9px] uppercase text-emerald-700 sm:inline-block">
+                    LIVE
+                  </span>
+                </div>
 
-            <div className="flex items-center gap-1">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
-                onClick={() => {
-                  setShowMsgSearch((v) => !v);
-                  if (showMsgSearch) setMsgSearch('');
-                }}
-                title={tx('Search messages in conversation', 'Cari pesan dalam percakapan')}
-              >
-                <Search className="h-3.5 w-3.5 text-zinc-500" strokeWidth={1.5} />
-              </Button>
-
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
+                <div className="flex items-center gap-1">
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon"
                     className="h-7 w-7"
-                    disabled={!resolvedChatId}
+                    onClick={() => {
+                      setShowMsgSearch((v) => !v);
+                      if (showMsgSearch) setMsgSearch('');
+                    }}
+                    title={tx('Search messages in conversation', 'Cari pesan dalam percakapan')}
                   >
-                    <MoreVertical className="h-3.5 w-3.5 text-zinc-500" strokeWidth={1.5} />
+                    <Search className="h-3.5 w-3.5 text-zinc-500" strokeWidth={1.5} />
                   </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem
-                    onSelect={() => setClearChatConfirmOpen(true)}
-                    className="cursor-pointer text-red-700 focus:bg-red-50 focus:text-red-800"
-                  >
-                    <Eraser className="h-3.5 w-3.5" strokeWidth={1.5} />
-                    <span>{tx('Clear Chat (Delete for Me)', 'Bersihkan Chat (Hapus untuk Saya)')}</span>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </div>
+
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        disabled={!resolvedChatId}
+                      >
+                        <MoreVertical className="h-3.5 w-3.5 text-zinc-500" strokeWidth={1.5} />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        onSelect={() => setClearChatConfirmOpen(true)}
+                        className="cursor-pointer text-red-700 focus:bg-red-50 focus:text-red-800"
+                      >
+                        <Eraser className="h-3.5 w-3.5" strokeWidth={1.5} />
+                        <span>{tx('Clear Chat (Delete for Me)', 'Bersihkan Chat (Hapus untuk Saya)')}</span>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+
+                  {mode === 'admin' ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => {
+                        setActiveChatId(null);
+                        setShowMsgSearch(false);
+                        setMsgSearch('');
+                        setReplyingTo(null);
+                        setEditingMsg(null);
+                      }}
+                      title={tx('Close conversation', 'Tutup percakapan')}
+                    >
+                      <X className="h-3.5 w-3.5 text-zinc-500" strokeWidth={1.5} />
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
 
           {/* Search in thread bar */}
           {showMsgSearch ? (
@@ -1218,6 +1259,8 @@ export function ChatPage({ mode }: ChatPageProps) {
               </Button>
             </div>
           </form>
+            </>
+          )}
         </div>
       </div>
 
