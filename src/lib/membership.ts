@@ -43,6 +43,7 @@ export interface PlatformSettings {
   defaultBufferHours: number;
   defaultOverdueGraceMinutes: number;
   defaultOverdueHourlyRatePercent: number;
+  paymentExpiryHours: number;
   seo: SiteSeoConfig;
 }
 
@@ -96,6 +97,7 @@ export const DEFAULT_PLATFORM_SETTINGS: PlatformSettings = {
   defaultBufferHours: 3,
   defaultOverdueGraceMinutes: 60,
   defaultOverdueHourlyRatePercent: 10,
+  paymentExpiryHours: 2,
   seo: DEFAULT_SITE_SEO,
 };
 
@@ -197,6 +199,12 @@ export function normalizePlatformSettings(
       1,
       100,
       DEFAULT_PLATFORM_SETTINGS.defaultOverdueHourlyRatePercent
+    ),
+    paymentExpiryHours: clampNum(
+      r.paymentExpiryHours,
+      1,
+      72,
+      DEFAULT_PLATFORM_SETTINGS.paymentExpiryHours
     ),
     seo: {
       siteName: pickStr(rawSeo.siteName, DEFAULT_SITE_SEO.siteName),

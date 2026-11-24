@@ -33,6 +33,7 @@ import { useI18n } from '@/hooks/useI18n';
 import { usePlatformSettings } from '@/hooks/usePlatformSettings';
 import { useTenant } from '@/hooks/useTenant';
 import { seedSampleRentalHouse } from '@/features/superadmin/seedDemoData';
+import { BranchComparisonChart, TopRentedGearChart } from '@/components/shared/AnalyticsCharts';
 import { CurrencyText } from '@/components/shared/CurrencyText';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { LocationPickerModal } from '@/components/shared/LocationPickerModal';
@@ -534,6 +535,20 @@ export function TenantsPage() {
             </p>
           </CardContent>
         </Card>
+      </div>
+
+      {/* Cross-Branch Analytics */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+        <div className="lg:col-span-7">
+          <BranchComparisonChart
+            tenants={allTenants}
+            transactions={transactions}
+            bookings={bookings}
+          />
+        </div>
+        <div className="lg:col-span-5">
+          <TopRentedGearChart bookings={bookings} limit={5} />
+        </div>
       </div>
 
       {/* Filter & Count */}

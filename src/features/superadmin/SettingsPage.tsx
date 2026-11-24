@@ -1158,7 +1158,7 @@ export function SettingsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
               <div className="space-y-1.5">
                 <Label htmlFor="global-delivery-rate">
                   {tx('Delivery Rate (Rp / km)', 'Tarif Ongkir (Rp / km)')}
@@ -1240,6 +1240,26 @@ export function SettingsPage() {
                         100,
                         Math.max(1, Number(e.target.value) || 1)
                       ),
+                    }))
+                  }
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="global-payment-expiry">
+                  {tx('Payment Auto-Expiry (hrs)', 'Batas Bayar Auto-Batal (jam)')}
+                </Label>
+                <Input
+                  id="global-payment-expiry"
+                  type="number"
+                  min={1}
+                  max={72}
+                  className="tabular-nums"
+                  value={draft.paymentExpiryHours}
+                  onChange={(e) =>
+                    setDraft((prev) => ({
+                      ...prev,
+                      paymentExpiryHours: Math.min(72, Math.max(1, Number(e.target.value) || 1)),
                     }))
                   }
                 />

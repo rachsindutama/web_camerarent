@@ -45,6 +45,7 @@ import { LocationPickerModal } from '@/components/shared/LocationPickerModal';
 import { MembershipBadge } from '@/components/shared/MembershipBadge';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { EmptyState } from '@/components/shared/EmptyState';
+import { ProductDetailModal } from '@/features/inventory/ProductDetailModal';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -101,6 +102,7 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
   const [locatingShareloc, setLocatingShareloc] = useState(false);
   const [previewImages, setPreviewImages] = useState<PreviewImageItem[]>([]);
   const [previewTitle, setPreviewTitle] = useState('Foto Alat');
+  const [detailEquipmentId, setDetailEquipmentId] = useState<string | null>(null);
   const [brokenImageIds, setBrokenImageIds] = useState<Record<string, boolean>>({});
 
   // Assisted / Walk-in Booking: Admin & Superadmin pick target Member
@@ -743,19 +745,9 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
                           {coverImage ? (
                             <button
                               type="button"
-                              onClick={() => {
-                                setPreviewTitle(eq.name);
-                                setPreviewImages(
-                                  (eq.images ?? []).map((url, idx) => ({
-                                    url,
-                                    label: `${eq.brand} ${eq.name}${
-                                      (eq.images?.length ?? 0) > 1 ? ` #${idx + 1}` : ''
-                                    }`,
-                                  }))
-                                );
-                              }}
+                              onClick={() => setDetailEquipmentId(eq.id)}
                               className="group relative block h-full w-full focus:outline-none"
-                              title={tx('Click to zoom photo', 'Klik untuk memperbesar foto')}
+                              title={tx('View specifications & gallery', 'Lihat spesifikasi & galeri')}
                             >
                               <img
                                 src={coverImage}
@@ -768,13 +760,17 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
                               />
                               <span className="pointer-events-none absolute bottom-2 right-2 inline-flex items-center gap-1 rounded-md border bg-background/90 px-1.5 py-0.5 text-[10px] font-medium text-foreground opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
                                 <ZoomIn className="h-3 w-3" strokeWidth={1.5} />
-                                {tx('Preview', 'Pratinjau')}
+                                {tx('Details & Gallery', 'Detail & Galeri')}
                               </span>
                             </button>
                           ) : (
-                            <div className="flex h-full w-full items-center justify-center bg-muted/40 text-muted-foreground/40">
+                            <button
+                              type="button"
+                              onClick={() => setDetailEquipmentId(eq.id)}
+                              className="flex h-full w-full items-center justify-center bg-muted/40 text-muted-foreground/40 transition-colors hover:bg-muted/60"
+                            >
                               <Camera className="h-10 w-10" strokeWidth={1.25} />
-                            </div>
+                            </button>
                           )}
 
                           <span className="pointer-events-none absolute left-2.5 top-2.5 rounded-md border bg-background/95 px-2 py-0.5 text-[11px] font-medium capitalize text-foreground shadow-sm">
@@ -806,9 +802,15 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
                               <p className="text-xs text-muted-foreground">
                                 {eq.brand} · {activeTenant.name}
                               </p>
-                              <h2 className="mt-0.5 line-clamp-2 text-sm font-semibold text-foreground">
-                                {eq.name}
-                              </h2>
+                              <button
+                                type="button"
+                                onClick={() => setDetailEquipmentId(eq.id)}
+                                className="mt-0.5 block text-left"
+                              >
+                                <h2 className="line-clamp-2 text-sm font-semibold text-foreground transition-colors hover:underline">
+                                  {eq.name}
+                                </h2>
+                              </button>
                             </div>
 
                             {specEntries.length > 0 ? (
@@ -1621,6 +1623,42 @@ export function CatalogPage({ onRequireAuth }: CatalogPageProps = {}) {
         images={previewImages}
         title={previewTitle}
       />
+
+      {(() => {
+        const detailEq = detailEquipmentId ? equipmentById[detailEquipmentId] ?? null : null;
+        const availCount = detailEq ? (availabilityMap[detailEq.id] ?? []).length : 0;
+        const inCart = detailEq ? items.find((i) => i.equipmentId === detailEq.id)?.quantity ?? 0 : 0;
+        const canAddDetail = Boolean(detailEq && isValidRange && availCount > inCart);
+        return (
+          <ProductDetailModal
+            equipment={detailEq}
+            tenant={activeTenant}
+            availableUnitCount={availCount}
+            inCartQty={inCart}
+            canAdd={canAddDetail}
+            rentalDays={rentalDays}
+            memberTier={memberTier}
+            open={Boolean(detailEq)}
+            onOpenChange={(open) => {
+              if (!open) setDetailEquipmentId(null);
+            }}
+            onAdd={() => {
+              if (!detailEq) return;
+              addEquipment({
+                equipmentId: detailEq.id,
+                name: detailEq.name,
+                brand: detailEq.brand,
+                dailyRate: detailEq.dailyRate,
+                depositAmount: detailEq.depositAmount,
+              });
+            }}
+            onDecrement={() => {
+              if (!detailEq) return;
+              decrementEquipment(detailEq.id);
+            }}
+          />
+        );
+      })()}
       </div>
     </div>
   );

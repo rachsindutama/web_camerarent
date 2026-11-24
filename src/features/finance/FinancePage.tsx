@@ -22,6 +22,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useI18n } from '@/hooks/useI18n';
 import { useTenant } from '@/hooks/useTenant';
 import { BookingDetailModal } from '@/features/bookings/BookingDetailModal';
+import { RevenueExpenseChart, TopRentedGearChart } from '@/components/shared/AnalyticsCharts';
 import { CurrencyText } from '@/components/shared/CurrencyText';
 import { ImagePreviewModal } from '@/components/shared/ImagePreviewModal';
 import { SerialNumberTag } from '@/components/shared/SerialNumberTag';
@@ -377,6 +378,16 @@ export function FinancePage() {
             </p>
           </CardContent>
         </Card>
+      </div>
+
+      {/* Analytics Visuals: Revenue vs Expense & Top Rented Gear */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+        <div className="lg:col-span-7">
+          <RevenueExpenseChart transactions={transactions} />
+        </div>
+        <div className="lg:col-span-5">
+          <TopRentedGearChart bookings={bookings} />
+        </div>
       </div>
 
       <Tabs value={categoryTab} onValueChange={(v) => setCategoryTab(v as typeof categoryTab)}>

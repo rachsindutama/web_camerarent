@@ -15,11 +15,13 @@ import {
   CheckCircle2,
   ClipboardCheck,
   Clock,
+  FileDown,
   ShieldAlert,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { db } from '@/lib/firebase';
 import { syncAvailabilitySlotStatus } from '@/lib/availability';
+import { generateHandoverPdf } from '@/lib/handoverPdf';
 import { formatDateTime } from '@/lib/utils';
 import { calculateOverdueFine } from '@/hooks/useOverdueCalc';
 import { useAuth } from '@/hooks/useAuth';
@@ -503,22 +505,37 @@ export function InspectionsPage() {
                         />
                       ) : null}
                     </div>
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        setHandoverTarget(booking);
-                        setHandoverNotes(
-                          booking.preRentalChecklist?.notes ??
-                            'Sensor clean, shutter count verified, batteries 100%, optical elements clear.'
-                        );
-                        setHandoverPhotosText(
-                          (booking.preRentalChecklist?.photos ?? []).join('\n')
-                        );
-                      }}
-                    >
-                      <ClipboardCheck className="h-3.5 w-3.5" strokeWidth={1.5} />
-                      {tx('Inspect & Dispatch', 'Inspeksi & Serahkan')}
-                    </Button>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() =>
+                          void generateHandoverPdf({
+                            booking,
+                            tenant: tenantById[booking.tenantId] ?? activeTenant,
+                          })
+                        }
+                      >
+                        <FileDown className="h-3.5 w-3.5" strokeWidth={1.5} />
+                        {tx('BAST PDF', 'BAST PDF')}
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          setHandoverTarget(booking);
+                          setHandoverNotes(
+                            booking.preRentalChecklist?.notes ??
+                              'Sensor clean, shutter count verified, batteries 100%, optical elements clear.'
+                          );
+                          setHandoverPhotosText(
+                            (booking.preRentalChecklist?.photos ?? []).join('\n')
+                          );
+                        }}
+                      >
+                        <ClipboardCheck className="h-3.5 w-3.5" strokeWidth={1.5} />
+                        {tx('Inspect & Dispatch', 'Inspeksi & Serahkan')}
+                      </Button>
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent className="flex flex-wrap items-center justify-between gap-3 pt-3 text-xs">
@@ -584,6 +601,19 @@ export function InspectionsPage() {
                         ) : null}
                       </div>
                       <div className="flex flex-wrap items-center gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            void generateHandoverPdf({
+                              booking,
+                              tenant: bookingTenant,
+                            })
+                          }
+                        >
+                          <FileDown className="h-3.5 w-3.5" strokeWidth={1.5} />
+                          BAST
+                        </Button>
                         {overdue.isOverdue && booking.bookingStatus !== 'overdue' ? (
                           <Button
                             size="sm"

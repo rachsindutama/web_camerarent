@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   collection,
@@ -14,17 +14,21 @@ import {
   CalendarClock,
   CheckCircle2,
   ClipboardCheck,
+  Clock,
   Eye,
   FileDown,
   Upload,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { db, storage } from '@/lib/firebase';
+import { expireStalePendingBookings, getPaymentExpiryInfo } from '@/lib/bookingExpiry';
+import { generateHandoverPdf } from '@/lib/handoverPdf';
 import { formatDateTime } from '@/lib/utils';
 import { generateInvoicePdf } from '@/lib/invoicePdf';
 import { useAuth } from '@/hooks/useAuth';
 import { useI18n } from '@/hooks/useI18n';
 import { calculateOverdueFine } from '@/hooks/useOverdueCalc';
+import { usePlatformSettings } from '@/hooks/usePlatformSettings';
 import { useTenant } from '@/hooks/useTenant';
 import { BookingDetailModal } from '@/features/bookings/BookingDetailModal';
 import { CurrencyText } from '@/components/shared/CurrencyText';
@@ -51,12 +55,20 @@ export function MyBookingsPage() {
   const queryClient = useQueryClient();
   const { userProfile } = useAuth();
   const { tx } = useI18n();
+  const { settings } = usePlatformSettings();
   const { allTenants } = useTenant();
   const [proofTarget, setProofTarget] = useState<Booking | null>(null);
   const [detailBookingId, setDetailBookingId] = useState<string | null>(null);
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [proofUrlInput, setProofUrlInput] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const expiredSweepIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const { data: bookings = [], isLoading } = useQuery<Booking[]>({
     queryKey: ['bookings', 'user', userProfile?.uid],
@@ -71,6 +83,32 @@ export function MyBookingsPage() {
         .sort((a, b) => b.createdAt.toMillis() - a.createdAt.toMillis());
     },
   });
+
+  useEffect(() => {
+    const candidates = bookings.filter(
+      (b) =>
+        !expiredSweepIdsRef.current.has(b.id) &&
+        getPaymentExpiryInfo(b, settings.paymentExpiryHours, nowMs).isExpired
+    );
+    if (candidates.length === 0) return;
+
+    candidates.forEach((b) => expiredSweepIdsRef.current.add(b.id));
+    void expireStalePendingBookings(candidates, settings.paymentExpiryHours, nowMs).then(
+      async (expiredInvoices) => {
+        if (expiredInvoices.length > 0) {
+          await queryClient.invalidateQueries({ queryKey: ['bookings'] });
+          await queryClient.invalidateQueries({ queryKey: ['availability'] });
+          await queryClient.invalidateQueries({ queryKey: ['sidebar-badges'] });
+          toast.info(
+            tx(
+              `${expiredInvoices.length} unpaid booking(s) expired and were auto-cancelled (${expiredInvoices.join(', ')}).`,
+              `${expiredInvoices.length} pesanan belum dibayar kedaluwarsa & otomatis dibatalkan (${expiredInvoices.join(', ')}).`
+            )
+          );
+        }
+      }
+    );
+  }, [bookings, nowMs, queryClient, settings.paymentExpiryHours, tx]);
 
   const handleUploadProof = async () => {
     if (!db || !proofTarget || !userProfile) return;
@@ -159,6 +197,7 @@ export function MyBookingsPage() {
           {bookings.map((booking) => {
             const tenant = allTenants.find((t) => t.id === booking.tenantId) ?? null;
             const overdue = calculateOverdueFine(booking, tenant);
+            const expiry = getPaymentExpiryInfo(booking, settings.paymentExpiryHours, nowMs);
             const needsHandoverConfirm =
               Boolean(booking.preRentalChecklist) &&
               !booking.preRentalChecklist?.confirmedByUserAt;
@@ -190,6 +229,18 @@ export function MyBookingsPage() {
                           status="waiting_verification"
                           label={tx('Receipt Pending Review', 'Bukti Menunggu Verifikasi')}
                         />
+                      ) : null}
+                      {expiry.applies ? (
+                        <span
+                          className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] font-medium ${
+                            expiry.isUrgent
+                              ? 'border-amber-300 bg-amber-50 text-amber-800'
+                              : 'border-zinc-200 bg-zinc-50 text-zinc-600'
+                          }`}
+                        >
+                          <Clock className="h-3 w-3" strokeWidth={1.5} />
+                          {tx(expiry.labelEn, expiry.labelId)}
+                        </span>
                       ) : null}
                     </div>
                     <div
@@ -240,6 +291,21 @@ export function MyBookingsPage() {
                         <FileDown className="h-3.5 w-3.5" strokeWidth={1.5} />
                         {tx('A4 Invoice PDF', 'Invoice PDF A4')}
                       </Button>
+
+                      {['confirmed', 'active_rent', 'overdue', 'completed'].includes(
+                        booking.bookingStatus
+                      ) ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            void generateHandoverPdf({ booking, tenant, renter: userProfile })
+                          }
+                        >
+                          <ClipboardCheck className="h-3.5 w-3.5" strokeWidth={1.5} />
+                          BAST
+                        </Button>
+                      ) : null}
                     </div>
                   </div>
                 </CardHeader>

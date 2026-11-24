@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { calculateRentalDays } from '@/lib/availability';
 import { buildGoogleMapsDirectionUrl } from '@/lib/geo';
+import { generateHandoverPdf } from '@/lib/handoverPdf';
 import { generateInvoicePdf } from '@/lib/invoicePdf';
 import { formatDateTime } from '@/lib/utils';
 import { useI18n } from '@/hooks/useI18n';
@@ -619,16 +620,32 @@ export function BookingDetailModal({
 
           {/* Sticky Footer */}
           <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-zinc-200 bg-zinc-50/80 px-6 py-3.5">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="bg-white"
-              onClick={() => generateInvoicePdf({ booking, tenant, renter })}
-            >
-              <FileDown className="h-3.5 w-3.5" strokeWidth={1.5} />
-              {tx('Download A4 Invoice PDF', 'Unduh Invoice PDF A4')}
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="bg-white"
+                onClick={() => generateInvoicePdf({ booking, tenant, renter })}
+              >
+                <FileDown className="h-3.5 w-3.5" strokeWidth={1.5} />
+                {tx('Download A4 Invoice PDF', 'Unduh Invoice PDF A4')}
+              </Button>
+              {['confirmed', 'active_rent', 'overdue', 'completed'].includes(
+                booking.bookingStatus
+              ) ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="bg-white"
+                  onClick={() => void generateHandoverPdf({ booking, tenant, renter })}
+                >
+                  <ClipboardCheck className="h-3.5 w-3.5" strokeWidth={1.5} />
+                  {tx('Download BAST PDF', 'Unduh BAST PDF')}
+                </Button>
+              ) : null}
+            </div>
 
             <div className="flex flex-wrap items-center gap-2">
               {footerActions}

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   addDoc,
@@ -13,6 +13,7 @@ import {
 import {
   CalendarClock,
   CheckCircle2,
+  Clock,
   Eye,
   FileDown,
   XCircle,
@@ -20,10 +21,12 @@ import {
 import { toast } from 'sonner';
 import { db } from '@/lib/firebase';
 import { syncAvailabilitySlotStatus } from '@/lib/availability';
+import { expireStalePendingBookings, getPaymentExpiryInfo } from '@/lib/bookingExpiry';
 import { formatDateTime } from '@/lib/utils';
 import { generateInvoicePdf } from '@/lib/invoicePdf';
 import { useAuth } from '@/hooks/useAuth';
 import { useI18n } from '@/hooks/useI18n';
+import { usePlatformSettings } from '@/hooks/usePlatformSettings';
 import { useTenant } from '@/hooks/useTenant';
 import { BookingDetailModal } from '@/features/bookings/BookingDetailModal';
 import { CurrencyText } from '@/components/shared/CurrencyText';
@@ -48,11 +51,19 @@ export function AdminBookingsPage() {
   const queryClient = useQueryClient();
   const { userProfile } = useAuth();
   const { tx } = useI18n();
+  const { settings } = usePlatformSettings();
   const { activeTenantId, activeTenant, isAllTenants, tenantById } = useTenant();
   const [statusFilter, setStatusFilter] = useState<'all' | BookingStatus>('all');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [detailBookingId, setDetailBookingId] = useState<string | null>(null);
   const [receiptPreview, setReceiptPreview] = useState<{ url: string; label: string } | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const expiredSweepIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const { data: rentersById = {} } = useQuery<Record<string, UserProfile>>({
     queryKey: ['admin-bookings', 'renters'],
@@ -82,6 +93,32 @@ export function AdminBookingsPage() {
         .sort((a, b) => b.createdAt.toMillis() - a.createdAt.toMillis());
     },
   });
+
+  useEffect(() => {
+    const candidates = bookings.filter(
+      (b) =>
+        !expiredSweepIdsRef.current.has(b.id) &&
+        getPaymentExpiryInfo(b, settings.paymentExpiryHours, nowMs).isExpired
+    );
+    if (candidates.length === 0) return;
+
+    candidates.forEach((b) => expiredSweepIdsRef.current.add(b.id));
+    void expireStalePendingBookings(candidates, settings.paymentExpiryHours, nowMs).then(
+      async (expiredInvoices) => {
+        if (expiredInvoices.length > 0) {
+          await queryClient.invalidateQueries({ queryKey: ['bookings'] });
+          await queryClient.invalidateQueries({ queryKey: ['availability'] });
+          await queryClient.invalidateQueries({ queryKey: ['sidebar-badges'] });
+          toast.info(
+            tx(
+              `${expiredInvoices.length} expired unpaid booking(s) auto-cancelled & units released (${expiredInvoices.join(', ')}).`,
+              `${expiredInvoices.length} booking belum dibayar kedaluwarsa & unit dilepas otomatis (${expiredInvoices.join(', ')}).`
+            )
+          );
+        }
+      }
+    );
+  }, [bookings, nowMs, queryClient, settings.paymentExpiryHours, tx]);
 
   if (!isAllTenants && (!activeTenantId || !activeTenant)) {
     return (
@@ -327,6 +364,22 @@ export function AdminBookingsPage() {
                     <span className="font-mono text-[10px] uppercase text-zinc-400">
                       PAY: {b.paymentStatus}
                     </span>
+                    {(() => {
+                      const expiry = getPaymentExpiryInfo(b, settings.paymentExpiryHours, nowMs);
+                      if (!expiry.applies) return null;
+                      return (
+                        <span
+                          className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] font-medium ${
+                            expiry.isUrgent
+                              ? 'border-amber-300 bg-amber-50 text-amber-800'
+                              : 'border-zinc-200 bg-zinc-50 text-zinc-600'
+                          }`}
+                        >
+                          <Clock className="h-2.5 w-2.5" strokeWidth={1.5} />
+                          {tx(expiry.labelEn, expiry.labelId)}
+                        </span>
+                      );
+                    })()}
                   </div>
                 </TableCell>
                 <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
