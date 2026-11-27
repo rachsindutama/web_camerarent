@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { collection, getDocs, query, where } from 'firebase/firestore';
 import {
   Building2,
   CalendarClock,
+  Check,
   CheckCircle2,
   ChevronDown,
   ClipboardCheck,
@@ -14,10 +16,14 @@ import {
   MapPin,
   Navigation,
   Receipt,
+  ShieldAlert,
   Truck,
   User,
+  X,
 } from 'lucide-react';
+import { db } from '@/lib/firebase';
 import { calculateRentalDays } from '@/lib/availability';
+import { getBookingPaymentSummary } from '@/lib/bookingPayments';
 import { buildGoogleMapsDirectionUrl } from '@/lib/geo';
 import { generateHandoverPdf } from '@/lib/handoverPdf';
 import { generateInvoicePdf } from '@/lib/invoicePdf';
@@ -49,7 +55,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import type { Booking, EquipmentUnit, Tenant, UserProfile } from '@/types/schema';
+import type {
+  Booking,
+  BookingPayment,
+  DamageReport,
+  EquipmentUnit,
+  Tenant,
+  UserProfile,
+} from '@/types/schema';
 
 interface BookingDetailModalProps {
   booking: Booking | null;
@@ -58,6 +71,9 @@ interface BookingDetailModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   footerActions?: React.ReactNode;
+  onVerifyInstallment?: (booking: Booking, payment: BookingPayment) => void;
+  onRejectInstallment?: (booking: Booking, payment: BookingPayment) => void;
+  busyPaymentId?: string | null;
 }
 
 export function BookingDetailModal({
@@ -67,6 +83,9 @@ export function BookingDetailModal({
   open,
   onOpenChange,
   footerActions,
+  onVerifyInstallment,
+  onRejectInstallment,
+  busyPaymentId,
 }: BookingDetailModalProps) {
   const { tx } = useI18n();
   const [previewState, setPreviewState] = useState<{
@@ -84,6 +103,26 @@ export function BookingDetailModal({
     queryFn: async () => (booking ? resolveBookingUnitsMap(booking) : {}),
   });
 
+  const shouldFetchDamage = Boolean(
+    open &&
+      db &&
+      booking &&
+      (booking.damageFine > 0 || Boolean(booking.damagedUnitId) || booking.bookingStatus === 'completed')
+  );
+
+  const { data: damageReports = [] } = useQuery<DamageReport[]>({
+    queryKey: ['booking-damage-reports', booking?.id ?? 'none'],
+    enabled: shouldFetchDamage,
+    staleTime: 30_000,
+    queryFn: async () => {
+      if (!db || !booking) return [];
+      const snap = await getDocs(
+        query(collection(db, 'damage_reports'), where('bookingId', '==', booking.id))
+      );
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as DamageReport);
+    },
+  });
+
   if (!booking) return null;
 
   const rentalDays = calculateRentalDays(booking.startDate.toDate(), booking.endDate.toDate());
@@ -95,6 +134,23 @@ export function BookingDetailModal({
     tenant,
     booking.returnedAt ? booking.returnedAt.toDate() : new Date()
   );
+  const paymentSummary = getBookingPaymentSummary(booking);
+
+  const damageByUnitId: Record<string, DamageReport[]> = {};
+  damageReports.forEach((rep) => {
+    if (!damageByUnitId[rep.unitId]) damageByUnitId[rep.unitId] = [];
+    damageByUnitId[rep.unitId].push(rep);
+  });
+  const damagedUnitIds = new Set<string>([
+    ...Object.keys(damageByUnitId),
+    ...(booking.damagedUnitId ? [booking.damagedUnitId] : []),
+  ]);
+
+  const severityLabel = (sev: DamageReport['severity']) => {
+    if (sev === 'total_loss') return tx('Total Loss', 'Hilang / Total Loss');
+    if (sev === 'major') return tx('Major Damage', 'Kerusakan Mayor');
+    return tx('Minor Damage', 'Kerusakan Minor');
+  };
 
   return (
     <>
@@ -272,11 +328,6 @@ export function BookingDetailModal({
                       </div>
                     ) : null}
                   </div>
-                  {booking.returnNotes ? (
-                    <p className="rounded border border-emerald-200 bg-emerald-50/40 px-2.5 py-1.5 text-[11px] text-emerald-900">
-                      {booking.returnNotes}
-                    </p>
-                  ) : null}
                 </div>
 
                 {renter ? (
@@ -332,10 +383,25 @@ export function BookingDetailModal({
                     {booking.items.map((item) => {
                       const unit = unitsById[item.unitId];
                       const accessories = unit?.accessoriesIncluded ?? [];
+                      const itemDamages = damageByUnitId[item.unitId] ?? [];
+                      const isDamagedItem = damagedUnitIds.has(item.unitId);
                       return (
-                        <tr key={item.unitId}>
+                        <tr
+                          key={item.unitId}
+                          className={isDamagedItem ? 'bg-red-50/40' : undefined}
+                        >
                           <td className="px-3.5 py-2.5 align-top">
-                            <p className="font-medium text-zinc-950">{item.equipmentName}</p>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <p className="font-medium text-zinc-950">{item.equipmentName}</p>
+                              {isDamagedItem ? (
+                                <span className="inline-flex items-center gap-1 rounded border border-red-200 bg-red-100/80 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-red-700">
+                                  <ShieldAlert className="h-3 w-3" strokeWidth={1.75} />
+                                  {itemDamages[0]
+                                    ? severityLabel(itemDamages[0].severity)
+                                    : tx('Damaged', 'Rusak')}
+                                </span>
+                              ) : null}
+                            </div>
                             {accessories.length > 0 ? (
                               <div className="mt-1.5 flex flex-wrap gap-1">
                                 {accessories.map((acc) => (
@@ -345,6 +411,46 @@ export function BookingDetailModal({
                                   >
                                     {acc}
                                   </span>
+                                ))}
+                              </div>
+                            ) : null}
+                            {itemDamages.length > 0 ? (
+                              <div className="mt-2 space-y-1 rounded border border-red-200/80 bg-white/90 px-2.5 py-1.5 text-[11px] text-red-900">
+                                {itemDamages.map((rep) => (
+                                  <div key={rep.id} className="space-y-1">
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                      <span className="font-medium text-red-900">
+                                        {rep.description}
+                                      </span>
+                                      <span className="font-mono text-[10px] font-semibold text-red-700">
+                                        {tx('Repair:', 'Perbaikan:')}{' '}
+                                        <CurrencyText amount={rep.repairCost} />
+                                      </span>
+                                    </div>
+                                    {rep.evidencePhotos.length > 0 ? (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setPreviewState({
+                                            open: true,
+                                            title: `${tx('Damage Evidence', 'Bukti Kerusakan')} — ${item.equipmentName} (${item.serialNumber})`,
+                                            images: rep.evidencePhotos.map((u, idx) => ({
+                                              url: u,
+                                              label: `${item.equipmentName} · ${tx('Evidence', 'Bukti')} ${idx + 1}`,
+                                            })),
+                                            index: 0,
+                                          })
+                                        }
+                                        className="inline-flex items-center gap-1 font-mono text-[10px] font-medium text-red-700 underline underline-offset-2 hover:text-red-900"
+                                      >
+                                        <Eye className="h-3 w-3" strokeWidth={1.5} />
+                                        {tx(
+                                          `View ${rep.evidencePhotos.length} Evidence Photo(s)`,
+                                          `Lihat ${rep.evidencePhotos.length} Foto Bukti`
+                                        )}
+                                      </button>
+                                    ) : null}
+                                  </div>
                                 ))}
                               </div>
                             ) : null}
@@ -546,7 +652,9 @@ export function BookingDetailModal({
                   </p>
                 )}
 
-                {booking.paymentStatus === 'unpaid' && tenant?.bankDetails ? (
+                {!paymentSummary.isFullyPaid &&
+                booking.bookingStatus !== 'cancelled' &&
+                tenant?.bankDetails ? (
                   <div className="space-y-1 rounded border border-zinc-200 bg-zinc-50 p-2.5 text-[11px]">
                     <p className="flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase text-zinc-500">
                       <CreditCard className="h-3 w-3" strokeWidth={1.5} />
@@ -623,7 +731,133 @@ export function BookingDetailModal({
                     <CurrencyText amount={booking.totalAmount} />
                   </div>
 
-                  {booking.paymentProofUrl ? (
+                  {paymentSummary.payments.length > 0 ||
+                  (paymentSummary.verifiedAmount > 0 && !paymentSummary.isFullyPaid) ? (
+                    <div className="space-y-1 rounded border border-zinc-200 bg-zinc-50/70 px-2.5 py-2 text-[11px]">
+                      <div className="flex items-center justify-between text-emerald-700">
+                        <span>{tx('Verified Paid', 'Terverifikasi')}</span>
+                        <CurrencyText
+                          amount={paymentSummary.verifiedAmount}
+                          className="font-semibold"
+                        />
+                      </div>
+                      {paymentSummary.pendingAmount > 0 ? (
+                        <div className="flex items-center justify-between text-amber-700">
+                          <span>{tx('Pending Verification', 'Menunggu Verifikasi')}</span>
+                          <CurrencyText
+                            amount={paymentSummary.pendingAmount}
+                            className="font-medium"
+                          />
+                        </div>
+                      ) : null}
+                      <div className="flex items-center justify-between border-t border-zinc-200 pt-1 font-semibold text-zinc-900">
+                        <span>{tx('Remaining Balance', 'Sisa Tagihan')}</span>
+                        <CurrencyText amount={paymentSummary.remainingAmount} />
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {paymentSummary.payments.length > 0 ? (
+                    <div className="space-y-1.5 pt-1">
+                      <p className="font-mono text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+                        {tx('Payment Installments', 'Riwayat Termin Pembayaran')} (
+                        {paymentSummary.payments.length})
+                      </p>
+                      <div className="divide-y divide-zinc-100 rounded border border-zinc-200 bg-white">
+                        {paymentSummary.payments.map((tranche) => {
+                          const isBusy = busyPaymentId === tranche.id;
+                          return (
+                            <div
+                              key={tranche.id}
+                              className="flex flex-wrap items-center justify-between gap-2 px-2.5 py-2 text-[11px]"
+                            >
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <span className="font-medium text-zinc-900">
+                                    {tranche.stageName}
+                                  </span>
+                                  <span
+                                    className={`rounded border px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase ${
+                                      tranche.status === 'verified'
+                                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                        : tranche.status === 'rejected'
+                                          ? 'border-red-200 bg-red-50 text-red-700'
+                                          : 'border-amber-200 bg-amber-50 text-amber-800'
+                                    }`}
+                                  >
+                                    {tranche.status === 'verified'
+                                      ? tx('Verified', 'Terverifikasi')
+                                      : tranche.status === 'rejected'
+                                        ? tx('Rejected', 'Ditolak')
+                                        : tx('Pending', 'Menunggu')}
+                                  </span>
+                                </div>
+                                <p className="mt-0.5 font-mono text-[10px] text-zinc-500">
+                                  <CurrencyText
+                                    amount={tranche.amount}
+                                    className="font-semibold text-zinc-800"
+                                  />{' '}
+                                  · {formatDateTime(tranche.uploadedAt)}
+                                </p>
+                              </div>
+
+                              <div className="flex items-center gap-1">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-6 px-2 text-[10px]"
+                                  onClick={() =>
+                                    setPreviewState({
+                                      open: true,
+                                      title: `${tranche.stageName} — ${booking.invoiceNumber}`,
+                                      images: [
+                                        {
+                                          url: tranche.proofUrl,
+                                          label: `${tranche.stageName} · Rp ${tranche.amount.toLocaleString('id-ID')}`,
+                                        },
+                                      ],
+                                      index: 0,
+                                    })
+                                  }
+                                >
+                                  <Eye className="h-3 w-3" strokeWidth={1.5} />
+                                  {tx('Proof', 'Bukti')}
+                                </Button>
+                                {tranche.status === 'waiting_verification' &&
+                                onVerifyInstallment ? (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    className="h-6 px-2 text-[10px]"
+                                    disabled={isBusy}
+                                    onClick={() => onVerifyInstallment(booking, tranche)}
+                                  >
+                                    <Check className="h-3 w-3" strokeWidth={1.75} />
+                                    {tx('Verify', 'Verifikasi')}
+                                  </Button>
+                                ) : null}
+                                {tranche.status === 'waiting_verification' &&
+                                onRejectInstallment ? (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6 text-red-600 hover:bg-red-50 hover:text-red-700"
+                                    disabled={isBusy}
+                                    title={tx('Reject installment', 'Tolak bukti termin ini')}
+                                    onClick={() => onRejectInstallment(booking, tranche)}
+                                  >
+                                    <X className="h-3 w-3" strokeWidth={1.75} />
+                                  </Button>
+                                ) : null}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : booking.paymentProofUrl ? (
                     <Button
                       type="button"
                       variant="outline"

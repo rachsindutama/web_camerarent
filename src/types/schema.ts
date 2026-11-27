@@ -21,7 +21,12 @@ export type BookingStatus =
   | 'overdue'
   | 'completed'
   | 'cancelled';
-export type PaymentStatus = 'unpaid' | 'waiting_verification' | 'paid' | 'refunded';
+export type PaymentStatus =
+  | 'unpaid'
+  | 'partial_paid'
+  | 'waiting_verification'
+  | 'paid'
+  | 'refunded';
 
 export interface Tenant {
   id: string;
@@ -100,6 +105,18 @@ export interface BookingItem {
   bundleId?: string;
 }
 
+export interface BookingPayment {
+  id: string;
+  stageName: string;                   // e.g. "Pembayaran 1 (DP)", "Pembayaran 2", "Pelunasan"
+  amount: number;                      // IDR transferred for this installment
+  proofUrl: string;                    // Receipt image or URL
+  status: 'waiting_verification' | 'verified' | 'rejected';
+  uploadedAt: Timestamp;
+  verifiedAt?: Timestamp;
+  verifiedBy?: string;                 // Admin UID
+  notes?: string;
+}
+
 export interface Booking {
   id: string;
   invoiceNumber: string;               // Format: INV/YYYYMM/XXXX
@@ -129,6 +146,7 @@ export interface Booking {
   returnedAt?: Timestamp;              // Actual timestamp when gear returned & checked in
   cancelledAt?: Timestamp;             // Actual timestamp when booking cancelled
   returnNotes?: string;                // Summary of post-rental return inspection
+  damagedUnitId?: string;              // Specific physical equipment unit damaged (if any)
   subtotal: number;
   discountAmount?: number;             // Membership tier rental discount (IDR)
   membershipTier?: MembershipTier;     // Snapshot of renter tier at checkout
@@ -136,6 +154,8 @@ export interface Booking {
   overdueFine: number;
   damageFine: number;
   totalAmount: number;
+  amountPaid?: number;                 // Sum of verified payments so far (IDR)
+  payments?: BookingPayment[];         // Multi-installment split payments record
   paymentStatus: PaymentStatus;
   paymentProofUrl?: string;
   bookingStatus: BookingStatus;
@@ -163,12 +183,12 @@ export interface Transaction {
   tenantId: string;
   bookingId?: string;
   type:
-    | 'rental_income'
-    | 'deposit_in'
-    | 'deposit_refund'
-    | 'damage_fine'
-    | 'overdue_fine'
-    | 'operational_expense';
+  | 'rental_income'
+  | 'deposit_in'
+  | 'deposit_refund'
+  | 'damage_fine'
+  | 'overdue_fine'
+  | 'operational_expense';
   category: 'revenue' | 'liability' | 'expense'; // Strict accounting separation
   amount: number;
   paymentMethod: 'bank_transfer' | 'cash' | 'qris';
@@ -198,6 +218,7 @@ export interface ChatThread {
   bookingId?: string;
   lastMessage: string;
   lastSenderId?: string;
+  readBy?: string[];                   // UIDs that have opened/read this conversation
   clearedAtByUser?: Record<string, Timestamp>;
   updatedAt: Timestamp;
 }

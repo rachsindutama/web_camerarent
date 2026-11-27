@@ -1,4 +1,5 @@
 import { calculateRentalDays } from '@/lib/availability';
+import { getBookingPaymentSummary } from '@/lib/bookingPayments';
 import { txStatic } from '@/lib/i18n';
 import { getMembershipBenefits, type PlatformSettings } from '@/lib/membership';
 import { formatDateTime, formatIDR } from '@/lib/utils';
@@ -410,6 +411,40 @@ export function InvoiceDocument({
                 {formatIDR(booking.totalAmount)}
               </span>
             </div>
+            {(() => {
+              const paySum = getBookingPaymentSummary(booking);
+              if (paySum.payments.length === 0) return null;
+              return (
+                <div className="divide-y divide-zinc-100 border-t border-zinc-200 bg-zinc-50/70">
+                  {paySum.payments
+                    .filter((p) => p.status !== 'rejected')
+                    .map((p) => (
+                      <div
+                        key={p.id}
+                        className="flex items-center justify-between gap-3 px-4 py-2 text-[11px]"
+                      >
+                        <span className="text-zinc-600">
+                          {p.stageName}{' '}
+                          <span className="font-mono text-[9px] uppercase text-zinc-400">
+                            ({p.status === 'verified' ? txStatic('Verified', 'Lunas') : txStatic('Pending', 'Menunggu')})
+                          </span>
+                        </span>
+                        <span className="whitespace-nowrap font-mono font-semibold tabular-nums text-zinc-900">
+                          {formatIDR(p.amount)}
+                        </span>
+                      </div>
+                    ))}
+                  <div className="flex items-center justify-between gap-3 px-4 py-2.5 text-xs font-semibold">
+                    <span className="text-zinc-700">
+                      {txStatic('Remaining Balance', 'Sisa Tagihan')}
+                    </span>
+                    <span className="whitespace-nowrap font-mono tabular-nums text-zinc-950">
+                      {formatIDR(paySum.remainingAmount)}
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       </div>

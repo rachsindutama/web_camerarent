@@ -107,9 +107,11 @@ service cloud.firestore {
                     || isSuperAdmin()
                     || isTenantOperator(request.resource.data.tenantId);
       allow update: if isSuperAdmin() || isTenantOperator(resource.data.tenantId) || (
-        // User can upload payment proof or confirm preRentalChecklist
+        // User can upload payment proof / split payment tranches or confirm preRentalChecklist
         resource.data.userId == request.auth.uid &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['paymentProofUrl', 'paymentStatus', 'preRentalChecklist'])
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['paymentProofUrl', 'paymentStatus', 'payments', 'preRentalChecklist']) &&
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['paymentStatus']) ||
+          request.resource.data.paymentStatus in ['unpaid', 'partial_paid', 'waiting_verification'])
       ) || (
         // User can auto-expire / cancel their own unpaid pending_payment booking
         resource.data.userId == request.auth.uid &&

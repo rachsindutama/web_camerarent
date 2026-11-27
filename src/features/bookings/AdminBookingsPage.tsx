@@ -43,6 +43,7 @@ import {
   submitDamageReportOp,
 } from '@/features/bookings/bookingInspectionOps';
 import { BookingDetailModal } from '@/features/bookings/BookingDetailModal';
+import { computeNextPaymentStatus, getBookingPaymentSummary } from '@/lib/bookingPayments';
 import { CurrencyText } from '@/components/shared/CurrencyText';
 import { ImagePreviewModal } from '@/components/shared/ImagePreviewModal';
 import { MembershipBadge } from '@/components/shared/MembershipBadge';
@@ -78,7 +79,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import type { Booking, BookingStatus, DamageReport, UserProfile } from '@/types/schema';
+import type {
+  Booking,
+  BookingPayment,
+  BookingStatus,
+  DamageReport,
+  UserProfile,
+} from '@/types/schema';
 
 const PAGE_SIZE = 10;
 
@@ -100,6 +107,8 @@ function formatPaymentLabel(
   switch (status) {
     case 'paid':
       return tx('Paid', 'Lunas');
+    case 'partial_paid':
+      return tx('Partially Paid', 'Dibayar Sebagian');
     case 'waiting_verification':
       return tx('Verifying Receipt', 'Cek Bukti');
     case 'refunded':
@@ -120,6 +129,7 @@ export function AdminBookingsPage() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [busyPaymentId, setBusyPaymentId] = useState<string | null>(null);
   const [detailBookingId, setDetailBookingId] = useState<string | null>(null);
   const [receiptPreview, setReceiptPreview] = useState<{ url: string; label: string } | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -308,51 +318,183 @@ export function AdminBookingsPage() {
     ]);
   };
 
+  const logVerifiedPaymentDelta = async (
+    booking: Booking,
+    prevVerifiedAmount: number,
+    newVerifiedAmount: number,
+    stageLabel: string,
+    proofUrl?: string
+  ) => {
+    if (!db || !userProfile) return;
+    const rentalPortion = booking.subtotal + booking.deliveryFee;
+    const prevRentalCovered = Math.min(prevVerifiedAmount, rentalPortion);
+    const newRentalCovered = Math.min(newVerifiedAmount, rentalPortion);
+    const deltaRental = Math.max(0, newRentalCovered - prevRentalCovered);
+
+    const prevDepositCovered = Math.max(0, prevVerifiedAmount - rentalPortion);
+    const newDepositCovered = Math.min(
+      booking.deposit,
+      Math.max(0, newVerifiedAmount - rentalPortion)
+    );
+    const deltaDeposit = Math.max(0, newDepositCovered - prevDepositCovered);
+
+    if (deltaRental > 0) {
+      await addDoc(collection(db, 'transactions'), {
+        tenantId: booking.tenantId,
+        bookingId: booking.id,
+        type: 'rental_income',
+        category: 'revenue',
+        amount: deltaRental,
+        paymentMethod: 'bank_transfer',
+        ...(proofUrl ? { proofUrl } : {}),
+        notes: `${stageLabel} — ${booking.invoiceNumber}`,
+        verifiedBy: userProfile.uid,
+        createdAt: Timestamp.now(),
+      });
+    }
+
+    if (deltaDeposit > 0) {
+      await addDoc(collection(db, 'transactions'), {
+        tenantId: booking.tenantId,
+        bookingId: booking.id,
+        type: 'deposit_in',
+        category: 'liability',
+        amount: deltaDeposit,
+        paymentMethod: 'bank_transfer',
+        ...(proofUrl ? { proofUrl } : {}),
+        notes: `${stageLabel} (Deposit) — ${booking.invoiceNumber}`,
+        verifiedBy: userProfile.uid,
+        createdAt: Timestamp.now(),
+      });
+    }
+  };
+
+  const handleVerifyInstallment = async (booking: Booking, payment: BookingPayment) => {
+    if (!db || !userProfile) return;
+    setBusyPaymentId(payment.id);
+    try {
+      const prevSummary = getBookingPaymentSummary(booking);
+      const nextPayments: BookingPayment[] = (booking.payments ?? []).map((p) =>
+        p.id === payment.id
+          ? {
+              ...p,
+              status: 'verified',
+              verifiedAt: Timestamp.now(),
+              verifiedBy: userProfile.uid,
+            }
+          : p
+      );
+      const newVerifiedAmount = nextPayments
+        .filter((p) => p.status === 'verified')
+        .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+      const nextPaymentStatus = computeNextPaymentStatus(booking.totalAmount, nextPayments);
+      const isNowPaid = nextPaymentStatus === 'paid';
+
+      await updateDoc(doc(db, 'bookings', booking.id), {
+        payments: nextPayments,
+        amountPaid: newVerifiedAmount,
+        paymentStatus: nextPaymentStatus,
+        ...(isNowPaid &&
+        (booking.bookingStatus === 'pending_payment' ||
+          booking.bookingStatus === 'waiting_verification')
+          ? { bookingStatus: 'confirmed', paidAt: Timestamp.now() }
+          : {}),
+      });
+
+      if (
+        isNowPaid &&
+        (booking.bookingStatus === 'pending_payment' ||
+          booking.bookingStatus === 'waiting_verification')
+      ) {
+        await syncAvailabilitySlotStatus(booking.id, 'confirmed');
+      }
+
+      await logVerifiedPaymentDelta(
+        booking,
+        prevSummary.verifiedAmount,
+        newVerifiedAmount,
+        payment.stageName,
+        payment.proofUrl
+      );
+
+      await invalidateAllBookingQueries();
+      toast.success(
+        isNowPaid
+          ? tx(
+              `${payment.stageName} verified — ${booking.invoiceNumber} is now Paid & Confirmed.`,
+              `${payment.stageName} terverifikasi — ${booking.invoiceNumber} Lunas & Dikonfirmasi.`
+            )
+          : tx(
+              `${payment.stageName} (Rp ${payment.amount.toLocaleString('id-ID')}) verified. Remaining Rp ${Math.max(0, booking.totalAmount - newVerifiedAmount).toLocaleString('id-ID')}.`,
+              `${payment.stageName} (Rp ${payment.amount.toLocaleString('id-ID')}) terverifikasi. Sisa tagihan Rp ${Math.max(0, booking.totalAmount - newVerifiedAmount).toLocaleString('id-ID')}.`
+            )
+      );
+    } catch (error) {
+      console.error('Verify installment error:', error);
+      toast.error(tx('Failed to verify installment.', 'Gagal memverifikasi termin pembayaran.'));
+    } finally {
+      setBusyPaymentId(null);
+    }
+  };
+
+  const handleRejectInstallment = async (booking: Booking, payment: BookingPayment) => {
+    if (!db || !userProfile) return;
+    setBusyPaymentId(payment.id);
+    try {
+      const nextPayments: BookingPayment[] = (booking.payments ?? []).map((p) =>
+        p.id === payment.id ? { ...p, status: 'rejected' } : p
+      );
+      const nextPaymentStatus = computeNextPaymentStatus(booking.totalAmount, nextPayments);
+      await updateDoc(doc(db, 'bookings', booking.id), {
+        payments: nextPayments,
+        paymentStatus: nextPaymentStatus,
+      });
+      await invalidateAllBookingQueries();
+      toast.info(
+        tx(
+          `${payment.stageName} marked as rejected. Renter can resubmit.`,
+          `${payment.stageName} ditolak. Penyewa dapat mengunggah ulang.`
+        )
+      );
+    } catch (error) {
+      console.error('Reject installment error:', error);
+      toast.error(tx('Failed to reject installment.', 'Gagal menolak bukti termin.'));
+    } finally {
+      setBusyPaymentId(null);
+    }
+  };
+
   const handleApprovePayment = async (booking: Booking) => {
     if (!db || !userProfile) return;
     setBusyId(booking.id);
     try {
+      const prevSummary = getBookingPaymentSummary(booking);
+      const nowTs = Timestamp.now();
+      const updatedPayments: BookingPayment[] | undefined =
+        booking.payments && booking.payments.length > 0
+          ? booking.payments.map((p) =>
+              p.status === 'waiting_verification'
+                ? { ...p, status: 'verified', verifiedAt: nowTs, verifiedBy: userProfile.uid }
+                : p
+            )
+          : undefined;
+
       await updateDoc(doc(db, 'bookings', booking.id), {
         paymentStatus: 'paid',
         bookingStatus: 'confirmed',
-        paidAt: Timestamp.now(),
+        amountPaid: booking.totalAmount,
+        paidAt: nowTs,
+        ...(updatedPayments ? { payments: updatedPayments } : {}),
       });
       await syncAvailabilitySlotStatus(booking.id, 'confirmed');
 
-      const rentalRevenue = booking.subtotal + booking.deliveryFee;
-      if (rentalRevenue > 0) {
-        const deliveryDetail =
-          booking.deliveryFee > 0
-            ? ` (Sewa Rp ${booking.subtotal.toLocaleString('id-ID')} + Antar-Jemput Rp ${booking.deliveryFee.toLocaleString('id-ID')})`
-            : '';
-        await addDoc(collection(db, 'transactions'), {
-          tenantId: booking.tenantId,
-          bookingId: booking.id,
-          type: 'rental_income',
-          category: 'revenue',
-          amount: rentalRevenue,
-          paymentMethod: 'bank_transfer',
-          ...(booking.paymentProofUrl ? { proofUrl: booking.paymentProofUrl } : {}),
-          notes: `Verified payment for ${booking.invoiceNumber}${deliveryDetail}`,
-          verifiedBy: userProfile.uid,
-          createdAt: Timestamp.now(),
-        });
-      }
-
-      if (booking.deposit > 0) {
-        await addDoc(collection(db, 'transactions'), {
-          tenantId: booking.tenantId,
-          bookingId: booking.id,
-          type: 'deposit_in',
-          category: 'liability',
-          amount: booking.deposit,
-          paymentMethod: 'bank_transfer',
-          ...(booking.paymentProofUrl ? { proofUrl: booking.paymentProofUrl } : {}),
-          notes: `Refundable deposit held for ${booking.invoiceNumber}`,
-          verifiedBy: userProfile.uid,
-          createdAt: Timestamp.now(),
-        });
-      }
+      await logVerifiedPaymentDelta(
+        booking,
+        prevSummary.verifiedAmount,
+        booking.totalAmount,
+        tx('Full Settlement', 'Pelunasan'),
+        booking.paymentProofUrl
+      );
 
       await invalidateAllBookingQueries();
       toast.success(
@@ -709,6 +851,7 @@ export function AdminBookingsPage() {
                 const canVerify =
                   b.bookingStatus === 'pending_payment' ||
                   b.bookingStatus === 'waiting_verification';
+                const paySummary = getBookingPaymentSummary(b);
                 const expiry = getPaymentExpiryInfo(b, settings.paymentExpiryHours, nowMs);
 
                 return (
@@ -785,9 +928,15 @@ export function AdminBookingsPage() {
                       <div className="text-xs font-semibold text-zinc-950">
                         <CurrencyText amount={b.totalAmount} />
                       </div>
-                      <div className="mt-0.5 text-[10.5px] text-zinc-500">
-                        {tx('Dep', 'Dep')}: <CurrencyText amount={b.deposit} />
-                      </div>
+                      {paySummary.payments.length > 0 && !paySummary.isFullyPaid ? (
+                        <div className="mt-0.5 font-mono text-[10px] text-amber-700">
+                          {tx('Paid', 'Masuk')}: <CurrencyText amount={paySummary.verifiedAmount} />
+                        </div>
+                      ) : (
+                        <div className="mt-0.5 text-[10.5px] text-zinc-500">
+                          {tx('Dep', 'Dep')}: <CurrencyText amount={b.deposit} />
+                        </div>
+                      )}
                       {b.paymentProofUrl ? (
                         <button
                           type="button"
@@ -801,7 +950,9 @@ export function AdminBookingsPage() {
                           className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-medium text-zinc-600 hover:text-zinc-950 hover:underline"
                         >
                           <Eye className="h-2.5 w-2.5" strokeWidth={1.5} />
-                          {tx('Receipt', 'Bukti')}
+                          {paySummary.payments.length > 1
+                            ? tx(`${paySummary.payments.length} receipts`, `${paySummary.payments.length} bukti`)
+                            : tx('Receipt', 'Bukti')}
                         </button>
                       ) : null}
                     </TableCell>
@@ -968,6 +1119,9 @@ export function AdminBookingsPage() {
             booking={selectedBooking}
             tenant={selectedTenant}
             renter={selectedBooking ? rentersById[selectedBooking.userId] ?? null : null}
+            onVerifyInstallment={(b, p) => void handleVerifyInstallment(b, p)}
+            onRejectInstallment={(b, p) => void handleRejectInstallment(b, p)}
+            busyPaymentId={busyPaymentId}
             footerActions={
               selectedBooking && hasActions ? (
                 <>

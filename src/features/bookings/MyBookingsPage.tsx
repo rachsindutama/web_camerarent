@@ -22,6 +22,11 @@ import {
 import { toast } from 'sonner';
 import { db, storage } from '@/lib/firebase';
 import { expireStalePendingBookings, getPaymentExpiryInfo } from '@/lib/bookingExpiry';
+import {
+  computeNextPaymentStatus,
+  getBookingPaymentSummary,
+  suggestPaymentStageName,
+} from '@/lib/bookingPayments';
 import { generateHandoverPdf } from '@/lib/handoverPdf';
 import { formatDateTime } from '@/lib/utils';
 import { generateInvoicePdf } from '@/lib/invoicePdf';
@@ -49,7 +54,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import type { Booking } from '@/types/schema';
+import type { Booking, BookingPayment } from '@/types/schema';
 
 export function MyBookingsPage() {
   const queryClient = useQueryClient();
@@ -64,6 +69,8 @@ export function MyBookingsPage() {
   const [confirmingHandover, setConfirmingHandover] = useState(false);
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [proofUrlInput, setProofUrlInput] = useState('');
+  const [stageNameInput, setStageNameInput] = useState('');
+  const [amountInput, setAmountInput] = useState('');
   const [uploading, setUploading] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const expiredSweepIdsRef = useRef<Set<string>>(new Set());
@@ -117,8 +124,40 @@ export function MyBookingsPage() {
     );
   }, [bookings, nowMs, queryClient, settings.paymentExpiryHours, tx]);
 
+  const openUploadPaymentModal = (booking: Booking) => {
+    const summary = getBookingPaymentSummary(booking);
+    const defaultAmount = summary.remainingUncommitted > 0 ? summary.remainingUncommitted : booking.totalAmount;
+    setProofTarget(booking);
+    setProofFile(null);
+    setProofUrlInput('');
+    setAmountInput(String(defaultAmount));
+    setStageNameInput(
+      suggestPaymentStageName(booking, defaultAmount, summary.remainingUncommitted, tx)
+    );
+  };
+
   const handleUploadProof = async () => {
     if (!db || !proofTarget || !userProfile) return;
+    const summary = getBookingPaymentSummary(proofTarget);
+    const parsedAmount = Math.round(Number(amountInput.replace(/[^\d]/g, '')) || 0);
+    if (parsedAmount <= 0) {
+      toast.error(tx('Enter a valid payment amount.', 'Masukkan nominal pembayaran yang valid.'));
+      return;
+    }
+    if (summary.remainingUncommitted > 0 && parsedAmount > summary.remainingUncommitted) {
+      toast.error(
+        tx(
+          `Amount exceeds remaining balance (Rp ${summary.remainingUncommitted.toLocaleString('id-ID')}).`,
+          `Nominal melebihi sisa tagihan (Rp ${summary.remainingUncommitted.toLocaleString('id-ID')}).`
+        )
+      );
+      return;
+    }
+
+    const stageLabel =
+      stageNameInput.trim() ||
+      suggestPaymentStageName(proofTarget, parsedAmount, summary.remainingUncommitted, tx);
+
     setUploading(true);
     try {
       let finalUrl = proofUrlInput.trim();
@@ -132,24 +171,53 @@ export function MyBookingsPage() {
       }
 
       if (!finalUrl) {
-        toast.error('Upload a transfer receipt image or paste a receipt URL.');
+        toast.error(
+          tx(
+            'Upload a transfer receipt image or paste a receipt URL.',
+            'Unggah file gambar bukti transfer atau tempel URL bukti.'
+          )
+        );
         setUploading(false);
         return;
       }
 
+      const newTranche: BookingPayment = {
+        id:
+          typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+            ? crypto.randomUUID()
+            : `pay_${Date.now()}`,
+        stageName: stageLabel,
+        amount: parsedAmount,
+        proofUrl: finalUrl,
+        status: 'waiting_verification',
+        uploadedAt: Timestamp.now(),
+      };
+
+      const nextPayments = [...(proofTarget.payments ?? []), newTranche];
+      const nextStatus = computeNextPaymentStatus(proofTarget.totalAmount, nextPayments);
+
       await updateDoc(doc(db, 'bookings', proofTarget.id), {
+        payments: nextPayments,
         paymentProofUrl: finalUrl,
-        paymentStatus: 'waiting_verification',
+        paymentStatus: nextStatus,
       });
 
       await queryClient.invalidateQueries({ queryKey: ['bookings'] });
-      toast.success('Payment proof uploaded. Awaiting branch admin verification.');
+      await queryClient.invalidateQueries({ queryKey: ['sidebar-badges'] });
+      toast.success(
+        tx(
+          `${stageLabel} (Rp ${parsedAmount.toLocaleString('id-ID')}) submitted for verification.`,
+          `${stageLabel} (Rp ${parsedAmount.toLocaleString('id-ID')}) dikirim untuk verifikasi admin.`
+        )
+      );
       setProofTarget(null);
       setProofFile(null);
       setProofUrlInput('');
+      setAmountInput('');
+      setStageNameInput('');
     } catch (error) {
       console.error('Upload proof error:', error);
-      toast.error('Failed to upload payment proof.');
+      toast.error(tx('Failed to upload payment proof.', 'Gagal mengunggah bukti pembayaran.'));
     } finally {
       setUploading(false);
     }
@@ -223,6 +291,7 @@ export function MyBookingsPage() {
             const tenant = allTenants.find((t) => t.id === booking.tenantId) ?? null;
             const overdue = calculateOverdueFine(booking, tenant);
             const expiry = getPaymentExpiryInfo(booking, settings.paymentExpiryHours, nowMs);
+            const paySummary = getBookingPaymentSummary(booking);
             const needsHandoverConfirm =
               Boolean(booking.preRentalChecklist) &&
               !booking.preRentalChecklist?.confirmedByUserAt;
@@ -249,6 +318,9 @@ export function MyBookingsPage() {
                       {booking.membershipTier === 'premium' ? (
                         <MembershipBadge tier="premium" />
                       ) : null}
+                      {booking.paymentStatus === 'partial_paid' ? (
+                        <StatusBadge status="partial_paid" />
+                      ) : null}
                       {booking.paymentStatus === 'waiting_verification' ? (
                         <StatusBadge
                           status="waiting_verification"
@@ -272,17 +344,15 @@ export function MyBookingsPage() {
                       className="flex items-center gap-2"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      {booking.paymentStatus === 'unpaid' &&
-                      booking.bookingStatus !== 'cancelled' ? (
+                      {paySummary.canUploadMore ? (
                         <Button
                           size="sm"
-                          onClick={() => {
-                            setProofTarget(booking);
-                            setProofUrlInput(booking.paymentProofUrl ?? '');
-                          }}
+                          onClick={() => openUploadPaymentModal(booking)}
                         >
                           <Upload className="h-3.5 w-3.5" strokeWidth={1.5} />
-                          {tx('Upload Payment Proof', 'Unggah Bukti Bayar')}
+                          {paySummary.payments.length > 0
+                            ? tx('Add Payment', 'Tambah Pembayaran')
+                            : tx('Upload Payment Proof', 'Unggah Bukti Bayar')}
                         </Button>
                       ) : null}
 
@@ -385,6 +455,18 @@ export function MyBookingsPage() {
                         {tx('Includes', 'Termasuk')} <CurrencyText amount={booking.deposit} />{' '}
                         {tx('refundable deposit', 'deposit jaminan')}
                       </p>
+                      {paySummary.payments.length > 0 && !paySummary.isFullyPaid ? (
+                        <p className="mt-0.5 font-mono text-[10px] text-zinc-700">
+                          {tx('Paid', 'Terbayar')}{' '}
+                          <CurrencyText amount={paySummary.verifiedAmount} className="font-semibold" />
+                          {' · '}
+                          {tx('Remaining', 'Sisa')}{' '}
+                          <CurrencyText
+                            amount={paySummary.remainingAmount}
+                            className="font-semibold text-amber-700"
+                          />
+                        </p>
+                      ) : null}
                     </div>
                   </div>
 
@@ -407,7 +489,9 @@ export function MyBookingsPage() {
                     </div>
                   </div>
 
-                  {booking.paymentStatus === 'unpaid' && tenant?.bankDetails ? (
+                  {!paySummary.isFullyPaid &&
+                  booking.bookingStatus !== 'cancelled' &&
+                  tenant?.bankDetails ? (
                     <div className="rounded-md border border-zinc-200 bg-zinc-50 p-2.5 font-mono text-[11px] text-zinc-700">
                       {tx('Transfer to', 'Transfer ke')}{' '}
                       <span className="font-semibold">{tenant.bankDetails.bankName}</span>{' '}
@@ -444,36 +528,211 @@ export function MyBookingsPage() {
       )}
 
       <Dialog open={Boolean(proofTarget)} onOpenChange={(o) => !o && setProofTarget(null)}>
-        <DialogContent>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>
               {tx('Upload Transfer Receipt', 'Unggah Bukti Transfer')} — {proofTarget?.invoiceNumber}
             </DialogTitle>
             <DialogDescription>
               {tx(
-                'Submit bank transfer confirmation for branch admin payment verification.',
-                'Kirim bukti transfer bank untuk verifikasi pembayaran oleh admin cabang.'
+                'You can pay in full or split across installments (e.g. Payment 1 / DP, Payment 2, Final Settlement).',
+                'Pembayaran dapat dilakukan sekaligus atau dibagi beberapa tahap (misal Pembayaran 1 / DP, Pembayaran 2, Pelunasan).'
               )}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <Label>{tx('Receipt Image File (Firebase Storage)', 'File Gambar Bukti (Firebase Storage)')}</Label>
-              <Input
-                type="file"
-                accept="image/*"
-                onChange={(e) => setProofFile(e.target.files?.[0] ?? null)}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>{tx('Or Receipt URL', 'Atau URL Bukti Transfer')}</Label>
-              <Input
-                placeholder="https://..."
-                value={proofUrlInput}
-                onChange={(e) => setProofUrlInput(e.target.value)}
-              />
-            </div>
-          </div>
+          {proofTarget
+            ? (() => {
+                const targetSummary = getBookingPaymentSummary(proofTarget);
+                const maxPayable =
+                  targetSummary.remainingUncommitted > 0
+                    ? targetSummary.remainingUncommitted
+                    : proofTarget.totalAmount;
+                const stagePresets = [
+                  tx('Payment 1 (DP)', 'Pembayaran 1 (DP)'),
+                  tx('Payment 2', 'Pembayaran 2'),
+                  tx('Payment 3', 'Pembayaran 3'),
+                  tx('Final Settlement', 'Pelunasan'),
+                ];
+                const halfAmount = Math.round(maxPayable / 2);
+                const dp30Amount = Math.round(proofTarget.totalAmount * 0.3);
+
+                return (
+                  <div className="space-y-4">
+                    {/* Payment Progress Summary */}
+                    <div className="grid grid-cols-3 gap-2 rounded-md border border-zinc-200 bg-zinc-50 p-3 text-xs">
+                      <div>
+                        <p className="font-mono text-[10px] uppercase text-zinc-400">
+                          {tx('Total Bill', 'Total Tagihan')}
+                        </p>
+                        <p className="mt-0.5 font-mono font-semibold text-zinc-900">
+                          <CurrencyText amount={proofTarget.totalAmount} />
+                        </p>
+                      </div>
+                      <div>
+                        <p className="font-mono text-[10px] uppercase text-zinc-400">
+                          {tx('Verified / Pending', 'Masuk / Review')}
+                        </p>
+                        <p className="mt-0.5 font-mono font-semibold text-emerald-700">
+                          <CurrencyText
+                            amount={targetSummary.verifiedAmount + targetSummary.pendingAmount}
+                          />
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-mono text-[10px] uppercase text-zinc-400">
+                          {tx('Remaining', 'Sisa Tagihan')}
+                        </p>
+                        <p className="mt-0.5 font-mono font-semibold text-zinc-950">
+                          <CurrencyText amount={maxPayable} />
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Existing Installments History */}
+                    {targetSummary.payments.length > 0 ? (
+                      <div className="space-y-1.5">
+                        <p className="font-mono text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+                          {tx('Submitted Payments', 'Riwayat Pembayaran Sebelumnya')}
+                        </p>
+                        <div className="max-h-28 divide-y divide-zinc-100 overflow-y-auto rounded-md border border-zinc-200 bg-white">
+                          {targetSummary.payments.map((tranche) => (
+                            <div
+                              key={tranche.id}
+                              className="flex items-center justify-between gap-2 px-3 py-1.5 text-[11px]"
+                            >
+                              <span className="font-medium text-zinc-800">{tranche.stageName}</span>
+                              <div className="flex items-center gap-2">
+                                <CurrencyText
+                                  amount={tranche.amount}
+                                  className="font-mono font-semibold text-zinc-900"
+                                />
+                                <span
+                                  className={`rounded border px-1.5 py-0.5 font-mono text-[9px] uppercase ${
+                                    tranche.status === 'verified'
+                                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                      : tranche.status === 'rejected'
+                                        ? 'border-red-200 bg-red-50 text-red-700'
+                                        : 'border-amber-200 bg-amber-50 text-amber-800'
+                                  }`}
+                                >
+                                  {tranche.status === 'verified'
+                                    ? tx('Verified', 'OK')
+                                    : tranche.status === 'rejected'
+                                      ? tx('Rejected', 'Ditolak')
+                                      : tx('Pending', 'Review')}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {/* Stage Name */}
+                    <div className="space-y-1.5">
+                      <Label>{tx('Payment Stage / Label', 'Tahap / Nama Pembayaran')}</Label>
+                      <Input
+                        placeholder={tx('e.g. Payment 1 (DP), Pelunasan', 'Misal: Pembayaran 1 (DP), Pelunasan')}
+                        value={stageNameInput}
+                        onChange={(e) => setStageNameInput(e.target.value)}
+                      />
+                      <div className="flex flex-wrap gap-1.5">
+                        {stagePresets.map((preset) => (
+                          <button
+                            key={preset}
+                            type="button"
+                            onClick={() => setStageNameInput(preset)}
+                            className={`rounded border px-2 py-0.5 text-[11px] transition-colors ${
+                              stageNameInput === preset
+                                ? 'border-zinc-900 bg-zinc-900 text-white'
+                                : 'border-zinc-200 bg-white text-zinc-600 hover:border-zinc-400 hover:text-zinc-900'
+                            }`}
+                          >
+                            {preset}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Transfer Amount */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <Label>{tx('Transfer Amount (IDR)', 'Nominal Transfer (IDR)')}</Label>
+                        <div className="flex items-center gap-1">
+                          {dp30Amount > 0 && dp30Amount < maxPayable ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAmountInput(String(dp30Amount));
+                                setStageNameInput(
+                                  suggestPaymentStageName(proofTarget, dp30Amount, maxPayable, tx)
+                                );
+                              }}
+                              className="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 font-mono text-[10px] text-zinc-600 hover:border-zinc-400 hover:text-zinc-900"
+                            >
+                              DP 30%
+                            </button>
+                          ) : null}
+                          {halfAmount > 0 && halfAmount < maxPayable ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAmountInput(String(halfAmount));
+                                setStageNameInput(
+                                  suggestPaymentStageName(proofTarget, halfAmount, maxPayable, tx)
+                                );
+                              }}
+                              className="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 font-mono text-[10px] text-zinc-600 hover:border-zinc-400 hover:text-zinc-900"
+                            >
+                              50%
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAmountInput(String(maxPayable));
+                              setStageNameInput(
+                                suggestPaymentStageName(proofTarget, maxPayable, maxPayable, tx)
+                              );
+                            }}
+                            className="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 font-mono text-[10px] font-medium text-zinc-800 hover:border-zinc-400"
+                          >
+                            {tx('Full Remaining', 'Sisa / Lunas')}
+                          </button>
+                        </div>
+                      </div>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={maxPayable}
+                        value={amountInput}
+                        onChange={(e) => setAmountInput(e.target.value)}
+                      />
+                    </div>
+
+                    {/* Receipt Upload */}
+                    <div className="space-y-1">
+                      <Label>
+                        {tx('Receipt Image File (Firebase Storage)', 'File Gambar Bukti (Firebase Storage)')}
+                      </Label>
+                      <Input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => setProofFile(e.target.files?.[0] ?? null)}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>{tx('Or Receipt URL', 'Atau URL Bukti Transfer')}</Label>
+                      <Input
+                        placeholder="https://..."
+                        value={proofUrlInput}
+                        onChange={(e) => setProofUrlInput(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                );
+              })()
+            : null}
           <DialogFooter>
             <Button variant="outline" onClick={() => setProofTarget(null)}>
               {tx('Cancel', 'Batal')}
@@ -492,12 +751,13 @@ export function MyBookingsPage() {
         const selectedTenant = selectedBooking
           ? allTenants.find((t) => t.id === selectedBooking.tenantId) ?? null
           : null;
+        const selectedPaySummary = selectedBooking
+          ? getBookingPaymentSummary(selectedBooking)
+          : null;
         const canConfirm =
           Boolean(selectedBooking?.preRentalChecklist) &&
           !selectedBooking?.preRentalChecklist?.confirmedByUserAt;
-        const canUpload =
-          selectedBooking?.paymentStatus === 'unpaid' &&
-          selectedBooking?.bookingStatus !== 'cancelled';
+        const canUpload = Boolean(selectedPaySummary?.canUploadMore);
 
         const hasActions = Boolean(selectedBooking && (canUpload || canConfirm));
 
@@ -515,13 +775,12 @@ export function MyBookingsPage() {
                     <Button
                       size="sm"
                       className="h-8 whitespace-nowrap text-xs"
-                      onClick={() => {
-                        setProofTarget(selectedBooking);
-                        setProofUrlInput(selectedBooking.paymentProofUrl ?? '');
-                      }}
+                      onClick={() => openUploadPaymentModal(selectedBooking)}
                     >
                       <Upload className="h-3.5 w-3.5" strokeWidth={1.5} />
-                      {tx('Upload Proof', 'Unggah Bukti')}
+                      {selectedPaySummary && selectedPaySummary.payments.length > 0
+                        ? tx('Add Payment', 'Tambah Pembayaran')
+                        : tx('Upload Proof', 'Unggah Bukti')}
                     </Button>
                   ) : null}
                   {canConfirm ? (

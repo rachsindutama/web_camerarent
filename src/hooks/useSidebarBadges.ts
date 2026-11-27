@@ -59,7 +59,14 @@ export function useSidebarBadges(): SidebarBadgeCounts {
         const overdueCount = myBookings.filter((b) => b.bookingStatus === 'overdue').length;
         const unreadChats = chatsSnap.docs
           .map((d) => d.data() as ChatThread)
-          .filter((c) => Boolean(c.lastSenderId && c.lastSenderId !== userProfile.uid)).length;
+          .filter(
+            (c) =>
+              Boolean(
+                c.lastSenderId &&
+                c.lastSenderId !== userProfile.uid &&
+                !(c.readBy ?? []).includes(userProfile.uid)
+              )
+          ).length;
         const kycNeeded =
           userProfile.kycStatus === 'unverified' || userProfile.kycStatus === 'rejected' ? 1 : 0;
 
@@ -113,7 +120,14 @@ export function useSidebarBadges(): SidebarBadgeCounts {
 
       const unreadChats = chatsSnap.docs
         .map((d) => d.data() as ChatThread)
-        .filter((c) => Boolean(c.lastSenderId && c.lastSenderId !== userProfile.uid)).length;
+        .filter(
+          (c) =>
+            Boolean(
+              c.lastSenderId &&
+              c.lastSenderId !== userProfile.uid &&
+              !(c.readBy ?? []).includes(userProfile.uid)
+            )
+        ).length;
 
       const pendingMembers = membersSnap
         ? membersSnap.docs.filter((d) => d.data().role === 'user').length

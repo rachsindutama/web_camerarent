@@ -12,6 +12,7 @@ export type StatusVariant =
   | 'verified'
   | 'rejected'
   | 'pending_payment'
+  | 'partial_paid'
   | 'waiting_verification'
   | 'confirmed'
   | 'active_rent'
@@ -42,6 +43,7 @@ const STATUS_MAP: Record<StatusVariant, StatusStyle> = {
   verified: { labelEn: 'KYC Verified', labelId: 'KYC Terverifikasi', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-emerald-500' },
   rejected: { labelEn: 'KYC Rejected', labelId: 'KYC Ditolak', badgeClass: DESTRUCTIVE_BADGE, dotClass: 'bg-red-500' },
   pending_payment: { labelEn: 'Pending Payment', labelId: 'Menunggu Pembayaran', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-zinc-300' },
+  partial_paid: { labelEn: 'Partially Paid', labelId: 'Dibayar Sebagian', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-amber-500' },
   waiting_verification: { labelEn: 'Waiting Verification', labelId: 'Menunggu Verifikasi', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-amber-500' },
   confirmed: { labelEn: 'Confirmed', labelId: 'Dikonfirmasi', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-zinc-900' },
   active_rent: { labelEn: 'Active Rent', labelId: 'Sedang Disewa', badgeClass: NEUTRAL_BADGE, dotClass: 'bg-zinc-900' },

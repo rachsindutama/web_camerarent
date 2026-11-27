@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   addDoc,
   arrayUnion,
@@ -95,6 +95,7 @@ function formatTimeShort(ts?: Timestamp): string {
 }
 
 export function ChatPage({ mode }: ChatPageProps) {
+  const queryClient = useQueryClient();
   const { tx } = useI18n();
   const { userProfile } = useAuth();
   const {
@@ -276,6 +277,23 @@ export function ChatPage({ mode }: ChatPageProps) {
 
     return () => unsub();
   }, [resolvedChatId, activeThreadExists]);
+
+  // Mark parent chat thread as read as soon as it is opened (clears unread dot & sidebar badge count)
+  useEffect(() => {
+    if (!db || !resolvedChatId || !userProfile || !activeThreadExists || !activeThreadDoc) return;
+    if ((activeThreadDoc.readBy ?? []).includes(userProfile.uid)) return;
+
+    const firestore = db;
+    void updateDoc(doc(firestore, 'chats', resolvedChatId), {
+      readBy: arrayUnion(userProfile.uid),
+    })
+      .then(() => {
+        void queryClient.invalidateQueries({ queryKey: ['sidebar-badges'] });
+      })
+      .catch(() => {
+        // Silent fallback if thread is initializing
+      });
+  }, [resolvedChatId, activeThreadExists, activeThreadDoc, userProfile, queryClient]);
 
   // Mark incoming unread messages as read automatically (WhatsApp blue checkmarks)
   useEffect(() => {
@@ -528,10 +546,12 @@ export function ChatPage({ mode }: ChatPageProps) {
           ...(refBookingId !== 'none' ? { bookingId: refBookingId } : {}),
           lastMessage: summaryText,
           lastSenderId: userProfile.uid,
+          readBy: [userProfile.uid],
           updatedAt: Timestamp.now(),
         },
         { merge: true }
       );
+      void queryClient.invalidateQueries({ queryKey: ['sidebar-badges'] });
 
       await addDoc(collection(db, 'chats', resolvedChatId, 'messages'), {
         senderId: userProfile.uid,
@@ -643,7 +663,9 @@ export function ChatPage({ mode }: ChatPageProps) {
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex min-w-0 items-center gap-1.5">
-                          {thread.lastSenderId && thread.lastSenderId !== userProfile?.uid ? (
+                          {thread.lastSenderId &&
+                          thread.lastSenderId !== userProfile?.uid &&
+                          !(thread.readBy ?? []).includes(userProfile?.uid ?? '') ? (
                             <span className="h-2 w-2 shrink-0 rounded-full bg-zinc-900" />
                           ) : null}
                           <span className="truncate text-xs font-medium text-zinc-900">

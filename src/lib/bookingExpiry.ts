@@ -18,8 +18,11 @@ export function getPaymentExpiryInfo(
   expiryHours: number,
   nowMs: number = Date.now()
 ): PaymentExpiryInfo {
+  const hasAnyValidPayment = (booking.payments ?? []).some((p) => p.status !== 'rejected');
   const applies =
-    booking.bookingStatus === 'pending_payment' && booking.paymentStatus === 'unpaid';
+    booking.bookingStatus === 'pending_payment' &&
+    booking.paymentStatus === 'unpaid' &&
+    !hasAnyValidPayment;
 
   if (!applies) {
     return {

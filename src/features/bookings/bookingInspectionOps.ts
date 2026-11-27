@@ -195,12 +195,18 @@ export async function submitDamageReportOp(
     });
   }
 
+  const damagedItem = booking.items.find((i) => i.unitId === params.unitId);
+  const damagedUnitLabel = damagedItem
+    ? `${damagedItem.equipmentName} (${damagedItem.serialNumber})`
+    : params.unitId;
+
   await updateDoc(doc(db, 'bookings', booking.id), {
     damageFine: repairCost,
+    damagedUnitId: params.unitId,
     bookingStatus: 'completed',
     paymentStatus: remainingDepositRefund > 0 ? 'refunded' : 'paid',
     returnedAt: Timestamp.now(),
-    returnNotes: `Dikembalikan dengan laporan kerusakan (${params.severity}) — biaya perbaikan Rp ${repairCost.toLocaleString('id-ID')}.`,
+    returnNotes: `Dikembalikan dengan laporan kerusakan pada ${damagedUnitLabel} (${params.severity}) — biaya perbaikan Rp ${repairCost.toLocaleString('id-ID')}.`,
     totalAmount:
       booking.subtotal +
       booking.deliveryFee +
